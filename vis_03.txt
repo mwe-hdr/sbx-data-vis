@@ -1,0 +1,47 @@
+Graph Title:
+ED Visits by Year
+
+GPT Paragraph Prompt:
+Generate a vertical bar chart showing total emergency department visit volume by year for a defined time period. Use visit_dtm as the source timestamp to derive the calendar year, aggregate the number of encounters per year, and plot each year as a separate bar. Display the total visit count as labels above each bar, ensure the logic is parameterized to support any date range, and save the output as a PNG file.
+
+Detailed Breakdown:
+
+1. Data Preparation
+- Use visit_dtm as the reference timestamp.
+- Convert visit_dtm to datetime if necessary.
+- Optionally filter data to a defined time period using parameterized start and end dates.
+
+2. Derived Field: Year
+- Create a year field:
+  arrival_year = visit_dtm.dt.year
+
+3. Aggregation Logic
+- Group data by arrival_year.
+- Compute total encounter count per year.
+  (Each row represents an encounter; count rows or distinct encounter_id if needed.)
+
+4. Sorting
+- Sort results in ascending order by year.
+
+5. Chart Construction
+- Create a vertical bar chart.
+- X-axis: arrival_year (categorical or integer years).
+- Y-axis: total encounter count.
+
+6. Labels on Bars
+- Add data labels above each bar showing total counts.
+- Format labels with thousands separators (e.g., 74,826).
+
+7. Title and Axis Labels
+- Title should be parameterized, e.g., 'ED Visits by Year'.
+- X-axis label: 'Year'.
+- Y-axis label: 'Number of Visits'.
+
+8. Visual Characteristics
+- Bars should be evenly spaced.
+- Use a single consistent color for all bars unless segmentation is added.
+- Maintain clean formatting for readability.
+
+9. Output
+- Save the chart as a PNG file with a parameterized filename, e.g.:
+  'ed_visits_by_year.png'.

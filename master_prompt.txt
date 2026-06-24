@@ -1,0 +1,233 @@
+We are building a scalable Python analytics framework for emergency department (ED) data.
+
+--------------------------------------------------
+CORE ARCHITECTURE
+--------------------------------------------------
+
+- The program is structured as a modular Python codebase (not notebook-dependent).
+- Each visualization is implemented as a standalone Python module:
+    code/visuals/{visual_id}.py
+
+- Each visual module must expose a single entry function:
+
+    def run(df, params, start_date, end_date, output_dir, generate_output_name):
+
+- A central orchestrator (main.py) dynamically imports and executes visuals.
+
+--------------------------------------------------
+FOLDER STRUCTURE
+--------------------------------------------------
+
+project_root/
+│
+├── code/main.py 
+│
+├── code/visuals/
+│   ├── __init__.py
+│   ├── vis_01.py
+│   ├── vis_02.py
+│
+├── code/utils/
+│   ├── __init__.py
+│   ├── io_helpers.py
+│
+├── data/
+│   └── input/
+│       ├── ed_data.csv
+│       ├── vis_driver.csv
+│       └── params/
+│           └── vis_01.csv
+│
+└── data/runs/
+
+--------------------------------------------------
+DRIVER-BASED EXECUTION
+--------------------------------------------------
+
+- Visual execution is controlled via a driver CSV:
+    data/input/vis_driver.csv
+
+- Required columns:
+    - visual_id
+    - enabled (1/0)
+    - start_date
+    - end_date
+
+- Only rows where enabled = 1 should be executed.
+
+- Visual IDs must exactly match:
+    - filename: visuals/{visual_id}.py
+    - module import path: visuals.{visual_id}
+    - parameter file: params/{visual_id}.csv
+    - output naming
+
+--------------------------------------------------
+DATA INPUT
+--------------------------------------------------
+
+- Primary dataset:
+    data/input/rmc_emergency_export.csv
+
+- Loaded via helper function:
+    utils.io_helpers.load_data()
+
+- Datetime handling:
+    - visit_dtm must be parsed as datetime
+    - Visuals must NOT assume dtype correctness (defensive checks required)
+
+--------------------------------------------------
+PARAMETERIZATION
+--------------------------------------------------
+
+- Each visual may have an optional parameter file:
+    data/input/params/{visual_id}.csv
+
+- Parameter file structure:
+    param,value
+
+    Example:
+    label_threshold,0.01
+    5 - Non-Urgent,green
+
+- Parameters are loaded as a dictionary:
+    { param_name: value }
+
+- Visuals must:
+    - Provide default values
+    - Override with params if present
+    - Handle missing params gracefully
+
+--------------------------------------------------
+OUTPUT STRUCTURE
+--------------------------------------------------
+
+Each execution creates a timestamped run directory:
+
+data/runs/run_YYYYMMDD_HHMMSS/
+├── outputs/        (all generated PNGs)
+├── logfile.txt     (execution log)
+
+- Outputs are saved as PNG files only
+- File naming convention:
+
+    {visual_id}_{start_date}_{end_date}.png
+
+--------------------------------------------------
+LOGGING
+--------------------------------------------------
+
+- Centralized logging initialized per run
+- Log:
+    - Start/end of run
+    - Start/end of each visual
+    - Warnings (empty data, missing params, etc.)
+    - Errors (but do NOT stop entire run)
+
+--------------------------------------------------
+VISUAL DESIGN STANDARDS
+--------------------------------------------------
+
+Each visual must:
+
+1. Filter data using:
+    start_date <= visit_dtm <= end_date
+
+2. Handle edge cases:
+    - Empty dataset after filtering
+    - Missing required columns
+    - Incorrect data types
+
+3. Follow clean structure:
+    - Parameter handling
+    - Filtering
+    - Data prep
+    - Aggregation
+    - Plotting
+    - Save output
+
+4. Use consistent styling:
+    - Clear titles including date range
+    - Axes labeled
+    - Legends placed cleanly
+    - Tight layout for export
+
+5. Save output using provided helper:
+    generate_output_name()
+
+--------------------------------------------------
+REGISTRY / DYNAMIC LOADING
+--------------------------------------------------
+
+- Visuals are dynamically imported using importlib:
+
+    importlib.import_module(f"visuals.{visual_id}")
+
+- Each module must expose:
+    run()
+
+- Missing or failing visuals must:
+    - Log error
+    - Allow pipeline to continue
+
+--------------------------------------------------
+HELPER MODULES
+--------------------------------------------------
+
+Utilities are centralized:
+
+- utils/io_helpers.py
+    - load_data()
+    - load_driver()
+    - load_params()
+
+- utils/run_helpers.py
+    - initialize_run()
+    - generate_output_name()
+
+Visuals should not implement their own I/O logic.
+
+--------------------------------------------------
+ROBUSTNESS REQUIREMENTS
+--------------------------------------------------
+
+All visuals must:
+
+- Avoid hardcoding time ranges
+- Handle missing data safely
+- Avoid crashing on bad inputs
+- Log meaningful messages
+
+--------------------------------------------------
+ITERATIVE BUILD REQUIREMENT
+--------------------------------------------------
+
+For each new visual:
+
+You must:
+
+1. Implement a complete visual module:
+    visuals/{visual_id}.py
+
+2. Include:
+    - Data preparation
+    - Aggregation logic
+    - Visualization
+    - Output save
+
+3. Define parameter schema:
+    - param name
+    - default value
+    - description
+
+4. Ensure:
+    - Compatibility with framework
+    - No breaking dependencies
+    - Clean logging
+
+--------------------------------------------------
+GOAL
+--------------------------------------------------
+
+Build a scalable, production-ready visualization pipeline
+that enables plug-and-play addition of new visuals with
+minimal changes to the core framework.

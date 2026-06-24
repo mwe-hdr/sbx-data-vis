@@ -1,0 +1,22 @@
+project_root/
+│
+├── code/main.py 
+│
+├── code/visuals/
+│   ├── __init__.py
+│   ├── vis_01.py
+│   ├── vis_02.py
+│
+├── code/utils/
+│   ├── __init__.py
+│   ├── io_helpers.py
+│   ├── plotting_helpers.py   (optional)
+│
+├── data/
+│   └── input/
+│       ├── ed_data.csv
+│       ├── vis_driver.csv
+│       └── params/
+│           └── vis_01.csv
+│
+└── data/runs/

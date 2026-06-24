@@ -1,0 +1,130 @@
+Field Definitions:
+
+Name: Interval  
+Role: Discrete Dimension  
+Type: Database Column  
+Formula: N/A
+
+Name: Census  
+Role: Continuous Measure  
+Type: Database Column  
+Formula: N/A
+
+Name: Census Greater than 80%  
+Role: Discrete Measure  
+Type: Calculated Field  
+Formula:
+
+```
+SUM([Census]) > [80%]
+```
+
+Name: ED Census
+Role: Continuous Measure
+Type: Calculated Field
+SUM([ED Census with Growth]) / COUNTD([Interval])
+
+Name: ED Hourly Census  
+Role: Continuous Measure  
+Type: Calculated Field  
+Formula:
+
+```
+{ FIXED DATETRUNC('hour', [Interval]) :
+    SUM([ED Census with Growth]) / COUNTD([Interval])
+}
+```
+Name: Peak Time  
+Role: Discrete Dimension  
+Type: Calculated Field  
+Formula:
+
+```
+IF DATEPART('hour', [Interval]) >= [Peak Period Start] AND
+DATEPART('hour', [Interval]) < ([Peak Period Start] + [Peak Period Length (Hours)]) THEN 'Peak Time'
+ELSEIF
+([Peak Period Length (Hours)] + [Peak Period Start]) > 23 AND
+DATEPART('hour', [Interval]) < ([Peak Period Start] + [Peak Period Length (Hours)] - 24) THEN 'Peak Time'
+ELSE 'Off-Peak Time'
+END
+```
+
+Name: ED Census Percentile 70th  
+Role: Continuous Measure  
+Type: Calculated Field  
+Formula:
+
+```
+PERCENTILE([ED Hourly Census], .7)
+```
+Name: ED Census Percentile 80th  
+Role: Continuous Measure  
+Type: Calculated Field  
+Formula:
+
+```
+PERCENTILE([ED Hourly Census], .8)
+```
+Name: ED Census Percentile 90th  
+Role: Continuous Measure  
+Type: Calculated Field  
+Formula:
+
+```
+PERCENTILE([ED Hourly Census], .9)
+```
+Name: ED Census with Growth  
+Role: Continuous Measure  
+Type: Calculated Field  
+Formula:
+
+```
+[Census] * (1 + [Variable 10-Year Growth])
+```
+
+Name: ED Room Need  
+Role: Continuous Measure  
+Type: Calculated Field  
+Formula:
+
+```
+[ED Peak Census] / [Utilization]
+```
+
+Name: 80%  
+Role: Continuous Measure  
+Type: Parameter (Float)  
+Formula: N/A
+
+Name: Ten-Year Growth 
+Role: Continuous Measure  
+Type: Parameter (Float)  
+Formula: N/A
+
+Name: Beds
+Role: Continuous Measure  
+Type: Parameter (Float)  
+Formula: N/A
+
+Name: ED Tx Rooms
+Role: Continuous Measure  
+Type: Parameter (Float)  
+Formula: N/A
+
+Name: Peak Period Length (Hours)
+Role: Continuous Measure  
+Type: Parameter (Float)  
+Formula: N/A
+
+Name: Peak Period Start
+Role: Continuous Measure  
+Type: Parameter (Float)  
+Formula: N/A
+
+Name: Utilization
+Role: Continuous Measure  
+Type: Parameter (Float)  
+Formula: N/A
+
+
+

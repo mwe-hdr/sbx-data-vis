@@ -1,0 +1,60 @@
+Graph Title:
+Monthly ED Arrivals Trend
+
+GPT Paragraph Prompt:
+Generate a line chart showing the total number of emergency department arrivals by month for a defined time period. Use visit_dtm to derive calendar month and year, aggregate encounter counts by month, and plot the results as a continuous time series ordered chronologically. Ensure months are properly ordered (Jan–Dec within each year or continuous across years), include optional labels for selected points (e.g., first and last values), and save the visualization as a PNG file. The implementation should be fully parameterized to work for any filtered date range.
+
+Detailed Breakdown:
+
+1. Data Preparation
+- Use visit_dtm as the primary timestamp.
+- Convert visit_dtm to datetime if not already.
+- Optionally filter to a defined time period using parameterized start and end dates.
+
+2. Derived Fields
+- Create fields for:
+  arrival_year = visit_dtm.dt.year
+  arrival_month = visit_dtm.dt.month
+- Optionally create a combined period field for ordering:
+  year_month = visit_dtm.dt.to_period('M') or use datetime representing first day of month.
+
+3. Aggregation Logic
+- Group data by year_month (preferred for multi-year continuity) OR by (arrival_year, arrival_month).
+- Compute total encounter count per month.
+
+4. Sorting and Continuity
+- Sort results chronologically by year_month.
+- Ensure all months within the defined time period are represented.
+- Fill missing months with zero counts if necessary.
+
+5. Optional Month Labels
+- Create abbreviated month labels (Jan, Feb, …, Dec) if plotting within a single year.
+- For multi-year data, use formatted labels such as 'YYYY-MM' or 'MMM YYYY'.
+
+6. Chart Construction
+- Create a line chart.
+- X-axis: ordered monthly periods.
+- Y-axis: total encounter count.
+- Plot a single continuous line connecting all monthly points.
+
+7. Styling (Minimal, Parameterizable)
+- Use a single consistent line color.
+- Optionally include markers at each data point.
+
+8. Data Labels
+- Optionally annotate selected points (e.g., first and last month values or peaks).
+- Format labels with thousands separators (e.g., 6,714).
+
+9. Title and Axis Labels
+- Title should be parameterized (e.g., 'Monthly ED Arrivals').
+- X-axis label: 'Month'.
+- Y-axis label: 'Number of Arrivals'.
+
+10. Output
+- Save the chart as a PNG file with a parameterized filename, e.g.:
+  'monthly_ed_arrivals.png'.
+
+11. Validation Characteristics
+- The line should reflect month-to-month variation in arrivals.
+- Values typically fluctuate moderately with possible seasonal patterns.
+- Ensure no gaps in the time series unless intentionally present in the data.

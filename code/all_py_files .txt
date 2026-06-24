@@ -1,0 +1,1166 @@
+﻿
+C:\lwf\sbx-data-vis\code\main.py:
+import os
+import logging
+import pandas as pd
+import importlib
+
+from utils.io_helpers import load_data, load_driver, load_params
+from utils.run_helpers import initialize_run, generate_output_name
+
+# =========================
+# CONFIG
+# =========================
+BASE_DIR = os.getcwd()
+INPUT_DIR = os.path.join(BASE_DIR, "data", "input")
+PARAM_DIR = os.path.join(INPUT_DIR, "params")
+
+ED_LAYOUT_FILE = os.path.join(INPUT_DIR, "rmc_emergency_export.csv")
+VIS_DRIVER_FILE = os.path.join(INPUT_DIR, "vis_driver.csv")
+
+# =========================
+# DYNAMIC VISUAL LOADER
+# =========================
+def get_visual_function(visual_id):
+    try:
+        module = importlib.import_module(f"visuals.{visual_id}")
+        return module.run
+    except Exception as e:
+        logging.error(f"Failed to load {visual_id}: {str(e)}")
+        return None
+
+# =========================
+# MAIN EXECUTION LOOP
+# =========================
+def run_visuals(df, driver_df, output_dir):
+
+    for _, row in driver_df.iterrows():
+
+        if row["enabled"] != 1:
+            continue
+
+        visual_id = row["visual_id"]
+
+        try:
+            start_date = pd.to_datetime(row["start_date"])
+            end_date = pd.to_datetime(row["end_date"])
+        except Exception:
+            logging.error(f"{visual_id}: Invalid date format")
+            continue
+
+        logging.info(f"Starting {visual_id}")
+
+        func = get_visual_function(visual_id)
+        if func is None:
+            continue
+
+        params = load_params(PARAM_DIR, visual_id)
+
+        try:
+            func(df, params, start_date, end_date, output_dir, generate_output_name)
+            logging.info(f"Completed {visual_id}")
+        except Exception as e:
+            logging.error(f"{visual_id} failed: {str(e)}")
+
+# =========================
+# ENTRY POINT
+# =========================
+if __name__ == "__main__":
+
+    run_dir, output_dir = initialize_run()
+
+    df = load_data(ED_LAYOUT_FILE)
+    driver_df = load_driver(VIS_DRIVER_FILE)
+
+    logging.info("Starting visual execution")
+
+    run_visuals(df, driver_df, output_dir)
+
+    logging.info("Run complete")
+
+    print(f"Run complete. Outputs located at:\n{run_dir}")
+
+
+C:\lwf\sbx-data-vis\code\raw_data_stage.py:
+import pyodbc
+import pandas as pd
+import os
+
+# --------------------------------------------------
+# DATABASE CONNECTION
+# --------------------------------------------------
+
+print("ðŸ”Œ Connecting to SQL Server...")
+
+conn = pyodbc.connect(
+    "DRIVER={ODBC Driver 18 for SQL Server};"
+    "SERVER=OMAPI-HCADB19;"
+    "DATABASE=CLIENT;"
+    "Trusted_Connection=yes;"
+    "TrustServerCertificate=yes;"
+)
+
+print("âœ… Connected to database")
+
+# --------------------------------------------------
+# EXTRACT + SAVE TO CSV
+# --------------------------------------------------
+
+query = "SELECT * FROM rmc.emergency"
+
+print("â¬‡ï¸ Pulling data from table...")
+df = pd.read_sql(query, conn)
+
+print(f"âœ… Retrieved {len(df):,} rows")
+
+# Ensure output directory exists
+output_dir = os.path.join(".", "data", "input")
+os.makedirs(output_dir, exist_ok=True)
+
+output_file = os.path.join(output_dir, "rmc_emergency_export.csv")
+
+df.to_csv(output_file, index=False)
+
+print(f"ðŸ’¾ Data exported to {output_file}")
+
+# --------------------------------------------------
+# CLEANUP
+# --------------------------------------------------
+
+conn.close()
+print("ðŸ”’ Connection closed")
+
+
+C:\lwf\sbx-data-vis\code\utils\io_helpers.py:
+import os
+import pandas as pd
+import logging
+
+def load_data(file_path):
+    logging.info("Loading ED data")
+    df = pd.read_csv(file_path, low_memory=False)
+
+    # defensive datetime parsing
+    if "visit_dtm" in df.columns:
+        df["visit_dtm"] = pd.to_datetime(df["visit_dtm"], errors="coerce")
+
+    return df
+
+
+def load_driver(file_path):
+    logging.info("Loading visual driver")
+    return pd.read_csv(file_path)
+
+
+def load_params(param_dir, visual_id):
+
+    param_file = os.path.join(param_dir, f"{visual_id}.csv")
+
+    if not os.path.exists(param_file):
+        logging.warning(f"No params found for {visual_id}")
+        return {}
+
+    try:
+        df = pd.read_csv(param_file)
+        return dict(zip(df["param"], df["value"]))
+    except Exception as e:
+        logging.error(f"Failed to load params for {visual_id}: {str(e)}")
+        return {}
+
+
+C:\lwf\sbx-data-vis\code\utils\run_helpers.py:
+import os
+import logging
+from datetime import datetime
+
+BASE_DIR = os.getcwd()
+RUNS_DIR = os.path.join(BASE_DIR, "data", "runs")
+
+def initialize_run():
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    run_dir = os.path.join(RUNS_DIR, f"run_{timestamp}")
+    output_dir = os.path.join(run_dir, "outputs")
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    # setup logging
+    log_file = os.path.join(run_dir, "logfile.txt")
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s | %(levelname)s | %(message)s",
+        handlers=[
+            logging.FileHandler(log_file),
+            logging.StreamHandler()
+        ]
+    )
+
+    return run_dir, output_dir
+
+
+def generate_output_name(visual_id, start_date, end_date, ext="png"):
+
+    start_str = start_date.strftime("%Y%m%d")
+    end_str = end_date.strftime("%Y%m%d")
+
+    return f"{visual_id}_{start_str}_{end_str}.{ext}"
+
+
+C:\lwf\sbx-data-vis\code\utils\vis_helpers.py:
+import pandas as pd
+import matplotlib.ticker as mtick
+
+def format_date_range(start_date, end_date):
+    try:
+        start = pd.to_datetime(start_date).date()
+        end = pd.to_datetime(end_date).date()
+        return f"({start} to {end})"
+    except Exception:
+        return f"({start_date} to {end_date})"
+
+def apply_yaxis_format(ax, mode="percent", decimals=1, multiplier=100, suffix="%"):
+    """
+    Apply consistent y-axis formatting
+    """
+    try:
+        decimals = int(decimals)
+        multiplier = float(multiplier)
+
+        if mode == "percent":
+            if multiplier == 1:
+                # already percent
+                fmt = lambda x, _: f"{x:.{decimals}f}{suffix}"
+            else:
+                # proportion â†’ percent
+                fmt = lambda x, _: f"{x * multiplier:.{decimals}f}{suffix}"
+
+            ax.yaxis.set_major_formatter(mtick.FuncFormatter(fmt))
+
+        elif mode == "count":
+            ax.yaxis.set_major_formatter(
+                mtick.FuncFormatter(
+                    lambda x, _: f"{int(x):,}"
+                )
+            )
+
+        elif mode == "raw":
+            ax.yaxis.set_major_formatter(
+                mtick.FuncFormatter(
+                    lambda x, _: f"{x:.{decimals}f}"
+                )
+            )
+
+    except Exception:
+        pass
+
+
+C:\lwf\sbx-data-vis\code\utils\__init__.py:
+
+
+C:\lwf\sbx-data-vis\code\visuals\vis_01.py:
+import os
+import logging
+import numpy as np
+import matplotlib.pyplot as plt
+import pandas as pd
+from utils.vis_helpers import format_date_range, apply_yaxis_format
+
+def run(df, params, start_date, end_date, output_dir, generate_output_name):
+
+    logging.info("Running vis_01_ed_hourly_arrivals")
+
+    # =========================
+    # DEFENSIVE CHECKS
+    # =========================
+    required_cols = ["visit_dtm", "esi"]
+    for col in required_cols:
+        if col not in df.columns:
+            logging.error(f"vis_01: missing required column '{col}'")
+            return
+
+    # =========================
+    # PARAM HANDLING
+    # =========================
+    params = params or {}
+    chart_mode = params.get("chart_mode", "percent").lower()
+
+    # ---- Label behavior ----
+    label_threshold = float(params.get("label_threshold", 0.005))
+    label_decimals = int(params.get("label_decimals", 1))
+    label_multiplier = float(params.get("label_multiplier", 100))
+    label_prefix = str(params.get("label_prefix", "")).strip()
+    label_suffix = str(params.get("label_suffix", "")).strip()
+    label_color = str(params.get("label_color", "white"))
+
+    # ---- Figure ----
+    fig_width = float(params.get("fig_width", 12))
+    fig_height = float(params.get("fig_height", 6))
+    dpi = int(params.get("dpi", 100))
+
+    # ---- Fonts ----
+    title_fs = int(params.get("title_fontsize", 14))
+    axis_fs = int(params.get("axis_fontsize", 11))
+    label_fs = int(params.get("label_fontsize", 8))
+    legend_fs = int(params.get("legend_fontsize", 10))
+
+    # ---- Legend ----
+    legend_pos = params.get("legend_position", "upper left")
+    legend_x = float(params.get("legend_anchor_x", 1.05))
+    legend_y = float(params.get("legend_anchor_y", 1.0))
+
+    # ---- Axis ----
+    y_max = float(params.get("y_max", 1))
+    y_axis_mode = params.get("y_axis_mode", chart_mode)
+    y_axis_decimals = params.get("y_axis_decimals", 1)
+    y_axis_multiplier = params.get("y_axis_multiplier", 100)
+    y_axis_suffix = params.get("y_axis_suffix", "%")
+
+    # ---- Colors ----
+    colors = {
+        '5 - Non-Urgent': params.get('5 - Non-Urgent', '#2ca02c'),
+        '4 - Less Urgent': params.get('4 - Less Urgent', '#8fd0ff'),
+        '3 - Urgent': params.get('3 - Urgent', '#1f77b4'),
+        '2 - Emergent': params.get('2 - Emergent', '#17becf'),
+        '1 - Immediate': params.get('1 - Immediate', '#ff7f0e'),
+    }
+
+    # =========================
+    # FILTER
+    # =========================
+    subset = df[
+        (df["visit_dtm"] >= start_date) &
+        (df["visit_dtm"] <= end_date)
+    ].copy()
+
+    if subset.empty:
+        logging.warning("vis_01: no data after filtering")
+        return
+
+    # =========================
+    # DATA PREP
+    # =========================
+    subset["arrival_hour"] = subset["visit_dtm"].dt.hour
+
+    esi_map = {
+        1: '1 - Immediate',
+        2: '2 - Emergent',
+        3: '3 - Urgent',
+        4: '4 - Less Urgent',
+        5: '5 - Non-Urgent'
+    }
+
+    subset["esi_category"] = subset["esi"].map(esi_map)
+
+    subset = subset[subset["esi_category"].notna()]
+
+    if subset.empty:
+        logging.warning("vis_01: no valid ESI data")
+        return
+
+    # =========================
+    # AGGREGATION
+    # =========================
+    grouped = (
+        subset.groupby(["arrival_hour", "esi_category"])
+        .size()
+        .reset_index(name="count")
+    )
+
+    totals = grouped.groupby("arrival_hour")["count"].sum().reset_index(name="total")
+
+    merged = grouped.merge(totals, on="arrival_hour")
+    merged["percent"] = merged["count"] / merged["total"]
+    merged["percent"] = pd.to_numeric(merged["percent"], errors="coerce")
+    merged["percent"] = merged["percent"].fillna(0)
+
+    pivot_counts = (
+        subset.groupby(["arrival_hour", "esi_category"])
+        .size()
+        .unstack(fill_value=0)
+    )
+
+    pivot_pct = merged.pivot(
+        index="arrival_hour",
+        columns="esi_category",
+        values="percent"
+    ).fillna(0)
+
+    if chart_mode == "count":
+        plot_data = pivot_counts
+    else:
+        plot_data = pivot_pct
+
+    plot_data = plot_data.reindex(range(24), fill_value=0)
+
+    esi_order = [
+        '5 - Non-Urgent',
+        '4 - Less Urgent',
+        '3 - Urgent',
+        '2 - Emergent',
+        '1 - Immediate'
+    ]
+
+    for col in esi_order:
+        if col not in plot_data.columns:
+            plot_data[col] = 0
+
+    plot_data = plot_data[esi_order]
+
+    # =========================
+    # LABEL FORMATTER
+    # =========================
+    def format_label(val):
+        if not np.isfinite(val):
+            return ""
+
+        return f"{val:.{label_decimals}%}"
+    
+    # =========================
+    # PLOT
+    # =========================
+    fig, ax = plt.subplots(figsize=(fig_width, fig_height), dpi=dpi)
+
+    
+    if chart_mode == "count":
+        pivot_plot = pivot_counts  
+        y_label = "Number of Arrivals"
+        y_limit = None
+    else:
+        pivot_plot = pivot_pct
+        y_label = "Percentage"
+        y_limit = y_max
+
+    bottom = np.zeros(len(plot_data))
+
+    ax.set_ylabel(y_label, fontsize=axis_fs)
+
+    if y_limit:
+        ax.set_ylim(0, y_limit)
+
+    pivot_pct = pivot_pct.reindex(range(24), fill_value=0)
+    
+    for col in esi_order:
+        values = plot_data[col].values
+
+        ax.bar(
+            plot_data.index,
+            values,
+            bottom=bottom,
+            label=col,
+            color=colors[col]
+        )
+        
+        for i, v in enumerate(values):
+
+            if chart_mode == "percent":
+                value_for_label = v
+            else:
+                value_for_label = pivot_pct.loc[i, col]
+
+            if not np.isfinite(value_for_label):
+                continue
+
+            if chart_mode == "percent":
+                show_label = v > label_threshold
+            else:
+                show_label = value_for_label > label_threshold
+
+            if show_label:
+                ax.text(
+                    i,
+                    bottom[i] + v / 2,
+                    format_label(value_for_label),
+                    ha='center',
+                    va='center',
+                    color=label_color,
+                    fontsize=label_fs
+                )
+
+        bottom += values
+
+    # =========================
+    # FORMATTING
+    # =========================
+    ax.set_xticks(range(24))
+    ax.set_xlabel("Hour of Day", fontsize=axis_fs)
+
+    date_range = format_date_range(start_date, end_date)
+    title = f"Hourly Arrivals Distribution by ESI\n{date_range}"
+    ax.set_title(title, fontsize=title_fs)
+
+    ax.legend(
+        loc=legend_pos,
+        bbox_to_anchor=(legend_x, legend_y),
+        fontsize=legend_fs
+    )
+
+    apply_yaxis_format(
+    ax,
+    mode=y_axis_mode,
+    decimals=y_axis_decimals,
+    multiplier=y_axis_multiplier,
+    suffix=y_axis_suffix
+    )
+
+    plt.tight_layout()
+
+    # =========================
+    # SAVE
+    # =========================
+    output_file = os.path.join(
+        output_dir,
+        generate_output_name("vis_01", start_date, end_date)
+    )
+
+    plt.savefig(output_file)
+    plt.close()
+
+    logging.info(f"vis_01 output written: {output_file}")
+
+
+C:\lwf\sbx-data-vis\code\visuals\vis_02.py:
+import os
+import logging
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from utils.vis_helpers import format_date_range, apply_yaxis_format
+
+
+def run(df, params, start_date, end_date, output_dir, generate_output_name):
+    """
+    Visualization 02: Length of Stay Distribution (Hours)
+
+    Generates a histogram-style bar chart showing the distribution of
+    ED Length of Stay (LOS) in hourly buckets as percentages.
+    """
+
+    logging.info("Starting vis_02: Length of Stay Distribution")
+
+    try:
+        # --------------------------------------------------
+        # DEFAULT PARAMETERS
+        # --------------------------------------------------
+        defaults = {
+            "fig_width": 12,
+            "fig_height": 6,
+            "dpi": 100,
+            "title_fontsize": 14,
+            "axis_fontsize": 11,
+            "label_fontsize": 9,
+            "label_decimals": 1,
+            "label_threshold": 0.0,  # show all by default
+            "max_bucket": None  # optional cap (e.g., 24)
+        }
+
+        y_axis_mode = params.get("y_axis_mode", "percent")
+        y_axis_decimals = params.get("y_axis_decimals", 1)
+        y_axis_multiplier = params.get("y_axis_multiplier", 100)
+        y_axis_suffix = params.get("y_axis_suffix", "%")
+
+        # Merge params (override defaults)
+        p = {**defaults, **(params or {})}
+
+        # Cast numeric params safely
+        for key in ["fig_width", "fig_height", "dpi",
+                    "title_fontsize", "axis_fontsize",
+                    "label_fontsize", "label_decimals",
+                    "label_threshold"]:
+            try:
+                p[key] = float(p[key])
+            except Exception:
+                logging.warning(f"Invalid param for {key}, using default")
+                p[key] = defaults[key]
+
+        if p["max_bucket"] not in (None, ""):
+            try:
+                p["max_bucket"] = int(p["max_bucket"])
+            except Exception:
+                logging.warning("Invalid max_bucket, ignoring")
+                p["max_bucket"] = None
+
+        # --------------------------------------------------
+        # REQUIRED COLUMNS CHECK
+        # --------------------------------------------------
+        required_cols = ["ed_start_dtm", "ed_end_dtm"]
+        for col in required_cols:
+            if col not in df.columns:
+                logging.error(f"Missing required column: {col}")
+                return
+
+        # --------------------------------------------------
+        # DATETIME HANDLING
+        # --------------------------------------------------
+        df["ed_start_dtm"] = pd.to_datetime(df["ed_start_dtm"], errors="coerce")
+        df["ed_end_dtm"] = pd.to_datetime(df["ed_end_dtm"], errors="coerce")
+
+        # Drop null timestamps
+        df = df.dropna(subset=["ed_start_dtm", "ed_end_dtm"])
+
+        # --------------------------------------------------
+        # DATE FILTERING
+        # --------------------------------------------------
+        try:
+            start_dt = pd.to_datetime(start_date)
+            end_dt = pd.to_datetime(end_date)
+        except Exception:
+            logging.error("Invalid start_date or end_date")
+            return
+
+        df = df[(df["ed_start_dtm"] >= start_dt) & (df["ed_start_dtm"] <= end_dt)]
+
+        if df.empty:
+            logging.warning("vis_02: No data after filtering")
+            return
+
+        # --------------------------------------------------
+        # LOS CALCULATION (HOURS)
+        # --------------------------------------------------
+        df["los_hours"] = (
+            (df["ed_end_dtm"] - df["ed_start_dtm"])
+            .dt.total_seconds() / 3600.0
+        )
+
+        # Remove invalid LOS
+        df = df[(df["los_hours"].notna()) & (df["los_hours"] >= 0)]
+
+        if df.empty:
+            logging.warning("vis_02: No valid LOS values")
+            return
+
+        # --------------------------------------------------
+        # BUCKETING
+        # --------------------------------------------------
+        df["los_bucket"] = np.floor(df["los_hours"]).astype(int)
+
+        # Optional max bucket cap
+        if p["max_bucket"] is not None:
+            df["los_bucket"] = np.where(
+                df["los_bucket"] >= p["max_bucket"],
+                p["max_bucket"],
+                df["los_bucket"]
+            )
+
+        # --------------------------------------------------
+        # AGGREGATION
+        # --------------------------------------------------
+        grouped = df.groupby("los_bucket").size().reset_index(name="count")
+
+        total = grouped["count"].sum()
+        grouped["percent"] = grouped["count"] / total
+
+        # Ensure continuity of buckets
+        min_bucket = int(grouped["los_bucket"].min())
+        max_bucket = int(grouped["los_bucket"].max())
+
+        all_buckets = pd.DataFrame({
+            "los_bucket": range(min_bucket, max_bucket + 1)
+        })
+
+        grouped = all_buckets.merge(grouped, on="los_bucket", how="left").fillna(0)
+
+        # --------------------------------------------------
+        # PLOTTING
+        # --------------------------------------------------
+        fig, ax = plt.subplots(figsize=(p["fig_width"], p["fig_height"]))
+
+        ax.bar(
+            grouped["los_bucket"],
+            grouped["percent"],
+            width=0.8
+        )
+
+        # Labels above bars
+        for _, row in grouped.iterrows():
+            if row["percent"] >= p["label_threshold"]:
+                ax.text(
+                    row["los_bucket"],
+                    row["percent"] + 0.001,
+                    f"{row['percent'] * 100:.{int(p['label_decimals'])}f}%",
+                    ha="center",
+                    fontsize=p["label_fontsize"]
+                )
+        
+        date_range = format_date_range(start_date, end_date)
+        ax.set_title(
+            f"Length of Stay Distribution (Hours)\n{date_range}",
+            fontsize=p["title_fontsize"]
+        )
+        ax.set_xlabel("Length of Stay (Hours)", fontsize=p["axis_fontsize"])
+        ax.set_ylabel("Percent of Encounters", fontsize=p["axis_fontsize"])
+
+        # Improve layout
+        ax.set_xticks(grouped["los_bucket"])
+        plt.xticks(rotation=45)
+        
+        apply_yaxis_format(
+            ax,
+            mode=y_axis_mode,
+            decimals=y_axis_decimals,
+            multiplier=y_axis_multiplier,
+            suffix=y_axis_suffix
+        )
+        
+        plt.tight_layout()
+
+        # --------------------------------------------------
+        # SAVE OUTPUT
+        # --------------------------------------------------
+        filename = generate_output_name("vis_02", start_date, end_date)
+        output_path = os.path.join(output_dir, filename)
+
+        plt.savefig(output_path, dpi=int(p["dpi"]))
+        plt.close()
+
+        logging.info(f"vis_02 saved to {output_path}")
+
+    except Exception as e:
+        logging.error(f"vis_02 failed: {str(e)}")
+
+
+C:\lwf\sbx-data-vis\code\visuals\vis_03.py:
+import os
+import logging
+import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib.ticker as mtick
+from utils.vis_helpers import format_date_range
+
+VISUAL_ID = "vis_03"
+
+def run(df, params, start_date, end_date, output_dir, generate_output_name):
+    """
+    Visualization 03: ED Visits by Year
+    """
+
+    logging.info(f"[{VISUAL_ID}] Starting visualization")
+
+    # =========================
+    # DEFAULT PARAMETERS
+    # =========================
+    default_params = {
+        # Figure
+        "fig_width": 12,
+        "fig_height": 6,
+        "dpi": 100,
+
+        # Fonts
+        "title_fontsize": 14,
+        "axis_fontsize": 11,
+        "label_fontsize": 9,
+
+        # Labels
+        "label_decimals": 0,
+        "label_color": "black",
+        "label_threshold": 0,
+
+        # Axis
+        "y_axis_use_commas": True,
+        "y_axis_decimals": 0,
+
+        # Colors
+        "bar_color": "#1f77b4",
+
+        # Title
+        "title": "ED Visits by Year",
+    }
+
+    # Merge params (override defaults)
+    try:
+        if params:
+            default_params.update(params)
+    except Exception as e:
+        logging.warning(f"[{VISUAL_ID}] Failed to parse params: {e}")
+
+    p = default_params
+
+    # =========================
+    # VALIDATION
+    # =========================
+    required_columns = ["visit_dtm"]
+
+    for col in required_columns:
+        if col not in df.columns:
+            logging.error(f"[{VISUAL_ID}] Missing required column: {col}")
+            return
+
+    df = df.copy()
+
+    # =========================
+    # DATA PREP
+    # =========================
+    try:
+        df["visit_dtm"] = pd.to_datetime(df["visit_dtm"], errors="coerce")
+        df = df.dropna(subset=["visit_dtm"])
+    except Exception as e:
+        logging.error(f"[{VISUAL_ID}] Failed to process visit_dtm: {e}")
+        return
+
+    # =========================
+    # DATE FILTERING
+    # =========================
+    try:
+        if start_date:
+            start_dt = pd.to_datetime(start_date, errors="coerce")
+        else:
+            start_dt = df["visit_dtm"].min()
+
+        if end_date:
+            end_dt = pd.to_datetime(end_date, errors="coerce")
+        else:
+            end_dt = df["visit_dtm"].max()
+
+        df = df[
+            (df["visit_dtm"] >= start_dt) &
+            (df["visit_dtm"] <= end_dt)
+        ]
+    except Exception as e:
+        logging.warning(f"[{VISUAL_ID}] Date filtering failed: {e}")
+
+    if df.empty:
+        logging.warning(f"[{VISUAL_ID}] No data after filtering")
+        return
+
+    # =========================
+    # FEATURE ENGINEERING
+    # =========================
+    try:
+        df["arrival_year"] = df["visit_dtm"].dt.year
+    except Exception as e:
+        logging.error(f"[{VISUAL_ID}] Failed to derive year: {e}")
+        return
+
+    # =========================
+    # AGGREGATION
+    # =========================
+    try:
+        yearly = (
+            df.groupby("arrival_year")
+            .size()
+            .reset_index(name="visits")
+            .sort_values("arrival_year")
+        )
+    except Exception as e:
+        logging.error(f"[{VISUAL_ID}] Aggregation failed: {e}")
+        return
+
+    if yearly.empty:
+        logging.warning(f"[{VISUAL_ID}] No aggregated data available")
+        return
+
+    # =========================
+    # FIGURE SETUP
+    # =========================
+    try:
+        fig, ax = plt.subplots(
+            figsize=(float(p["fig_width"]), float(p["fig_height"])),
+            dpi=int(p["dpi"])
+        )
+    except Exception as e:
+        logging.error(f"[{VISUAL_ID}] Failed to create figure: {e}")
+        return
+
+    # =========================
+    # PLOT
+    # =========================
+    try:
+        bars = ax.bar(
+            yearly["arrival_year"].astype(str),
+            yearly["visits"],
+            color=p["bar_color"]
+        )
+    except Exception as e:
+        logging.error(f"[{VISUAL_ID}] Plotting failed: {e}")
+        return
+
+    # =========================
+    # LABELS ON BARS
+    # =========================
+    try:
+        threshold = float(p["label_threshold"])
+        decimals = int(p["label_decimals"])
+
+        for bar, value in zip(bars, yearly["visits"]):
+            if value >= threshold:
+                label = f"{value:,.{decimals}f}"
+                ax.text(
+                    bar.get_x() + bar.get_width() / 2,
+                    bar.get_height(),
+                    label,
+                    ha="center",
+                    va="bottom",
+                    fontsize=p["label_fontsize"],
+                    color=p["label_color"]
+                )
+    except Exception as e:
+        logging.warning(f"[{VISUAL_ID}] Labeling failed: {e}")
+
+    # =========================
+    # TITLES & AXES
+    # =========================
+    try:
+        date_range_str = format_date_range(start_date, end_date)
+
+        ax.set_title(
+            f"{p['title']} {date_range_str}",
+            fontsize=p["title_fontsize"]
+        )
+
+        ax.set_xlabel("Year", fontsize=p["axis_fontsize"])
+        ax.set_ylabel("Number of Visits", fontsize=p["axis_fontsize"])
+    except Exception as e:
+        logging.warning(f"[{VISUAL_ID}] Axis labeling failed: {e}")
+
+    # =========================
+    # CLEANUP
+    # =========================
+    try:
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        ax.grid(axis="y", linestyle="--", alpha=0.3)
+    except Exception:
+        pass
+
+    # =========================
+    # Y-AXIS FORMATTING
+    # =========================
+    try:
+        if str(p.get("y_axis_use_commas", True)).lower() == "true":
+            decimals = int(p.get("y_axis_decimals", 0))
+            format_str = f'{{x:,.{decimals}f}}'
+            ax.yaxis.set_major_formatter(
+                mtick.StrMethodFormatter(format_str)
+            )
+    except Exception as e:
+        logging.warning(f"[{VISUAL_ID}] Y-axis formatting failed: {e}")
+
+    # =========================
+    # SAVE OUTPUT
+    # =========================
+    try:
+        filename = generate_output_name(VISUAL_ID, start_date, end_date)
+        output_path = os.path.join(output_dir, filename)
+
+        plt.tight_layout()
+        plt.savefig(output_path)
+        plt.close()
+
+        logging.info(f"[{VISUAL_ID}] Output saved: {output_path}")
+    except Exception as e:
+        logging.error(f"[{VISUAL_ID}] Failed to save output: {e}")
+
+
+C:\lwf\sbx-data-vis\code\visuals\vis_04.py:
+import os
+import logging
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+from utils.vis_helpers import format_date_range, apply_yaxis_format
+
+VISUAL_ID = "vis_04"
+
+
+def run(df, params, start_date, end_date, output_dir, generate_output_name):
+    """
+    Visualization 04: ESI Level Distribution
+    """
+
+    logging.info(f"[{VISUAL_ID}] Starting visualization")
+
+    # ======================================================
+    # DEFAULT PARAMETERS
+    # ======================================================
+    defaults = {
+        # figure
+        "fig_width": 12,
+        "fig_height": 6,
+        "dpi": 100,
+
+        # fonts
+        "title_fontsize": 14,
+        "axis_fontsize": 11,
+        "label_fontsize": 9,
+
+        # labels
+        "label_decimals": 1,
+        "label_threshold": 0.0,
+        "label_color": "black",
+
+        # axis
+        "y_axis_mode": "percent",
+        "y_axis_decimals": 1,
+        "y_axis_multiplier": 100,
+        "y_axis_suffix": "%",
+
+        # colors
+        "0 - Unknown": "#7f7f7f",
+        "1 - Immediate": "#ff7f0e",
+        "2 - Emergent": "#17becf",
+        "3 - Urgent": "#1f77b4",
+        "4 - Less Urgent": "#2ca02c",
+        "5 - Non-Urgent": "#ffd966",
+    }
+
+    # merge params
+    cfg = defaults.copy()
+    if params:
+        cfg.update({k: v for k, v in params.items() if v is not None})
+
+    required_columns = ["visit_dtm", "esi"]
+
+    # ======================================================
+    # VALIDATION
+    # ======================================================
+    for col in required_columns:
+        if col not in df.columns:
+            logging.error(f"[{VISUAL_ID}] Missing required column: {col}")
+            return
+
+    df = df.copy()
+
+    # ======================================================
+    # DATE HANDLING
+    # ======================================================
+    try:
+        df["visit_dtm"] = pd.to_datetime(df["visit_dtm"], errors="coerce")
+        mask = (df["visit_dtm"] >= pd.to_datetime(start_date)) & \
+               (df["visit_dtm"] <= pd.to_datetime(end_date))
+        df = df.loc[mask]
+    except Exception as e:
+        logging.error(f"[{VISUAL_ID}] Date filtering failed: {str(e)}")
+        return
+
+    if df.empty:
+        logging.warning(f"[{VISUAL_ID}] No data after filtering")
+        return
+
+    # ======================================================
+    # ESI CLEANING + MAPPING
+    # ======================================================
+    def map_esi(val):
+        try:
+            if pd.isna(val):
+                return "0 - Unknown"
+            val = int(val)
+            if val == 1:
+                return "1 - Immediate"
+            elif val == 2:
+                return "2 - Emergent"
+            elif val == 3:
+                return "3 - Urgent"
+            elif val == 4:
+                return "4 - Less Urgent"
+            elif val == 5:
+                return "5 - Non-Urgent"
+            else:
+                return "0 - Unknown"
+        except Exception:
+            return "0 - Unknown"
+
+    df["esi_category"] = df["esi"].apply(map_esi)
+
+    # ======================================================
+    # AGGREGATION
+    # ======================================================
+    category_order = [
+        "0 - Unknown",
+        "1 - Immediate",
+        "2 - Emergent",
+        "3 - Urgent",
+        "4 - Less Urgent",
+        "5 - Non-Urgent",
+    ]
+
+    counts = df["esi_category"].value_counts().reindex(category_order, fill_value=0)
+
+    total = counts.sum()
+    if total == 0:
+        logging.warning(f"[{VISUAL_ID}] Total encounter count is zero")
+        return
+
+    percents = counts / total
+
+    # ======================================================
+    # PLOTTING
+    # ======================================================
+    fig, ax = plt.subplots(
+        figsize=(float(cfg["fig_width"]), float(cfg["fig_height"])),
+        dpi=int(cfg["dpi"])
+    )
+
+    colors = [cfg.get(cat, "#333333") for cat in category_order]
+
+    bars = ax.bar(category_order, percents.values, color=colors)
+
+    # ======================================================
+    # LABELS
+    # ======================================================
+    for bar, val in zip(bars, percents.values):
+        if val < float(cfg["label_threshold"]):
+            continue
+
+        mult = float(cfg.get("y_axis_multiplier", 100))
+        dec = int(cfg["label_decimals"])
+        suffix = cfg.get("y_axis_suffix", "%")
+
+        label = f"{val * mult:.{dec}f}{suffix}"
+        ax.text(
+            bar.get_x() + bar.get_width() / 2,
+            bar.get_height(),
+            label,
+            ha='center',
+            va='bottom',
+            fontsize=float(cfg["label_fontsize"]),
+            color=cfg["label_color"]
+        )
+
+    # ======================================================
+    # TITLES AND AXES
+    # ======================================================
+    date_range_str = format_date_range(start_date, end_date)
+
+    ax.set_title(
+        f"ESI Level Distribution\n{date_range_str}",
+        fontsize=float(cfg["title_fontsize"])
+    )
+
+    ax.set_xlabel("ESI Level", fontsize=float(cfg["axis_fontsize"]))
+    ax.set_ylabel("Percent of Encounters", fontsize=float(cfg["axis_fontsize"]))
+
+    ax.tick_params(axis='x', rotation=30)
+
+    # apply y-axis formatting helper
+    apply_yaxis_format(
+    ax,
+    mode=cfg.get("y_axis_mode", "percent"),
+    decimals=cfg.get("y_axis_decimals", 1),
+    multiplier=cfg.get("y_axis_multiplier", 100),
+    suffix=cfg.get("y_axis_suffix", "%")
+    )
+
+    ax.set_ylim(0, max(percents.values) * 1.15)
+
+    plt.tight_layout()
+
+    # ======================================================
+    # OUTPUT
+    # ======================================================
+    try:
+        filename = generate_output_name(VISUAL_ID, start_date, end_date)
+        filepath = os.path.join(output_dir, filename)
+
+        plt.savefig(filepath)
+        plt.close()
+
+        logging.info(f"[{VISUAL_ID}] Saved output to {filepath}")
+    except Exception as e:
+        logging.error(f"[{VISUAL_ID}] Failed to save output: {str(e)}")
+
+
+C:\lwf\sbx-data-vis\code\visuals\__init__.py:
+
+

@@ -1,0 +1,69 @@
+Graph Title:
+ESI Level Distribution
+
+GPT Paragraph Prompt:
+Generate a vertical bar chart showing the distribution of Emergency Severity Index (ESI) levels for encounters within a defined time period. Use the esi field to categorize encounters, optionally including an 'Unknown' or missing category. Aggregate encounter counts by ESI category, convert counts to percentages of total encounters, and plot each category as a separate bar. Order categories logically from lowest acuity (highest number) to highest acuity (lowest number), include percentage labels above each bar, and ensure the implementation is fully parameterized for any time period. Save the output as a PNG file.
+
+Detailed Breakdown:
+
+1. Data Preparation
+- Use the esi field as the core categorical variable.
+- Optionally filter data for a defined time period using parameterized date filters applied to visit_dtm.
+
+2. Data Cleaning and Category Handling
+- Handle missing or null esi values by assigning them to an '0 - Unknown' or 'Unknown' category.
+- Ensure esi values are treated as categorical rather than numeric for plotting.
+
+3. ESI Category Mapping
+- Map values into labeled categories:
+  Missing/Null -> '0 - Unknown'
+  1 -> '1 - Immediate'
+  2 -> '2 - Emergent'
+  3 -> '3 - Urgent'
+  4 -> '4 - Less Urgent'
+  5 -> '5 - Non-Urgent'
+
+4. Aggregation Logic
+- Group data by esi_category.
+- Compute total encounter count for each category.
+
+5. Percentage Calculation
+- Compute total encounters across all categories.
+- For each category:
+  percent = count / total_count
+
+6. Category Ordering
+- Explicitly order categories as:
+  '0 - Unknown'
+  '1 - Immediate'
+  '2 - Emergent'
+  '3 - Urgent'
+  '4 - Less Urgent'
+  '5 - Non-Urgent'
+
+7. Chart Construction
+- Create a vertical bar chart.
+- X-axis: ESI categories (ordered categorically).
+- Y-axis: percentage of encounters.
+
+8. Labels on Bars
+- Add percentage labels above each bar.
+- Format labels with 1 decimal precision (e.g., 59.6%).
+
+9. Colors
+- Assign distinct but consistent colors per category (parameterizable). Example:
+  '0 - Unknown' -> gray
+  '1 - Immediate' -> orange
+  '2 - Emergent' -> dark teal
+  '3 - Urgent' -> blue
+  '4 - Less Urgent' -> green
+  '5 - Non-Urgent' -> light orange or yellow
+
+10. Title and Axis Labels
+- Title should be parameterized, e.g., 'ESI Level Distribution'.
+- X-axis label: 'ESI Level'.
+- Y-axis label: 'Percent of Encounters'.
+
+11. Output
+- Save the chart as a PNG file with a parameterized filename, e.g.:
+  'esi_distribution.png'.
