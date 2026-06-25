@@ -5,4 +5,7 @@
 *.hyper
 *.twb
 *.twbx
+
 data/
+
+!code/**/*.csv
