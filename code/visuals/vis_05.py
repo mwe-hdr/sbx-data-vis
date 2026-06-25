@@ -3,7 +3,7 @@ import logging
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from utils.vis_helpers import format_date_range
+from utils.vis_helpers import format_date_range, apply_axis_range
 
 VISUAL_ID = "vis_05"
 
@@ -41,6 +41,10 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
         # Axis
         "y_axis_separator": True,
+
+        # Axis range
+        "y_min": None,
+        "y_max": None,
 
         # Title
         "title": "Monthly ED Arrivals",
@@ -173,3 +177,64 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         ax.set_xticklabels(labels, rotation=45, ha="right")
 
         # Titles
+        date_range_str = format_date_range(start_date, end_date)
+        ax.set_title(
+            f"{cfg['title']} {date_range_str}",
+            fontsize=int(cfg["title_fontsize"])
+        )
+
+        ax.set_xlabel("Month", fontsize=int(cfg["axis_fontsize"]))
+        ax.set_ylabel("Number of Arrivals", fontsize=int(cfg["axis_fontsize"]))
+
+        # Y-axis formatting
+        if cfg["y_axis_separator"]:
+            ax.get_yaxis().set_major_formatter(
+                plt.FuncFormatter(lambda val, pos: f"{int(val):,}")
+            )
+
+        # Apply axis range (after plotting)
+        apply_axis_range(
+            ax,
+            axis="y",
+            min_val=cfg.get("y_min"),
+            max_val=cfg.get("y_max")
+        )
+
+        # =========================
+        # DATA LABELS
+        # =========================
+        if cfg["show_labels"]:
+            try:
+                indices = range(len(y))
+
+                if cfg["label_first_last_only"]:
+                    indices = [0, len(y) - 1]
+
+                for i in indices:
+                    ax.text(
+                        x.iloc[i],
+                        y.iloc[i],
+                        format_number(y.iloc[i]),
+                        fontsize=int(cfg["label_fontsize"]),
+                        ha="center",
+                        va="bottom"
+                    )
+            except Exception as e:
+                logging.warning(f"{VISUAL_ID}: Label rendering failed - {str(e)}")
+
+        plt.tight_layout()
+
+        # =========================
+        # SAVE OUTPUT
+        # =========================
+        filename = generate_output_name(VISUAL_ID, start_date, end_date)
+        filepath = os.path.join(output_dir, filename)
+
+        plt.savefig(filepath)
+        plt.close()
+
+        logging.info(f"{VISUAL_ID}: Saved output to {filepath}")
+
+    except Exception as e:
+        logging.error(f"{VISUAL_ID}: Plotting failed - {str(e)}")
+        return

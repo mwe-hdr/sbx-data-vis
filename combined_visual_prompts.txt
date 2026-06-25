@@ -819,3 +819,107 @@ Detailed Breakdown:
 10. Output
 - Save the chart as a PNG file with a parameterized filename, e.g.:
   'weekday_arrival_distribution.png'.
+
+Graph Title:
+Encounters by Arrival Type
+
+GPT Paragraph Prompt:
+Create a categorical distribution pie chart that visualizes Emergency Department (ED) encounters by arrival method across a defined time period. Use the arrival_method field to classify encounters into standardized categories such as Ambulance, Car (including walk-in/self), and Wheelchair. Aggregate total encounters for each category and compute each category’s percentage of total encounters. Display the distribution as a pie chart with labeled slices showing both encounter count and percentage. Ensure the visualization is fully parameterized, robust to missing categories, and saved as a PNG file.
+
+Detailed Breakdown:
+
+A. Data Preparation:
+- Required Fields:
+  - arrival_method
+- Optional Filtering:
+  - Filter records using:
+        start_date <= visit_dtm <= end_date
+- Data Cleaning:
+  - Remove null or empty arrival_method values
+  - Normalize text (trim whitespace, consistent casing)
+  - Handle inconsistent labels via mapping logic
+
+B. Derived Metrics:
+- Standardized Arrival Categories:
+  - Map raw arrival_method values into:
+        "Ambulance"
+        "Car"        (includes walk-in, self, private vehicle)
+        "Wheelchair"
+        "Other"      (optional, parameter-driven)
+- Encounter Count:
+        count(encounter_id)
+- Percentage:
+        percent = count / total_encounters
+
+C. Aggregation:
+- Group by standardized arrival category
+- Compute:
+  - Total encounter counts
+  - Percent of total encounters
+
+D. Category Completeness:
+- Ensure categories always present:
+        Ambulance, Car, Wheelchair
+- Fill missing categories with zero values
+- Include "Other" if enabled
+
+E. Data Structure:
+Final dataset should contain:
+        Arrival_Type | Count | Percent
+
+F. Chart Construction:
+- Chart type: Pie chart
+- Slice size: Percent
+- Labels:
+  - Category name
+  - Count
+  - Percent
+
+G. Visual Encoding:
+- Default Colors:
+  - Ambulance   -> Blue
+  - Car         -> Orange
+  - Wheelchair  -> Accent (e.g., red)
+  - Other       -> Gray (if included)
+- Apply consistent, high-contrast color palette
+- Maintain equal aspect ratio (circular pie)
+
+H. Labeling:
+- Title:
+        "Encounters by Arrival Type"
+- Slice Labels Format:
+        <Category>
+        <count> (<percent>%)
+- Formatting:
+  - Count uses thousand separators
+  - Percent precision controlled by parameter
+
+I. Output:
+- Save visualization as PNG
+- Default filename:
+        encounters_by_arrival_type.png
+- Filename should be parameterized via framework helper
+
+J. Validation Rules:
+- Validate total encounters > 0
+- Percent values sum to approximately 100%
+- No negative counts
+- All required categories present
+- Handle empty dataset gracefully without crashing
+
+K. Parameterization:
+Support configurable parameters for:
+- include_other_category (true/false)
+- label_decimals
+- show_counts (true/false)
+- show_percent (true/false)
+- explode_slices (optional list)
+- figure size and DPI
+- category color overrides
+
+L. Interpretation:
+- Illustrates distribution of ED arrival methods
+- Highlights EMS (ambulance) dependency vs walk-in demand
+- Identifies operational implications for intake, triage, and infrastructure
+- Supports planning for front-door flow, EMS utilization, and accessibility needs
+

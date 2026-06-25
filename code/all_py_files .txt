@@ -220,6 +220,63 @@ def format_date_range(start_date, end_date):
     except Exception:
         return f"({start_date} to {end_date})"
 
+def apply_axis_range(ax, axis="y", min_val=None, max_val=None):
+    """
+    Apply axis range limits safely.
+
+    Parameters
+    ----------
+    ax : matplotlib axis
+    axis : str ("x" or "y")
+    min_val : float or None
+    max_val : float or None
+
+    Behavior
+    --------
+    - Only applies limits if values are valid numbers
+    - Supports partial overrides (only min or only max)
+    - Prevents crashes from invalid input
+    """
+
+    try:
+        # Validate axis
+        if axis not in ("x", "y"):
+            return
+
+        # Convert safely
+        def _safe_float(v):
+            try:
+                return float(v)
+            except Exception:
+                return None
+
+        min_val = _safe_float(min_val)
+        max_val = _safe_float(max_val)
+
+        # Get current limits
+        if axis == "y":
+            current_min, current_max = ax.get_ylim()
+        else:
+            current_min, current_max = ax.get_xlim()
+
+        # Determine new limits
+        new_min = min_val if min_val is not None else current_min
+        new_max = max_val if max_val is not None else current_max
+
+        # Prevent invalid bounds
+        if new_min >= new_max:
+            return
+
+        # Apply
+        if axis == "y":
+            ax.set_ylim(new_min, new_max)
+        else:
+            ax.set_xlim(new_min, new_max)
+
+    except Exception:
+        # Fail silently (consistent with helper philosophy)
+        return
+
 def apply_yaxis_format(ax, mode="percent", decimals=1, multiplier=100, suffix="%"):
     """
     Apply consistent y-axis formatting
@@ -1159,6 +1216,731 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         logging.info(f"[{VISUAL_ID}] Saved output to {filepath}")
     except Exception as e:
         logging.error(f"[{VISUAL_ID}] Failed to save output: {str(e)}")
+
+
+C:\lwf\sbx-data-vis\code\visuals\vis_05.py:
+import os
+import logging
+import pandas as pd
+import matplotlib.pyplot as plt
+
+from utils.vis_helpers import format_date_range, apply_axis_range
+
+VISUAL_ID = "vis_05"
+
+
+def run(df, params, start_date, end_date, output_dir, generate_output_name):
+    """
+    Visualization 05: Monthly ED Arrivals Trend
+    """
+
+    logging.info(f"Starting {VISUAL_ID}")
+
+    # =========================
+    # DEFAULT PARAMETERS
+    # =========================
+    defaults = {
+        # Figure
+        "fig_width": 12,
+        "fig_height": 6,
+        "dpi": 100,
+
+        # Fonts
+        "title_fontsize": 14,
+        "axis_fontsize": 11,
+        "label_fontsize": 9,
+
+        # Line styling
+        "line_color": "#1f77b4",
+        "marker": "o",
+        "marker_size": 4,
+
+        # Labels
+        "show_labels": True,
+        "label_first_last_only": True,
+        "label_decimals": 0,
+
+        # Axis
+        "y_axis_separator": True,
+
+        # Axis range
+        "y_min": None,
+        "y_max": None,
+
+        # Title
+        "title": "Monthly ED Arrivals",
+    }
+
+    # Merge params
+    try:
+        cfg = {k: params.get(k, v) for k, v in defaults.items()}
+    except Exception:
+        cfg = defaults
+
+    # =========================
+    # VALIDATION
+    # =========================
+    required_cols = ["visit_dtm"]
+    for col in required_cols:
+        if col not in df.columns:
+            logging.error(f"{VISUAL_ID}: Missing required column '{col}'")
+            return
+
+    # =========================
+    # DATA PREPARATION
+    # =========================
+    try:
+        df = df.copy()
+
+        # Convert datetime
+        df["visit_dtm"] = pd.to_datetime(df["visit_dtm"], errors="coerce")
+
+        # Drop invalid
+        df = df.dropna(subset=["visit_dtm"])
+
+        if df.empty:
+            logging.warning(f"{VISUAL_ID}: No valid visit_dtm values")
+            return
+
+        # Filter by date range
+        start_dt = pd.to_datetime(start_date, errors="coerce")
+        end_dt = pd.to_datetime(end_date, errors="coerce")
+
+        if pd.notna(start_dt):
+            df = df[df["visit_dtm"] >= start_dt]
+        if pd.notna(end_dt):
+            df = df[df["visit_dtm"] <= end_dt]
+
+        if df.empty:
+            logging.warning(f"{VISUAL_ID}: No data after date filtering")
+            return
+
+    except Exception as e:
+        logging.error(f"{VISUAL_ID}: Data preparation failed - {str(e)}")
+        return
+
+    # =========================
+    # FEATURE ENGINEERING
+    # =========================
+    try:
+        df["year_month"] = df["visit_dtm"].dt.to_period("M").dt.to_timestamp()
+
+    except Exception as e:
+        logging.error(f"{VISUAL_ID}: Feature engineering failed - {str(e)}")
+        return
+
+    # =========================
+    # AGGREGATION
+    # =========================
+    try:
+        monthly_counts = (
+            df.groupby("year_month")
+            .size()
+            .rename("arrival_count")
+            .reset_index()
+        )
+
+        if monthly_counts.empty:
+            logging.warning(f"{VISUAL_ID}: Aggregation resulted in empty dataset")
+            return
+
+        # Create full continuous monthly index
+        full_range = pd.date_range(
+            start=monthly_counts["year_month"].min(),
+            end=monthly_counts["year_month"].max(),
+            freq="MS"
+        )
+
+        monthly_counts = monthly_counts.set_index("year_month").reindex(full_range, fill_value=0)
+        monthly_counts.index.name = "year_month"
+        monthly_counts = monthly_counts.reset_index()
+
+    except Exception as e:
+        logging.error(f"{VISUAL_ID}: Aggregation failed - {str(e)}")
+        return
+
+    # =========================
+    # LABEL FORMATTING HELPERS
+    # =========================
+    def format_number(x):
+        try:
+            return f"{int(round(x, 0)):,}"
+        except Exception:
+            return str(x)
+
+    # =========================
+    # PLOTTING
+    # =========================
+    try:
+        fig, ax = plt.subplots(
+            figsize=(float(cfg["fig_width"]), float(cfg["fig_height"])),
+            dpi=int(cfg["dpi"])
+        )
+
+        x = monthly_counts["year_month"]
+        y = monthly_counts["arrival_count"]
+
+        ax.plot(
+            x,
+            y,
+            color=cfg["line_color"],
+            marker=cfg["marker"],
+            markersize=float(cfg["marker_size"])
+        )
+
+        # X-axis labels
+        if len(x) > 24:
+            labels = x.dt.strftime("%Y-%m")
+        else:
+            labels = x.dt.strftime("%b %Y")
+
+        ax.set_xticks(x)
+        ax.set_xticklabels(labels, rotation=45, ha="right")
+
+        # Titles
+        date_range_str = format_date_range(start_date, end_date)
+        ax.set_title(
+            f"{cfg['title']} {date_range_str}",
+            fontsize=int(cfg["title_fontsize"])
+        )
+
+        ax.set_xlabel("Month", fontsize=int(cfg["axis_fontsize"]))
+        ax.set_ylabel("Number of Arrivals", fontsize=int(cfg["axis_fontsize"]))
+
+        # Y-axis formatting
+        if cfg["y_axis_separator"]:
+            ax.get_yaxis().set_major_formatter(
+                plt.FuncFormatter(lambda val, pos: f"{int(val):,}")
+            )
+
+        # Apply axis range (after plotting)
+        apply_axis_range(
+            ax,
+            axis="y",
+            min_val=cfg.get("y_min"),
+            max_val=cfg.get("y_max")
+        )
+
+        # =========================
+        # DATA LABELS
+        # =========================
+        if cfg["show_labels"]:
+            try:
+                indices = range(len(y))
+
+                if cfg["label_first_last_only"]:
+                    indices = [0, len(y) - 1]
+
+                for i in indices:
+                    ax.text(
+                        x.iloc[i],
+                        y.iloc[i],
+                        format_number(y.iloc[i]),
+                        fontsize=int(cfg["label_fontsize"]),
+                        ha="center",
+                        va="bottom"
+                    )
+            except Exception as e:
+                logging.warning(f"{VISUAL_ID}: Label rendering failed - {str(e)}")
+
+        plt.tight_layout()
+
+        # =========================
+        # SAVE OUTPUT
+        # =========================
+        filename = generate_output_name(VISUAL_ID, start_date, end_date)
+        filepath = os.path.join(output_dir, filename)
+
+        plt.savefig(filepath)
+        plt.close()
+
+        logging.info(f"{VISUAL_ID}: Saved output to {filepath}")
+
+    except Exception as e:
+        logging.error(f"{VISUAL_ID}: Plotting failed - {str(e)}")
+        return
+
+
+C:\lwf\sbx-data-vis\code\visuals\vis_06.py:
+import os
+import logging
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+from utils.vis_helpers import format_date_range, apply_yaxis_format
+
+
+VISUAL_ID = "vis_06"
+
+
+def run(df, params, start_date, end_date, output_dir, generate_output_name):
+    """
+    Visualization 06: Weekday Arrival Distribution
+    """
+
+    logging.info(f"Starting {VISUAL_ID}")
+
+    try:
+        # =============================
+        # DEFAULT PARAMETERS
+        # =============================
+        defaults = {
+            # Figure
+            "fig_width": 12,
+            "fig_height": 6,
+            "dpi": 100,
+
+            # Fonts
+            "title_fontsize": 14,
+            "axis_fontsize": 11,
+            "label_fontsize": 9,
+
+            # Labels
+            "label_decimals": 1,
+            "label_threshold": 0.0,
+            "label_color": "black",
+
+            # Axis
+            "y_axis_mode": "percent",
+            "y_axis_decimals": 1,
+            "y_axis_multiplier": 100,
+            "y_axis_suffix": "%",
+
+            # Color
+            "bar_color": "#1f77b4",
+        }
+
+        # Merge params
+        cfg = {**defaults, **(params or {})}
+
+        # =============================
+        # VALIDATION
+        # =============================
+        required_cols = ["visit_dtm"]
+        missing_cols = [col for col in required_cols if col not in df.columns]
+
+        if missing_cols:
+            logging.error(f"{VISUAL_ID} missing required columns: {missing_cols}")
+            return
+
+        df = df.copy()
+
+        # =============================
+        # DATETIME HANDLING
+        # =============================
+        df["visit_dtm"] = pd.to_datetime(df["visit_dtm"], errors="coerce")
+
+        df = df.dropna(subset=["visit_dtm"])
+
+        if df.empty:
+            logging.warning(f"{VISUAL_ID}: No valid visit_dtm after conversion")
+            return
+
+        # =============================
+        # DATE FILTER
+        # =============================
+        try:
+            start_dt = pd.to_datetime(start_date)
+            end_dt = pd.to_datetime(end_date)
+
+            df = df[(df["visit_dtm"] >= start_dt) & (df["visit_dtm"] <= end_dt)]
+        except Exception as e:
+            logging.warning(f"{VISUAL_ID}: Date filtering failed: {str(e)}")
+
+        if df.empty:
+            logging.warning(f"{VISUAL_ID}: No data after date filtering")
+            return
+
+        # =============================
+        # DERIVE WEEKDAY
+        # =============================
+        df["weekday_num"] = df["visit_dtm"].dt.dayofweek
+
+        weekday_map = {
+            0: "Mon",
+            1: "Tue",
+            2: "Wed",
+            3: "Thu",
+            4: "Fri",
+            5: "Sat",
+            6: "Sun",
+        }
+
+        df["weekday"] = df["weekday_num"].map(weekday_map)
+
+        # Required display order per spec
+        ordered_days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+
+        # =============================
+        # AGGREGATION
+        # =============================
+        counts = df["weekday"].value_counts().reindex(ordered_days, fill_value=0)
+
+        total = counts.sum()
+
+        if total == 0:
+            logging.warning(f"{VISUAL_ID}: Total encounters = 0")
+            return
+
+        percents = counts / total
+
+        # =============================
+        # PLOT
+        # =============================
+        fig, ax = plt.subplots(
+            figsize=(float(cfg["fig_width"]), float(cfg["fig_height"])),
+            dpi=int(cfg["dpi"])
+        )
+
+        bars = ax.bar(
+            ordered_days,
+            percents.values,
+            color=cfg["bar_color"]
+        )
+
+        # =============================
+        # LABELS
+        # =============================
+        for bar, val in zip(bars, percents.values):
+            if val < float(cfg["label_threshold"]):
+                continue
+
+            label = f"{val * 100:.{int(cfg['label_decimals'])}f}%"
+
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                bar.get_height(),
+                label,
+                ha="center",
+                va="bottom",
+                fontsize=int(cfg["label_fontsize"]),
+                color=cfg["label_color"]
+            )
+
+        # =============================
+        # TITLES / AXES
+        # =============================
+        date_range_str = format_date_range(start_date, end_date)
+
+        ax.set_title(
+            f"Weekday Arrival Distribution {date_range_str}",
+            fontsize=int(cfg["title_fontsize"])
+        )
+
+        ax.set_xlabel("Day of Week", fontsize=int(cfg["axis_fontsize"]))
+        ax.set_ylabel("Percent of Arrivals", fontsize=int(cfg["axis_fontsize"]))
+
+        # =============================
+        # AXIS FORMATTING
+        # =============================
+        apply_yaxis_format(
+            ax,
+            mode=cfg["y_axis_mode"],
+            decimals=cfg["y_axis_decimals"],
+            multiplier=cfg["y_axis_multiplier"],
+            suffix=cfg["y_axis_suffix"]
+        )
+
+        # =============================
+        # OUTPUT
+        # =============================
+        filename = generate_output_name(VISUAL_ID, start_date, end_date)
+        output_path = os.path.join(output_dir, filename)
+
+        plt.tight_layout()
+        plt.savefig(output_path)
+        plt.close()
+
+        logging.info(f"{VISUAL_ID} saved to {output_path}")
+
+    except Exception as e:
+        logging.error(f"{VISUAL_ID} failed: {str(e)}", exc_info=True)
+
+
+C:\lwf\sbx-data-vis\code\visuals\vis_07.py:
+import os
+import logging
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+from utils.vis_helpers import format_date_range
+
+VISUAL_ID = "vis_07"
+
+
+def run(df, params, start_date, end_date, output_dir, generate_output_name):
+    """
+    Visualization 07: Encounters by Arrival Type (Pie Chart)
+    """
+
+    logging.info(f"Starting {VISUAL_ID}")
+
+    # =========================
+    # DEFAULT PARAMETERS
+    # =========================
+    defaults = {
+        # behavior
+        "include_other_category": True,
+        "show_counts": True,
+        "show_percent": True,
+        "label_decimals": 1,
+
+        # figure
+        "fig_width": 8,
+        "fig_height": 8,
+        "dpi": 100,
+
+        # colors
+        "color_ambulance": "#1f77b4",
+        "color_car": "#ff7f0e",
+        "color_wheelchair": "#d62728",
+        "color_other": "#7f7f7f",
+    }
+
+    # merge params safely
+    p = defaults.copy()
+    if params:
+        for k, v in params.items():
+            p[k] = v
+
+    # =========================
+    # PARAM HELPERS
+    # =========================
+    def to_bool(val):
+        return str(val).lower() in ["true", "1", "yes"]
+
+    def safe_float(val, default):
+        try:
+            return float(val)
+        except Exception:
+            return default
+
+    # =========================
+    # THRESHOLDS
+    # =========================
+    label_threshold = safe_float(p.get("label_threshold", 0.0), 0.0)
+    group_other_threshold = safe_float(p.get("group_other_threshold", 0.0), 0.0)
+
+    # =========================
+    # LABEL PARAMS
+    # =========================
+    include_other = to_bool(p.get("include_other_category", True))
+    show_counts = to_bool(p.get("show_counts", True))
+    show_percent = to_bool(p.get("show_percent", True))
+
+    try:
+        label_decimals = int(p.get("label_decimals", 1))
+    except Exception:
+        label_decimals = 1
+
+    # =========================
+    # VALIDATION
+    # =========================
+    required_cols = ["arrival_method"]
+
+    for col in required_cols:
+        if col not in df.columns:
+            logging.error(f"{VISUAL_ID}: Missing required column '{col}'")
+            return
+
+    # optional visit_dtm for filtering
+    if "visit_dtm" not in df.columns:
+        logging.warning(f"{VISUAL_ID}: 'visit_dtm' not found - skipping date filter")
+
+    df = df.copy()
+
+    # =========================
+    # DATETIME FILTERING
+    # =========================
+    if "visit_dtm" in df.columns:
+        try:
+            df["visit_dtm"] = pd.to_datetime(df["visit_dtm"], errors="coerce")
+            start = pd.to_datetime(start_date)
+            end = pd.to_datetime(end_date)
+
+            df = df[
+                (df["visit_dtm"] >= start) &
+                (df["visit_dtm"] <= end)
+            ]
+        except Exception as e:
+            logging.warning(f"{VISUAL_ID}: Date filtering failed: {str(e)}")
+
+    if df.empty:
+        logging.warning(f"{VISUAL_ID}: No data after filtering")
+        return
+
+    # =========================
+    # DATA CLEANING
+    # =========================
+    df = df[~df["arrival_method"].isna()]
+    df["arrival_method"] = df["arrival_method"].astype(str).str.strip().str.lower()
+
+    if df.empty:
+        logging.warning(f"{VISUAL_ID}: No valid arrival_method values")
+        return
+
+    # =========================
+    # MAPPING LOGIC
+    # =========================
+    def map_arrival(val):
+        if "ambulance" in val or "ems" in val:
+            return "Ambulance"
+        elif any(x in val for x in ["walk", "self", "car", "vehicle", "private"]):
+            return "Car"
+        elif "wheelchair" in val:
+            return "Wheelchair"
+        else:
+            return "Other"
+
+    df["arrival_type"] = df["arrival_method"].apply(map_arrival)
+
+    # =========================
+    # AGGREGATION
+    # =========================
+    counts = (
+        df.groupby("arrival_type")
+        .size()
+        .reset_index(name="count")
+    )
+
+    total = counts["count"].sum()
+
+    if total <= 0:
+        logging.warning(f"{VISUAL_ID}: Total encounters is zero")
+        return
+
+    counts["percent"] = counts["count"] / total
+
+    # =========================
+    # GROUP SMALL CATEGORIES INTO "OTHER"
+    # =========================
+    if group_other_threshold > 0:
+        small_mask = (
+            (counts["percent"] < group_other_threshold) &
+            (counts["arrival_type"] != "Other")
+        )
+
+        if small_mask.any():
+            other_sum = counts.loc[small_mask, "count"].sum()
+
+            counts = counts.loc[~small_mask].copy()
+
+            if other_sum > 0:
+                # if Other already exists, add to it
+                if "Other" in counts["arrival_type"].values:
+                    counts.loc[counts["arrival_type"] == "Other", "count"] += other_sum
+                else:
+                    counts = pd.concat([
+                        counts,
+                        pd.DataFrame([{
+                            "arrival_type": "Other",
+                            "count": other_sum
+                        }])
+                    ], ignore_index=True)
+
+            counts["percent"] = counts["count"] / counts["count"].sum()
+ 
+    # =========================
+    # ENSURE CATEGORY COMPLETENESS
+    # =========================
+    base_categories = ["Ambulance", "Car", "Wheelchair"]
+    if include_other:
+        base_categories.append("Other")
+
+    counts = counts.set_index("arrival_type").reindex(base_categories).fillna(0)
+    counts = counts.reset_index()
+
+    # avoid divide-by-zero
+    total = counts["count"].sum()
+    if total > 0:
+        counts["percent"] = counts["count"] / total
+    else:
+        logging.warning(f"{VISUAL_ID}: No data after category alignment")
+        return
+
+    # =========================
+    # COLORS
+    # =========================
+    color_map = {
+        "Ambulance": p["color_ambulance"],
+        "Car": p["color_car"],
+        "Wheelchair": p["color_wheelchair"],
+        "Other": p["color_other"],
+    }
+
+    colors = [color_map.get(cat, "#cccccc") for cat in counts["arrival_type"]]
+
+    # =========================
+    # LABEL FUNCTION WITH SUPPRESSION
+    # =========================
+    def make_label(row):
+        count = row["count"]
+        percent = row["percent"]
+
+        if percent < label_threshold:
+            return ""
+
+        parts = [row["arrival_type"]]
+
+        if show_counts:
+            parts.append(f"{int(count):,}")
+
+        if show_percent:
+            parts.append(f"{percent * 100:.{label_decimals}f}%")
+
+        return "\n".join(parts)
+
+    # remove zero-count categories 
+    counts = counts[counts["count"] > 0].reset_index(drop=True)
+
+    # rebuild labels 
+    labels = [make_label(row) for _, row in counts.iterrows()]
+    
+    # =========================
+    # PLOT
+    # =========================
+    try:
+        fig, ax = plt.subplots(
+            figsize=(float(p["fig_width"]), float(p["fig_height"])),
+            dpi=int(p["dpi"])
+        )
+
+        ax.pie(
+            counts["percent"],
+            labels=labels,
+            colors=colors,
+            startangle=90,
+        )
+
+        ax.axis("equal")
+
+        # title
+        date_str = format_date_range(start_date, end_date)
+        ax.set_title(f"Encounters by Arrival Type {date_str}")
+
+        # =========================
+        # SAVE OUTPUT
+        # =========================
+        os.makedirs(output_dir, exist_ok=True)
+
+        filename = generate_output_name(
+            VISUAL_ID,
+            start_date,
+            end_date
+        )
+
+        output_path = os.path.join(output_dir, filename)
+
+        plt.tight_layout()
+        plt.savefig(output_path)
+        plt.close()
+
+        logging.info(f"{VISUAL_ID}: Saved to {output_path}")
+
+    except Exception as e:
+        logging.error(f"{VISUAL_ID}: Plotting failed - {str(e)}")
 
 
 C:\lwf\sbx-data-vis\code\visuals\__init__.py:
