@@ -14,7 +14,7 @@ INPUT_DIR = os.path.join(BASE_DIR, "data", "input")
 PARAM_DIR = os.path.join(INPUT_DIR, "params")
 
 ED_LAYOUT_FILE = os.path.join(INPUT_DIR, "rmc_emergency_export.csv")
-VIS_DRIVER_FILE = os.path.join(INPUT_DIR, "vis_driver.csv")
+VIS_DRIVER_FILE = os.path.join(PARAM_DIR, "vis_driver.csv")
 
 # =========================
 # DYNAMIC VISUAL LOADER

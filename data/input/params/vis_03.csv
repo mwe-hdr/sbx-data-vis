@@ -1,0 +1,26 @@
+param,value,description
+
+## ===== LABEL CONTROL =====
+label_threshold,0,Minimum value to display labels
+label_decimals,0,Decimal places for labels
+label_color,black,Label text color
+
+## ===== FIGURE =====
+fig_width,12,Figure width
+fig_height,6,Figure height
+dpi,100,Image resolution
+
+## ===== FONT SIZES =====
+title_fontsize,14,Title size
+axis_fontsize,11,Axis label size
+label_fontsize,9,Bar label size
+
+## ===== COLORS =====
+bar_color,#1f77b4,Bar color
+
+## ===== TITLE =====
+title,ED Visits by Year,Chart title
+
+## ===== AXIS =====
+y_axis_decimals,0,Y-axis decimal formatting
+y_axis_use_commas,True,Y-axis comma formatting

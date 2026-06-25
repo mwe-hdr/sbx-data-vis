@@ -1,0 +1,25 @@
+param,value,description
+,,
+## ===== LABELS =====,,
+label_threshold,0.01,Minimum percent to show labels
+label_decimals,1,Decimal places for labels
+label_color,black,Label color
+,,
+## ===== FIGURE =====,,
+fig_width,12,Figure width
+fig_height,6,Figure height
+dpi,100,Image DPI
+,,
+## ===== FONT SIZES =====,,
+title_fontsize,14,Title size
+axis_fontsize,11,Axis label size
+label_fontsize,9,Bar label size
+,,
+## ===== COLORS =====,,
+bar_color,#1f77b4,Bar color
+,,
+## ===== Y AXIS =====,,
+y_axis_mode,percent,Axis type
+y_axis_decimals,0,Decimals
+y_axis_multiplier,100,Multiplier
+y_axis_suffix,%,Suffix

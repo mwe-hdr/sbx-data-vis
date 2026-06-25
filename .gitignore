@@ -6,6 +6,10 @@
 *.twb
 *.twbx
 
-data/
+# Ignore all data
+data/*
 
-!code/**/*.csv
+# Re-allow params folder structure
+!data/input/
+!data/input/params/
+!data/input/params/**/*.csv
