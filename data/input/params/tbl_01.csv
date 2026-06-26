@@ -1,6 +1,5 @@
 param,value
-title,Encounter Summary by Year
+title,Inpatient Encounter Summary by Year
 format.discharge_fiscal_year,int
-format.encounters,comma
 format.patients,comma
 format.patient_days,comma

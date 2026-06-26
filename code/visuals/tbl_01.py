@@ -40,6 +40,7 @@ def _apply_formatting(df, params):
 
     return df_formatted
 
+
 def _safe_numeric(series, fill_value=0):
     """
     Safely convert a pandas Series to numeric.
@@ -50,11 +51,10 @@ def _safe_numeric(series, fill_value=0):
 
 def run(df, params, start_date, end_date, output_dir, generate_output_name):
     """
-    Table 01: Encounter, Patient, and Patient Days Summary by Year
+    Table 01: Patient and Patient Days Summary by Year
 
     Spec:
     - Group by discharge_fiscal_year
-    - encounters = row count
     - patients = sum(count_of_patients)
     - patient_days = sum(total_days)
     """
@@ -97,7 +97,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         working_df["total_days"], fill_value=0
     )
 
-    # Ensure year is usable (preserve original values but coerce)
+    # Ensure year is usable
     working_df["discharge_fiscal_year"] = pd.to_numeric(
         working_df["discharge_fiscal_year"], errors="coerce"
     )
@@ -118,7 +118,6 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             working_df
             .groupby("discharge_fiscal_year", as_index=False)
             .agg(
-                encounters=("discharge_fiscal_year", "count"),
                 patients=("count_of_patients", "sum"),
                 patient_days=("total_days", "sum")
             )
@@ -138,11 +137,10 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     agg_df = agg_df.sort_values("discharge_fiscal_year")
 
     # Convert to integer where appropriate
-    for col in ["discharge_fiscal_year", "encounters", "patients", "patient_days"]:
+    for col in ["discharge_fiscal_year", "patients", "patient_days"]:
         agg_df[col] = pd.to_numeric(agg_df[col], errors="coerce").fillna(0)
 
     agg_df["discharge_fiscal_year"] = agg_df["discharge_fiscal_year"].astype(int)
-    agg_df["encounters"] = agg_df["encounters"].astype(int)
     agg_df["patients"] = agg_df["patients"].astype(int)
     agg_df["patient_days"] = agg_df["patient_days"].astype(int)
 
@@ -171,7 +169,6 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         title = params.get("title", "")
         subtitle = params.get("cohort_desc")
 
-        # Open file manually for controlled write
         with open(output_path, "w", newline="", encoding="utf-8") as f:
 
             # Row 1 — title
@@ -180,7 +177,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             else:
                 f.write("\n")
 
-            # Row 2 — subtitle (or fallback to cohort_id)
+            # Row 2 — subtitle
             logger.info(f"[{VISUAL_ID}] cohort_desc value: {params.get('cohort_desc')}")
             if subtitle:
                 f.write(f"{subtitle}\n")
@@ -188,10 +185,10 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                 logger.warning(f"[{VISUAL_ID}] Missing cohort_desc — writing blank subtitle")
                 f.write("\n")
 
-            # Row 3 — blank spacer 
+            # Row 3 — blank spacer
             f.write("\n")
 
-            # Row 5 — actual table
+            # Table
             output_df.to_csv(f, index=False, quoting=1)
 
         logger.info(f"[{VISUAL_ID}] Saved output to: {output_path}")
