@@ -1,0 +1,73 @@
+
+Report Title:
+Encounter, Patient, and Patient Days Summary by Year
+
+GPT Paragraph Prompt:
+Generate a summary table showing annual totals of encounters, patients, and patient days using hospital encounter data. Group the dataset by discharge_fiscal_year and compute the following metrics: total encounters (row count), total patients (sum of count_of_patients), and total patient days (sum of total_days). Ensure the logic is flexible for any time range and handles missing values appropriately. Output the result as a formatted table and save to file (CSV and/or image if needed).
+
+Detailed Breakdown:
+
+- Data Preparation
+  - Use discharge_fiscal_year as the primary grouping field.
+  - Ensure numeric fields are properly typed:
+      - count_of_patients → numeric
+      - total_days → numeric
+  - Replace nulls in total_days with 0.
+  - Replace nulls in count_of_patients with 0 if present.
+
+- Derived Metrics
+
+  - Encounters
+    - Count total rows per year
+    - encounters = count(row_id)
+
+  - Patients
+    - Sum patient counts
+    - patients = sum(count_of_patients)
+
+  - Patient Days
+    - Sum total length-of-stay days
+    - patient_days = sum(total_days)
+
+- Aggregation
+
+  - Group by:
+      discharge_fiscal_year
+
+  - Compute:
+      encounters
+      patients
+      patient_days
+
+  - Sort output by:
+      discharge_fiscal_year ascending
+
+- Table Structure
+
+  Columns:
+      discharge_fiscal_year
+      encounters
+      patients
+      patient_days
+
+- Data Characteristics
+
+  - Encounters represent total visit volume
+  - Patients may exceed encounters depending on aggregation grain
+  - Patient days reflect total LOS burden
+  - Data may include:
+      inpatient
+      observation
+      mixed service lines
+
+- Output
+
+  - Save as CSV file (primary output)
+      Example:
+      tbl_01_summary_by_year.csv
+
+  - Optional:
+      Render as formatted image table (PNG)
+
+  - Filename should follow parameterized structure:
+      tbl_01_<cohort>_<start_date>_<end_date>.csv

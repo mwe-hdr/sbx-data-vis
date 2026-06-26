@@ -29,9 +29,33 @@ def initialize_run():
     return run_dir, output_dir
 
 
-def generate_output_name(visual_id, start_date, end_date, ext="png"):
+def generate_output_name(
+    *,
+    visual_id,
+    start_date,
+    end_date,
+    cohort_id=None,
+    ext="csv"
+):
+    def clean(val):
+        if val is None:
+            return ""
+        return (
+            str(val)
+            .replace("/", "-")   
+            .replace("\\", "-")  
+            .replace(" ", "_")
+            .replace(".", "_")
+        )
 
-    start_str = start_date.strftime("%Y%m%d")
-    end_str = end_date.strftime("%Y%m%d")
+    parts = [clean(visual_id)]
 
-    return f"{visual_id}_{start_str}_{end_str}.{ext}"
+    if cohort_id:
+        parts.append(clean(cohort_id))
+
+    if start_date and end_date:
+        parts.append(f"{clean(start_date)}_to_{clean(end_date)}")
+
+    filename = "__".join(parts) + f".{ext}"
+
+    return filename

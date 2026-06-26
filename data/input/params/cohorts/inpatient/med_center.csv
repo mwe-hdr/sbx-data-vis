@@ -1,0 +1,4 @@
+"name","param","value","description"
+"all.service.lines.excl.neonate.and.ob","filter","hospital_name == ""RL ECUH MEDICAL CENTER HOSPITAL"" and service_line not in [""Pediatrics"", ""Neonatology"", ""NEWBORN"", ""Obstetrics/Gyn"", ""Obstetrics"", ""Gynecology"", ""Maternal-Fetal Med""]","RL ECUH MEDICAL CENTER HOSPITAL - All service lines excluding Neonate and OB"
+"neonate.services","filter","hospital_name == ""RL ECUH MEDICAL CENTER HOSPITAL"" and service_line in [""Pediatrics"", ""Neonatology"", ""NEWBORN""]","RL ECUH MEDICAL CENTER HOSPITAL - Neonatal and pediatric-related services"
+"psychiatry","filter","hospital_name == ""RL ECUH MEDICAL CENTER HOSPITAL"" and service_line in [""Psychiatry""]","RL ECUH MEDICAL CENTER HOSPITAL - Psychiatry services"

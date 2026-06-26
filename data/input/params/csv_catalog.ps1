@@ -1,14 +1,14 @@
 param (
     [string]$RootFolder = ".",
-    [string]$OutputFile = "all_py_files .txt",
+    [string]$OutputFile = "all_csv_files .txt",
     [string[]]$ExcludeKeywords = @("venv", "__pycache__")  # Modify as needed
 )
 
 # Resolve full path
 $RootFolder = Resolve-Path $RootFolder
 
-# Get all .py files recursively
-$files = Get-ChildItem -Path $RootFolder -Recurse -Filter *.py -File | Where-Object {
+# Get all .csv files recursively
+$files = Get-ChildItem -Path $RootFolder -Recurse -Filter *.csv -File | Where-Object {
     $fullPath = $_.FullName
     # Exclude any file where path contains any keyword
     foreach ($keyword in $ExcludeKeywords) {

@@ -3,8 +3,9 @@ import logging
 import pandas as pd
 import importlib
 
-from utils.io_helpers import load_data, load_driver, load_params
+from utils.io_helpers import load_data, load_driver, load_params, load_cohort_params
 from utils.run_helpers import initialize_run, generate_output_name
+from utils.cohort_helpers import apply_filter
 
 # =========================
 # CONFIG
@@ -12,8 +13,10 @@ from utils.run_helpers import initialize_run, generate_output_name
 BASE_DIR = os.getcwd()
 INPUT_DIR = os.path.join(BASE_DIR, "data", "input")
 PARAM_DIR = os.path.join(INPUT_DIR, "params")
+COHORT_SUBDIR = "inpatient"  
+COHORT_DIR = os.path.join(PARAM_DIR, "cohorts", COHORT_SUBDIR)
 
-ED_LAYOUT_FILE = os.path.join(INPUT_DIR, "rmc_emergency_export.csv")
+ED_LAYOUT_FILE = os.path.join(INPUT_DIR, "ecu_hospital_encounters_export.csv")
 VIS_DRIVER_FILE = os.path.join(PARAM_DIR, "vis_driver.csv")
 
 # =========================
@@ -30,50 +33,66 @@ def get_visual_function(visual_id):
 # =========================
 # MAIN EXECUTION LOOP
 # =========================
-def run_visuals(df, driver_df, output_dir):
+def run_visuals(df, driver_df, cohorts, output_dir):
 
-    for _, row in driver_df.iterrows():
+    logging.info(f"[main] Loaded cohort keys:")
+    for k in cohorts.keys():
+        logging.info(f"[main] - {k}")
 
-        if row["enabled"] != 1:
+    for cohort_id, meta in cohorts.items():
+
+        logging.info(f"Running FULL cohort_id: {cohort_id}")
+        logging.info(f"[main] meta keys: {list(meta.keys())}")
+
+        cohort_df = apply_filter(df, meta.get("filter"))
+
+        if cohort_df.empty:
+            logging.warning(f"No data for {cohort_id}")
             continue
 
-        visual_id = row["visual_id"]
+        cohort_output_dir = os.path.join(output_dir, cohort_id)
+        os.makedirs(cohort_output_dir, exist_ok=True)
 
-        try:
-            start_date = pd.to_datetime(row["start_date"])
-            end_date = pd.to_datetime(row["end_date"])
-        except Exception:
-            logging.error(f"{visual_id}: Invalid date format")
-            continue
+        for _, row in driver_df.iterrows():
 
-        logging.info(f"Starting {visual_id}")
+            if int(row["enabled"]) != 1:
+                continue
 
-        func = get_visual_function(visual_id)
-        if func is None:
-            continue
+            visual_id = row["visual_id"]
 
-        params = load_params(PARAM_DIR, visual_id)
+            vis_func = get_visual_function(visual_id)
+            if vis_func is None:
+                continue
 
-        try:
-            func(df, params, start_date, end_date, output_dir, generate_output_name)
-            logging.info(f"Completed {visual_id}")
-        except Exception as e:
-            logging.error(f"{visual_id} failed: {str(e)}")
+            params = load_params(PARAM_DIR, visual_id) or {}
+            params = dict(params)
+
+            params["cohort_id"] = cohort_id
+            params["filter_str"] = meta.get("filter")
+            params["cohort_desc"] = meta.get("description")
+            logging.info(f"[main] Injecting cohort_desc: {meta.get('description')}")
+
+            vis_func(
+                cohort_df,
+                params,
+                row["start_date"],
+                row["end_date"],
+                cohort_output_dir,
+                generate_output_name   # ✅ pass directly
+            )
 
 # =========================
 # ENTRY POINT
 # =========================
 if __name__ == "__main__":
 
+    logging.basicConfig(level=logging.INFO)
+
     run_dir, output_dir = initialize_run()
 
     df = load_data(ED_LAYOUT_FILE)
     driver_df = load_driver(VIS_DRIVER_FILE)
 
-    logging.info("Starting visual execution")
+    cohorts = load_cohort_params(COHORT_DIR)
 
-    run_visuals(df, driver_df, output_dir)
-
-    logging.info("Run complete")
-
-    print(f"Run complete. Outputs located at:\n{run_dir}")
+    run_visuals(df, driver_df, cohorts, output_dir)

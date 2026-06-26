@@ -1,0 +1,4 @@
+"name","param","value","description"
+"all.operatingrooms.excl.endoscopy.and.ob","filter","location == ""RL SURGICENTER"" and or_room not in [""Obstetrics, Labor, Delivery OR"", ""Endoscopy Lab""]","RL SURGICENTER - Operating rooms excluding Endoscopy and OB"
+"endoscopy","filter","location == ""RL SURGICENTER"" and or_room in [""Endoscopy Lab""]","RL SURGICENTER - Endoscopy procedures"
+"ob","filter","location == ""RL SURGICENTER"" and or_room in [""Obstetrics, Labor, Delivery OR""]","RL SURGICENTER - Obstetrics operating room procedures"

@@ -5,18 +5,26 @@ project_root/
 ├── code/visuals/
 │   ├── __init__.py
 │   ├── vis_01.py
-│   ├── vis_02.py
+│   ├── vis_02.py...
 │
 ├── code/utils/
 │   ├── __init__.py
 │   ├── io_helpers.py
-│   ├── plotting_helpers.py   (optional)
+│   ├── vis_helpers.py  
 │
 ├── data/
 │   └── input/
-│       ├── ed_data.csv
-│       ├── vis_driver.csv
+│       ├── [input datafiles...].csv
 │       └── params/
-│           └── vis_01.csv
+│           ├── vis_driver.csv
+│           ├── vis_01.csv
+│           ├── vis_02.csv...
+│       	  └── cohorts/
+│        	       └── emergency/
+│                     └── [cohort name].csv...
+│       	       └── surgery/
+│                     └── [cohort name].csv...
+│       	       └── inpatient/
+│                     └── [cohort name].csv...
 │
 └── data/runs/

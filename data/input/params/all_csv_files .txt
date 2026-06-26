@@ -1,0 +1,551 @@
+﻿
+===== FILE START: C:\lwf\sbx-data-vis\data\input\params\vis_01.csv =====
+param,value,description,,
+label_threshold,0.02,Min percent to show labels,,
+,,,,
+# ===== LABEL FORMATTING =====,,,,
+label_decimals,0,Decimal places,,
+label_color,white,Label text color,,
+,,,,
+# ===== FIGURE =====,,,,
+fig_width,12,Figure width,,
+fig_height,6,Figure height,,
+dpi,100,Image resolution,,
+,,,,
+# ===== FONT SIZES =====,,,,
+title_fontsize,14,Title size,,
+axis_fontsize,11,Axis label size,,
+label_fontsize,7,Bar label size,,
+legend_fontsize,10,Legend font size,,
+,,,,
+# ===== LEGEND POSITION =====,,,,
+legend_position,upper left,Legend location,,
+legend_anchor_x,1.05,X anchor,,
+legend_anchor_y,1,Y anchor,,
+,,,,
+# ===== AXIS =====,,,,
+y_max,1,Y axis max,,
+,,,,
+# ===== COLORS (HEX REQUIRED) =====,,,,
+5 - Non-Urgent,#2ca02c,Color,,
+4 - Less Urgent,#8fd0ff,Color,,
+3 - Urgent,#1f77b4,Color,,
+2 - Emergent,#17becf,Color,,
+1 - Immediate,#ff7f0e,Color,,
+,,,,
+chart_mode,count,percent or count,,
+,,,,
+## ===== AXIS FORMATTING =====,,,,
+y_axis_mode,count,percent | count | raw,,
+y_axis_decimals,0,Number of decimals,,
+y_axis_multiplier,100,Multiply values (e.g., 100 for percent),
+y_axis_suffix,%,Suffix (%, , etc.)
+
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\data\input\params\vis_02.csv =====
+param,value,description,,
+fig_width,12,Figure width,,
+fig_height,6,Figure height,,
+dpi,100,Image resolution,,
+,,,,
+title_fontsize,14,Title font size,,
+axis_fontsize,11,Axis label font size,,
+label_fontsize,9,Bar label font size,,
+,,,,
+label_decimals,1,Decimal places for percent labels,,
+label_threshold,0.01,Minimum percent to display label,,
+,,,,
+max_bucket,24,Cap LOS buckets (e.g. >=24 grouped together),,
+,,,,
+## ===== AXIS FORMATTING =====,,,,
+,,,,
+y_axis_mode,percent,percent | count | raw,,
+y_axis_decimals,0,Number of decimals,,
+y_axis_multiplier,100,Multiply values (e.g., 100 for percent),
+y_axis_suffix,%,Suffix (%, , etc.)
+
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\data\input\params\vis_03.csv =====
+param,value,description
+
+## ===== LABEL CONTROL =====
+label_threshold,0,Minimum value to display labels
+label_decimals,0,Decimal places for labels
+label_color,black,Label text color
+
+## ===== FIGURE =====
+fig_width,12,Figure width
+fig_height,6,Figure height
+dpi,100,Image resolution
+
+## ===== FONT SIZES =====
+title_fontsize,14,Title size
+axis_fontsize,11,Axis label size
+label_fontsize,9,Bar label size
+
+## ===== COLORS =====
+bar_color,#1f77b4,Bar color
+
+## ===== TITLE =====
+title,ED Visits by Year,Chart title
+
+## ===== AXIS =====
+y_axis_decimals,0,Y-axis decimal formatting
+y_axis_use_commas,True,Y-axis comma formatting
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\data\input\params\vis_04.csv =====
+param,value,description
+,,
+## ===== LABEL CONTROL =====,,
+label_threshold,0.01,Min percent threshold for labels
+label_decimals,1,Decimal places for labels
+label_color,black,Label text color
+,,
+## ===== FIGURE =====,,
+fig_width,12,Figure width
+fig_height,6,Figure height
+dpi,100,Resolution
+,,
+## ===== FONT SIZES =====,,
+title_fontsize,14,Title size
+axis_fontsize,11,Axis labels
+label_fontsize,9,Bar label font
+,,
+## ===== AXIS FORMATTING =====,,
+y_axis_mode,percent,percent count raw
+y_axis_decimals,0,Decimals on axis
+y_axis_multiplier,100,Multiplier
+y_axis_suffix,%,Suffix
+,,
+## ===== COLORS =====,,
+0 - Unknown,#7f7f7f,Unknown color
+1 - Immediate,#ff7f0e,Immediate
+2 - Emergent,#17becf,Emergent
+3 - Urgent,#1f77b4,Urgent
+4 - Less Urgent,#2ca02c,Less urgent
+5 - Non-Urgent,#ffd966,Non-urgent
+
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\data\input\params\vis_05.csv =====
+param,value,description
+# ===== FIGURE =====,,
+fig_width,12,Figure width
+fig_height,6,Figure height
+dpi,100,Resolution
+,,
+# ===== FONTS =====,,
+title_fontsize,14,Title font size
+axis_fontsize,11,Axis font size
+label_fontsize,12,Label font size
+,,
+# ===== LINE STYLE =====,,
+line_color,#1f77b4,Line color
+marker,o,Marker style
+marker_size,4,Marker size
+,,
+# ===== LABEL CONTROL =====,,
+show_labels,TRUE,Show labels
+label_first_last_only,TRUE,Only label first/last point
+label_decimals,0,Decimal places
+,,
+# ===== AXIS =====,,
+y_axis_separator,TRUE,Use thousands separator
+,,
+# ===== AXIS RANGE =====,,
+y_min,5000,Minimum y-axis value (optional)
+y_max,7000,Maximum y-axis value (optional)
+,,
+# ===== TITLE =====,,
+title,Monthly ED Arrivals,Chart title
+
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\data\input\params\vis_06.csv =====
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\data\input\params\vis_07.csv =====
+param,value,description
+,,
+## ===== THRESHOLDS =====
+label_threshold,0,Minimum percent to display label
+group_other_threshold,0.065,Minimum percent before grouping into Other
+
+## ===== LABEL CONTROL =====
+show_counts,True,Include counts in labels
+show_percent,True,Include percent in labels
+label_decimals,1,Percent decimal precision
+
+## ===== FIGURE =====
+fig_width,6,Figure width
+fig_height,6,Figure height
+dpi,100,Resolution
+
+## ===== COLORS =====
+color_ambulance,#1f77b4,Ambulance
+color_car,#ff7f0e,Car
+color_wheelchair,#d62728,Wheelchair
+color_other,#7f7f7f,Other
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\data\input\params\vis_08.csv =====
+param,value
+
+# =========================
+# DATE RANGE (optional override)
+# =========================
+start_date,2025-01-01
+end_date,2025-12-31
+
+# =========================
+# FIGURE SETTINGS
+# =========================
+figure_width,14
+figure_height,6
+dpi,150
+
+# =========================
+# TITLE / LABELS
+# =========================
+chart_title,ED Minute-Level Census Trend with Capacity Reference Line
+x_label,Time
+y_label,ED Census
+
+title_fontsize,16
+label_fontsize,12
+tick_fontsize,10
+
+# =========================
+# LINE STYLING
+# =========================
+line_color,#1f77b4
+line_width,0.8
+
+# =========================
+# CAPACITY LINE
+# =========================
+capacity_value,39
+capacity_linestyle,--
+capacity_linewidth,1.5
+
+# =========================
+# ABOVE CAPACITY 
+# =========================
+capacity_threshold_pct,0.8
+below_color,#000000
+above_color,#d62728
+
+# =========================
+# AVERAGE LINE
+# =========================
+include_avg_line,True
+avg_line_color,#000000
+avg_linestyle,:
+avg_linewidth,1.5
+
+# =========================
+# AXIS FORMATTING
+# =========================
+auto_format_dates,True
+rotate_x_labels,True
+
+# =========================
+# LEGEND
+# =========================
+show_legend,True
+legend_fontsize,10
+
+# =========================
+# OUTPUT CONTROL
+# =========================
+save_png,True
+save_csv,True
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\data\input\params\vis_09.csv =====
+param,value,description
+title,ED Patient Flow Sankey,Chart title
+
+## ===== FIGURE =====
+fig_width,1200,Width in pixels
+fig_height,900,Height in pixels
+
+top_anchor_y,0.02,Top lock alignment
+cascade_start_offset,0.35,Start of right cascade
+cascade_step,0.08,Spacing between cascade nodes
+
+## ===== FONT CONTROL =====
+font_family,Arial,Global font family
+node_font_size,16,Node label font size
+title_font_size,24,Chart title font size
+title_x,0.01,Title horizontal alignment
+node_font_color,#1a1a1a,Node label color
+label_min_pct,0.00,Hide labels below threshold
+
+## ===== STYLE =====
+flow_opacity,0.3,Link opacity
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\data\input\params\vis_10.csv =====
+param,value,description
+
+# ===== CORE PARAMETERS =====
+variable_10_year_growth,0.0,Growth adjustment factor
+peak_period_start,13,Start hour for peak period
+peak_period_length_hours,10,Length of peak period
+utilization,0.75,Capacity utilization factor
+
+# ===== FIGURE =====
+fig_width,14,Figure width
+fig_height,7,Figure height
+dpi,100,Image resolution
+
+# ===== COLORS =====
+peak_bar_color,teal,Peak bars
+offpeak_bar_color,gray,Off-peak bars
+p70_color,green,P70 line
+p80_color,yellow,P80 line
+p90_color,orange,P90 line
+peak_line_color,darkblue,Peak census line
+room_need_color,darkred,Room need line
+
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\data\input\params\vis_driver.csv =====
+visual_id,enabled,start_date,end_date
+vis_01,1,1/1/2025,12/31/2025
+vis_02,1,1/1/2025,12/31/2025
+vis_03,1,1/1/2023,12/31/2025
+vis_04,1,1/1/2025,12/31/2025
+vis_05,1,1/1/2025,12/31/2025
+vis_06,1,1/1/2025,12/31/2025
+vis_07,1,1/1/2025,12/31/2025
+vis_08,1,1/1/2025,12/31/2025
+vis_09,1,1/1/2025,12/31/2025
+vis_10,1,1/1/2025,12/31/2025
+
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\data\input\params\cohorts\emergency\beaufort.csv =====
+"name","param","value"
+"all.emergency","filter","hospital_name == ""RL ECUH BEAUFORT HOSPITAL"""
+
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\data\input\params\cohorts\emergency\bertie.csv =====
+"name","param","value"
+"all.emergency","filter","hospital_name == ""RL ECUH BERTIE HOSPITAL"""
+
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\data\input\params\cohorts\emergency\chowan.csv =====
+"name","param","value"
+"all.emergency","filter","hospital_name == ""RL ECUH CHOWAN HOSPITAL"""
+
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\data\input\params\cohorts\emergency\duplin.csv =====
+"name","param","value"
+"all.emergency","filter","hospital_name == ""RL ECUH DUPLIN HOSPITAL"""
+
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\data\input\params\cohorts\emergency\edgecombe.csv =====
+"name","param","value"
+"all.emergency","filter","hospital_name == ""RL ECUH EDGECOMBE HOSPITAL"""
+
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\data\input\params\cohorts\emergency\med_center.csv =====
+"name","param","value"
+"all.emergency","filter","hospital_name == ""RL ECUH MEDICAL CENTER HOSPITAL"""
+
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\data\input\params\cohorts\emergency\north.csv =====
+"name","param","value"
+"all.emergency","filter","hospital_name == ""RL ECUH NORTH HOSPITAL"""
+
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\data\input\params\cohorts\emergency\outer_banks.csv =====
+"name","param","value"
+"all.emergency","filter","hospital_name == ""RL OUTER BANKS HEALTH"""
+
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\data\input\params\cohorts\emergency\roanoke_chowan.csv =====
+"name","param","value"
+"all.emergency","filter","hospital_name == ""RL ECUH ROANOKE CHOWAN HOSPITAL"""
+
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\data\input\params\cohorts\emergency\surgicenter.csv =====
+"name","param","value"
+"all.emergency","filter","hospital_name == ""RL SURGICENTER"""
+
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\data\input\params\cohorts\inpatient\beaufort.csv =====
+"name","param","value"
+"all.service.lines.excl.neonate.and.ob","filter","hospital_name == ""RL ECUH BEAUFORT HOSPITAL"" and service_line not in [""Pediatrics"", ""Neonatology"", ""NEWBORN"", ""Obstetrics/Gyn"", ""Obstetrics"", ""Gynecology"", ""Maternal-Fetal Med""]"
+"neonate.services","filter","hospital_name == ""RL ECUH BEAUFORT HOSPITAL"" and service_line in [""Pediatrics"", ""Neonatology"", ""NEWBORN""]"
+"psychiatry","filter","hospital_name == ""RL ECUH BEAUFORT HOSPITAL"" and service_line in [""Psychiatry""]"
+
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\data\input\params\cohorts\inpatient\bertie.csv =====
+"name","param","value"
+"all.service.lines.excl.neonate.and.ob","filter","hospital_name == ""RL ECUH BERTIE HOSPITAL"" and service_line not in [""Pediatrics"", ""Neonatology"", ""NEWBORN"", ""Obstetrics/Gyn"", ""Obstetrics"", ""Gynecology"", ""Maternal-Fetal Med""]"
+"neonate.services","filter","hospital_name == ""RL ECUH BERTIE HOSPITAL"" and service_line in [""Pediatrics"", ""Neonatology"", ""NEWBORN""]"
+"psychiatry","filter","hospital_name == ""RL ECUH BERTIE HOSPITAL"" and service_line in [""Psychiatry""]"
+
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\data\input\params\cohorts\inpatient\chowan.csv =====
+"name","param","value"
+"all.service.lines.excl.neonate.and.ob","filter","hospital_name == ""RL ECUH CHOWAN HOSPITAL"" and service_line not in [""Pediatrics"", ""Neonatology"", ""NEWBORN"", ""Obstetrics/Gyn"", ""Obstetrics"", ""Gynecology"", ""Maternal-Fetal Med""]"
+"neonate.services","filter","hospital_name == ""RL ECUH CHOWAN HOSPITAL"" and service_line in [""Pediatrics"", ""Neonatology"", ""NEWBORN""]"
+"psychiatry","filter","hospital_name == ""RL ECUH CHOWAN HOSPITAL"" and service_line in [""Psychiatry""]"
+
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\data\input\params\cohorts\inpatient\duplin.csv =====
+"name","param","value"
+"all.service.lines.excl.neonate.and.ob","filter","hospital_name == ""RL ECUH DUPLIN HOSPITAL"" and service_line not in [""Pediatrics"", ""Neonatology"", ""NEWBORN"", ""Obstetrics/Gyn"", ""Obstetrics"", ""Gynecology"", ""Maternal-Fetal Med""]"
+"neonate.services","filter","hospital_name == ""RL ECUH DUPLIN HOSPITAL"" and service_line in [""Pediatrics"", ""Neonatology"", ""NEWBORN""]"
+"psychiatry","filter","hospital_name == ""RL ECUH DUPLIN HOSPITAL"" and service_line in [""Psychiatry""]"
+
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\data\input\params\cohorts\inpatient\edgecombe.csv =====
+"name","param","value"
+"all.service.lines.excl.neonate.and.ob","filter","hospital_name == ""RL ECUH EDGECOMBE HOSPITAL"" and service_line not in [""Pediatrics"", ""Neonatology"", ""NEWBORN"", ""Obstetrics/Gyn"", ""Obstetrics"", ""Gynecology"", ""Maternal-Fetal Med""]"
+"neonate.services","filter","hospital_name == ""RL ECUH EDGECOMBE HOSPITAL"" and service_line in [""Pediatrics"", ""Neonatology"", ""NEWBORN""]"
+"psychiatry","filter","hospital_name == ""RL ECUH EDGECOMBE HOSPITAL"" and service_line in [""Psychiatry""]"
+
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\data\input\params\cohorts\inpatient\med_center.csv =====
+"name","param","value"
+"all.service.lines.excl.neonate.and.ob","filter","hospital_name == ""RL ECUH MEDICAL CENTER HOSPITAL"" and service_line not in [""Pediatrics"", ""Neonatology"", ""NEWBORN"", ""Obstetrics/Gyn"", ""Obstetrics"", ""Gynecology"", ""Maternal-Fetal Med""]"
+"neonate.services","filter","hospital_name == ""RL ECUH MEDICAL CENTER HOSPITAL"" and service_line in [""Pediatrics"", ""Neonatology"", ""NEWBORN""]"
+"psychiatry","filter","hospital_name == ""RL ECUH MEDICAL CENTER HOSPITAL"" and service_line in [""Psychiatry""]"
+
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\data\input\params\cohorts\inpatient\north.csv =====
+"name","param","value"
+"all.service.lines.excl.neonate.and.ob","filter","hospital_name == ""RL ECUH NORTH HOSPITAL"" and service_line not in [""Pediatrics"", ""Neonatology"", ""NEWBORN"", ""Obstetrics/Gyn"", ""Obstetrics"", ""Gynecology"", ""Maternal-Fetal Med""]"
+"neonate.services","filter","hospital_name == ""RL ECUH NORTH HOSPITAL"" and service_line in [""Pediatrics"", ""Neonatology"", ""NEWBORN""]"
+"psychiatry","filter","hospital_name == ""RL ECUH NORTH HOSPITAL"" and service_line in [""Psychiatry""]"
+
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\data\input\params\cohorts\inpatient\outer_banks.csv =====
+"name","param","value"
+"all.service.lines.excl.neonate.and.ob","filter","hospital_name == ""RL OUTER BANKS HEALTH"" and service_line not in [""Pediatrics"", ""Neonatology"", ""NEWBORN"", ""Obstetrics/Gyn"", ""Obstetrics"", ""Gynecology"", ""Maternal-Fetal Med""]"
+"neonate.services","filter","hospital_name == ""RL OUTER BANKS HEALTH"" and service_line in [""Pediatrics"", ""Neonatology"", ""NEWBORN""]"
+"psychiatry","filter","hospital_name == ""RL OUTER BANKS HEALTH"" and service_line in [""Psychiatry""]"
+
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\data\input\params\cohorts\inpatient\roanoke_chowan.csv =====
+"name","param","value"
+"all.service.lines.excl.neonate.and.ob","filter","hospital_name == ""RL ECUH ROANOKE CHOWAN HOSPITAL"" and service_line not in [""Pediatrics"", ""Neonatology"", ""NEWBORN"", ""Obstetrics/Gyn"", ""Obstetrics"", ""Gynecology"", ""Maternal-Fetal Med""]"
+"neonate.services","filter","hospital_name == ""RL ECUH ROANOKE CHOWAN HOSPITAL"" and service_line in [""Pediatrics"", ""Neonatology"", ""NEWBORN""]"
+"psychiatry","filter","hospital_name == ""RL ECUH ROANOKE CHOWAN HOSPITAL"" and service_line in [""Psychiatry""]"
+
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\data\input\params\cohorts\inpatient\surgicenter.csv =====
+"name","param","value"
+"all.service.lines.excl.neonate.and.ob","filter","hospital_name == ""RL SURGICENTER"" and service_line not in [""Pediatrics"", ""Neonatology"", ""NEWBORN"", ""Obstetrics/Gyn"", ""Obstetrics"", ""Gynecology"", ""Maternal-Fetal Med""]"
+"neonate.services","filter","hospital_name == ""RL SURGICENTER"" and service_line in [""Pediatrics"", ""Neonatology"", ""NEWBORN""]"
+"psychiatry","filter","hospital_name == ""RL SURGICENTER"" and service_line in [""Psychiatry""]"
+
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\data\input\params\cohorts\surgery\beaufort.csv =====
+"name","param","value"
+"all.operatingrooms.excl.endoscopy.and.ob","filter","location == ""RL ECUH BEAUFORT HOSPITAL"" and or_room not in [""Obstetrics, Labor, Delivery OR"", ""Endoscopy Lab""]"
+"endoscopy","filter","location == ""RL ECUH BEAUFORT HOSPITAL"" and or_room in [""Endoscopy Lab""]"
+"ob","filter","location == ""RL ECUH BEAUFORT HOSPITAL"" and or_room in [""Obstetrics, Labor, Delivery OR""]"
+
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\data\input\params\cohorts\surgery\bertie.csv =====
+"name","param","value"
+"all.operatingrooms.excl.endoscopy.and.ob","filter","location == ""RL ECUH BERTIE HOSPITAL"" and or_room not in [""Obstetrics, Labor, Delivery OR"", ""Endoscopy Lab""]"
+"endoscopy","filter","location == ""RL ECUH BERTIE HOSPITAL"" and or_room in [""Endoscopy Lab""]"
+"ob","filter","location == ""RL ECUH BERTIE HOSPITAL"" and or_room in [""Obstetrics, Labor, Delivery OR""]"
+
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\data\input\params\cohorts\surgery\chowan.csv =====
+"name","param","value"
+"all.operatingrooms.excl.endoscopy.and.ob","filter","location == ""RL ECUH CHOWAN HOSPITAL"" and or_room not in [""Obstetrics, Labor, Delivery OR"", ""Endoscopy Lab""]"
+"endoscopy","filter","location == ""RL ECUH CHOWAN HOSPITAL"" and or_room in [""Endoscopy Lab""]"
+"ob","filter","location == ""RL ECUH CHOWAN HOSPITAL"" and or_room in [""Obstetrics, Labor, Delivery OR""]"
+
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\data\input\params\cohorts\surgery\duplin.csv =====
+"name","param","value"
+"all.operatingrooms.excl.endoscopy.and.ob","filter","location == ""RL ECUH DUPLIN HOSPITAL"" and or_room not in [""Obstetrics, Labor, Delivery OR"", ""Endoscopy Lab""]"
+"endoscopy","filter","location == ""RL ECUH DUPLIN HOSPITAL"" and or_room in [""Endoscopy Lab""]"
+"ob","filter","location == ""RL ECUH DUPLIN HOSPITAL"" and or_room in [""Obstetrics, Labor, Delivery OR""]"
+
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\data\input\params\cohorts\surgery\edgecombe.csv =====
+"name","param","value"
+"all.operatingrooms.excl.endoscopy.and.ob","filter","location == ""RL ECUH EDGECOMBE HOSPITAL"" and or_room not in [""Obstetrics, Labor, Delivery OR"", ""Endoscopy Lab""]"
+"endoscopy","filter","location == ""RL ECUH EDGECOMBE HOSPITAL"" and or_room in [""Endoscopy Lab""]"
+"ob","filter","location == ""RL ECUH EDGECOMBE HOSPITAL"" and or_room in [""Obstetrics, Labor, Delivery OR""]"
+
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\data\input\params\cohorts\surgery\med_center.csv =====
+"name","param","value"
+"all.operatingrooms.excl.endoscopy.and.ob","filter","location == ""RL ECUH MEDICAL CENTER HOSPITAL"" and or_room not in [""Obstetrics, Labor, Delivery OR"", ""Endoscopy Lab""]"
+"endoscopy","filter","location == ""RL ECUH MEDICAL CENTER HOSPITAL"" and or_room in [""Endoscopy Lab""]"
+"ob","filter","location == ""RL ECUH MEDICAL CENTER HOSPITAL"" and or_room in [""Obstetrics, Labor, Delivery OR""]"
+
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\data\input\params\cohorts\surgery\north.csv =====
+"name","param","value"
+"all.operatingrooms.excl.endoscopy.and.ob","filter","location == ""RL ECUH NORTH HOSPITAL"" and or_room not in [""Obstetrics, Labor, Delivery OR"", ""Endoscopy Lab""]"
+"endoscopy","filter","location == ""RL ECUH NORTH HOSPITAL"" and or_room in [""Endoscopy Lab""]"
+"ob","filter","location == ""RL ECUH NORTH HOSPITAL"" and or_room in [""Obstetrics, Labor, Delivery OR""]"
+
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\data\input\params\cohorts\surgery\outer_banks.csv =====
+"name","param","value"
+"all.operatingrooms.excl.endoscopy.and.ob","filter","location == ""RL OUTER BANKS HEALTH"" and or_room not in [""Obstetrics, Labor, Delivery OR"", ""Endoscopy Lab""]"
+"endoscopy","filter","location == ""RL OUTER BANKS HEALTH"" and or_room in [""Endoscopy Lab""]"
+"ob","filter","location == ""RL OUTER BANKS HEALTH"" and or_room in [""Obstetrics, Labor, Delivery OR""]"
+
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\data\input\params\cohorts\surgery\roanoke_chowan.csv =====
+"name","param","value"
+"all.operatingrooms.excl.endoscopy.and.ob","filter","location == ""RL ECUH ROANOKE CHOWAN HOSPITAL"" and or_room not in [""Obstetrics, Labor, Delivery OR"", ""Endoscopy Lab""]"
+"endoscopy","filter","location == ""RL ECUH ROANOKE CHOWAN HOSPITAL"" and or_room in [""Endoscopy Lab""]"
+"ob","filter","location == ""RL ECUH ROANOKE CHOWAN HOSPITAL"" and or_room in [""Obstetrics, Labor, Delivery OR""]"
+
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\data\input\params\cohorts\surgery\surgicenter.csv =====
+"name","param","value"
+"all.operatingrooms.excl.endoscopy.and.ob","filter","location == ""RL SURGICENTER"" and or_room not in [""Obstetrics, Labor, Delivery OR"", ""Endoscopy Lab""]"
+"endoscopy","filter","location == ""RL SURGICENTER"" and or_room in [""Endoscopy Lab""]"
+"ob","filter","location == ""RL SURGICENTER"" and or_room in [""Obstetrics, Labor, Delivery OR""]"
+
+===== FILE END =====
+

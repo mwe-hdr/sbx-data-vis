@@ -1,0 +1,4 @@
+"name","param","value","description"
+"all.operatingrooms.excl.endoscopy.and.ob","filter","location == ""RL ECUH BERTIE HOSPITAL"" and or_room not in [""Obstetrics, Labor, Delivery OR"", ""Endoscopy Lab""]","RL ECUH BERTIE HOSPITAL - Operating rooms excluding Endoscopy and OB"
+"endoscopy","filter","location == ""RL ECUH BERTIE HOSPITAL"" and or_room in [""Endoscopy Lab""]","RL ECUH BERTIE HOSPITAL - Endoscopy procedures"
+"ob","filter","location == ""RL ECUH BERTIE HOSPITAL"" and or_room in [""Obstetrics, Labor, Delivery OR""]","RL ECUH BERTIE HOSPITAL - Obstetrics operating room procedures"

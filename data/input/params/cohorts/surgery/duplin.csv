@@ -1,0 +1,4 @@
+"name","param","value","description"
+"all.operatingrooms.excl.endoscopy.and.ob","filter","location == ""RL ECUH DUPLIN HOSPITAL"" and or_room not in [""Obstetrics, Labor, Delivery OR"", ""Endoscopy Lab""]","RL ECUH DUPLIN HOSPITAL - Operating rooms excluding Endoscopy and OB"
+"endoscopy","filter","location == ""RL ECUH DUPLIN HOSPITAL"" and or_room in [""Endoscopy Lab""]","RL ECUH DUPLIN HOSPITAL - Endoscopy procedures"
+"ob","filter","location == ""RL ECUH DUPLIN HOSPITAL"" and or_room in [""Obstetrics, Labor, Delivery OR""]","RL ECUH DUPLIN HOSPITAL - Obstetrics operating room procedures"

@@ -1,0 +1,4 @@
+"name","param","value","description"
+"all.operatingrooms.excl.endoscopy.and.ob","filter","location == ""RL OUTER BANKS HEALTH"" and or_room not in [""Obstetrics, Labor, Delivery OR"", ""Endoscopy Lab""]","RL OUTER BANKS HEALTH - Operating rooms excluding Endoscopy and OB"
+"endoscopy","filter","location == ""RL OUTER BANKS HEALTH"" and or_room in [""Endoscopy Lab""]","RL OUTER BANKS HEALTH - Endoscopy procedures"
+"ob","filter","location == ""RL OUTER BANKS HEALTH"" and or_room in [""Obstetrics, Labor, Delivery OR""]","RL OUTER BANKS HEALTH - Obstetrics operating room procedures"

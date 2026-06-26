@@ -1,0 +1,2 @@
+"name","param","value","description"
+"all.emergency","filter","hospital_name == ""RL ECUH MEDICAL CENTER HOSPITAL""","All emergency encounters at RL ECUH MEDICAL CENTER HOSPITAL"
