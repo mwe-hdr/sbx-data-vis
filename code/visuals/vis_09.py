@@ -131,6 +131,53 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     ])}
 
     # -----------------------------
+    # COLOR SCALE (FIXED ORDERED FLOW)
+    # -----------------------------
+
+    blue_scale = [
+        "#0B3C5D",  
+        "#0E4E73",
+        "#145DA0",
+        "#1B6FAF",
+        "#1E81B0",
+        "#2E8BC0",
+        "#4BA3C7",
+        "#76B5C5",
+        "#9DCBE0",
+        "#C3DDF0",
+        "#E3F2FA"   
+    ]
+
+    # Define logical flow order (NOT tied to rendering order)
+    ordered_flow = [
+        "Arrival",
+        "Triage",
+        "ED Treatment",
+        "Discharge",
+        "Inpatient",
+        "Observation",
+        "Transfer",
+        "Exit Without Care",
+        "Expired",
+        "Left Before ED",
+        "No Triage"
+    ]
+
+    # Assign scale progressively
+    color_map = {}
+    for i, name in enumerate(ordered_flow):
+        color_map = {
+            name: blue_scale[i]
+            for i, name in enumerate(ordered_flow)
+        }
+
+    # Apply colors in ACTUAL node order (preserves layout)
+    node_colors = [
+        color_map.get(name, blue_scale[-1])
+        for name in idx.keys()
+    ]
+
+    # -----------------------------
     # LINKS
     # -----------------------------
     sources, targets, values = [], [], []
@@ -207,6 +254,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             pad=25,
             thickness=28,
             label=nodes,
+            color=node_colors,   
             y=node_y,
             x=node_x
         ),

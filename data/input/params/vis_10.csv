@@ -1,0 +1,21 @@
+param,value,description
+
+# ===== CORE PARAMETERS =====
+variable_10_year_growth,0.0,Growth adjustment factor
+peak_period_start,13,Start hour for peak period
+peak_period_length_hours,10,Length of peak period
+utilization,0.75,Capacity utilization factor
+
+# ===== FIGURE =====
+fig_width,14,Figure width
+fig_height,7,Figure height
+dpi,100,Image resolution
+
+# ===== COLORS =====
+peak_bar_color,teal,Peak bars
+offpeak_bar_color,gray,Off-peak bars
+p70_color,green,P70 line
+p80_color,yellow,P80 line
+p90_color,orange,P90 line
+peak_line_color,darkblue,Peak census line
+room_need_color,darkred,Room need line
