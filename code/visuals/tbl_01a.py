@@ -5,7 +5,7 @@ from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 from openpyxl.styles import numbers
 
-VISUAL_ID = "tbl_01"
+VISUAL_ID = "tbl_01a"
 logger = logging.getLogger(__name__)
 
 
@@ -28,7 +28,6 @@ def _apply_formatting(df, params):
             df_formatted[col] = df_formatted[col].astype(int)
 
         elif fmt in ["comma", "float1", "float0", "percent"]:
-            # ✅ keep numeric (no string formatting)
             df_formatted[col] = pd.to_numeric(df_formatted[col], errors="coerce")
 
     return df_formatted
@@ -49,7 +48,8 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     required_cols = {
         "discharge_fiscal_year",
         "count_of_patients",
-        "total_days"
+        "total_days",
+        "service_line"
     }
 
     missing = required_cols - set(df.columns)
@@ -81,7 +81,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         working_df["discharge_fiscal_year"], errors="coerce"
     )
 
-    working_df = working_df.dropna(subset=["discharge_fiscal_year"])
+    working_df = working_df.dropna(subset=["discharge_fiscal_year", "service_line"])
 
     if working_df.empty:
         logger.warning(f"[{VISUAL_ID}] No valid rows after cleaning")
@@ -94,7 +94,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     try:
         agg_df = (
             working_df
-            .groupby("discharge_fiscal_year", as_index=False)
+            .groupby(["discharge_fiscal_year", "service_line"], as_index=False)
             .agg(
                 patients=("count_of_patients", "sum"),
                 patient_days=("total_days", "sum")
@@ -113,8 +113,8 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     # --------------------------------------------------
 
     agg_df = agg_df.sort_values(
-        by="discharge_fiscal_year",
-        ascending=False
+        by=["discharge_fiscal_year", "patients"],
+        ascending=[False, False]
     )
 
     for col in ["discharge_fiscal_year", "patients", "patient_days"]:
@@ -189,7 +189,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             if not fmt:
                 continue
 
-            for cell in ws[col_letter][1:]:  # skip header
+            for cell in ws[col_letter][1:]:  # skip header row
                 if cell.value is None:
                     continue
 

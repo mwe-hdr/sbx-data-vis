@@ -1,0 +1,18 @@
+param,value
+title,Surgical Encounter Summary by Year and OR Type
+subtitle1,Durations reported in mintues
+format.year,int
+format.encounter_count,int
+format.min_duration,float1
+format.median_duration,float1
+format.mode_duration,float1
+format.mean_duration,float1
+format.max_duration,float1
+colwidth.year,9
+colwidth.or_type,25
+colwidth.encounter_count,15
+colwidth.min_duration,15
+colwidth.median_duration,15
+colwidth.mode_duration,15
+colwidth.mean_duration,15
+colwidth.max_duration,15

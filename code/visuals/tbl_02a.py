@@ -5,7 +5,7 @@ from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 from openpyxl.styles import numbers
 
-VISUAL_ID = "tbl_01"
+VISUAL_ID = "tbl_02a"
 logger = logging.getLogger(__name__)
 
 
@@ -28,7 +28,7 @@ def _apply_formatting(df, params):
             df_formatted[col] = df_formatted[col].astype(int)
 
         elif fmt in ["comma", "float1", "float0", "percent"]:
-            # ✅ keep numeric (no string formatting)
+            # ✅ keep numeric for Excel formatting
             df_formatted[col] = pd.to_numeric(df_formatted[col], errors="coerce")
 
     return df_formatted
@@ -36,6 +36,14 @@ def _apply_formatting(df, params):
 
 def _safe_numeric(series, fill_value=0):
     return pd.to_numeric(series, errors="coerce").fillna(fill_value)
+
+
+def _calculate_mode(series):
+    try:
+        mode_series = series.mode(dropna=True)
+        return mode_series.iloc[0] if not mode_series.empty else None
+    except Exception:
+        return None
 
 
 def run(df, params, start_date, end_date, output_dir, generate_output_name):
@@ -47,9 +55,9 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     # --------------------------------------------------
 
     required_cols = {
-        "discharge_fiscal_year",
-        "count_of_patients",
-        "total_days"
+        "wheels_in_dtm",
+        "wheels_out_dtm",
+        "or_type"
     }
 
     missing = required_cols - set(df.columns)
@@ -66,25 +74,49 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     logger.info(f"[{VISUAL_ID}] Input rows: {len(working_df):,}")
 
     # --------------------------------------------------
-    # ✅ Data Preparation
+    # ✅ Datetime handling
     # --------------------------------------------------
 
-    working_df["count_of_patients"] = _safe_numeric(
-        working_df["count_of_patients"], fill_value=0
+    working_df["wheels_in_dtm"] = pd.to_datetime(
+        working_df["wheels_in_dtm"], errors="coerce"
+    )
+    working_df["wheels_out_dtm"] = pd.to_datetime(
+        working_df["wheels_out_dtm"], errors="coerce"
     )
 
-    working_df["total_days"] = _safe_numeric(
-        working_df["total_days"], fill_value=0
-    )
-
-    working_df["discharge_fiscal_year"] = pd.to_numeric(
-        working_df["discharge_fiscal_year"], errors="coerce"
-    )
-
-    working_df = working_df.dropna(subset=["discharge_fiscal_year"])
+    working_df = working_df.dropna(subset=["wheels_in_dtm", "wheels_out_dtm"])
 
     if working_df.empty:
-        logger.warning(f"[{VISUAL_ID}] No valid rows after cleaning")
+        logger.warning(f"[{VISUAL_ID}] No valid datetime rows")
+        return
+
+    # --------------------------------------------------
+    # ✅ Duration
+    # --------------------------------------------------
+
+    working_df["duration_minutes"] = (
+        working_df["wheels_out_dtm"] - working_df["wheels_in_dtm"]
+    ).dt.total_seconds() / 60.0
+
+    working_df["duration_minutes"] = _safe_numeric(
+        working_df["duration_minutes"]
+    )
+
+    working_df = working_df[working_df["duration_minutes"] > 0]
+
+    if working_df.empty:
+        logger.warning(f"[{VISUAL_ID}] No valid duration rows")
+        return
+
+    # --------------------------------------------------
+    # ✅ Year
+    # --------------------------------------------------
+
+    working_df["year"] = working_df["wheels_out_dtm"].dt.year
+    working_df = working_df.dropna(subset=["year"])
+
+    if working_df.empty:
+        logger.warning(f"[{VISUAL_ID}] No valid year values")
         return
 
     # --------------------------------------------------
@@ -94,12 +126,26 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     try:
         agg_df = (
             working_df
-            .groupby("discharge_fiscal_year", as_index=False)
+            .groupby(["year", "or_type"])
             .agg(
-                patients=("count_of_patients", "sum"),
-                patient_days=("total_days", "sum")
+                encounter_count=("duration_minutes", "count"),
+                min_duration=("duration_minutes", "min"),
+                median_duration=("duration_minutes", "median"),
+                mean_duration=("duration_minutes", "mean"),
+                max_duration=("duration_minutes", "max"),
             )
+            .reset_index()
         )
+
+        mode_df = (
+            working_df
+            .groupby(["year", "or_type"])["duration_minutes"]
+            .apply(_calculate_mode)
+            .reset_index(name="mode_duration")
+        )
+
+        agg_df = agg_df.merge(mode_df, on=["year", "or_type"], how="left")
+
     except Exception as e:
         logger.error(f"[{VISUAL_ID}] Aggregation failed: {e}")
         return
@@ -113,16 +159,15 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     # --------------------------------------------------
 
     agg_df = agg_df.sort_values(
-        by="discharge_fiscal_year",
-        ascending=False
+        by=["year", "encounter_count"],
+        ascending=[False, False]
     )
 
-    for col in ["discharge_fiscal_year", "patients", "patient_days"]:
-        agg_df[col] = pd.to_numeric(agg_df[col], errors="coerce").fillna(0)
+    for col in agg_df.columns:
+        if col not in ["year", "or_type"]:
+            agg_df[col] = pd.to_numeric(agg_df[col], errors="coerce")
 
-    agg_df["discharge_fiscal_year"] = agg_df["discharge_fiscal_year"].astype(int)
-    agg_df["patients"] = agg_df["patients"].astype(int)
-    agg_df["patient_days"] = agg_df["patient_days"].astype(int)
+    agg_df["year"] = agg_df["year"].astype(int)
 
     logger.info(f"[{VISUAL_ID}] Output rows: {len(agg_df):,}")
 
@@ -205,7 +250,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                 elif fmt == "percent":
                     cell.number_format = '0.0%'
 
-        # ✅ Freeze pane
+        # ✅ Freeze header row
         ws.freeze_panes = "A6"
 
         wb.save(output_path)

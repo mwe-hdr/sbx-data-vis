@@ -5,7 +5,7 @@ from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 from openpyxl.styles import numbers
 
-VISUAL_ID = "tbl_01"
+VISUAL_ID = "tbl_02"
 logger = logging.getLogger(__name__)
 
 
@@ -27,8 +27,16 @@ def _apply_formatting(df, params):
         if fmt == "int":
             df_formatted[col] = df_formatted[col].astype(int)
 
-        elif fmt in ["comma", "float1", "float0", "percent"]:
-            # ✅ keep numeric (no string formatting)
+        elif fmt == "comma":
+            df_formatted[col] = pd.to_numeric(df_formatted[col], errors="coerce")
+
+        elif fmt == "float1":
+            df_formatted[col] = pd.to_numeric(df_formatted[col], errors="coerce")
+
+        elif fmt == "float0-":
+            df_formatted[col] = pd.to_numeric(df_formatted[col], errors="coerce")
+
+        elif fmt == "percent":
             df_formatted[col] = pd.to_numeric(df_formatted[col], errors="coerce")
 
     return df_formatted
@@ -38,7 +46,27 @@ def _safe_numeric(series, fill_value=0):
     return pd.to_numeric(series, errors="coerce").fillna(fill_value)
 
 
+def _calculate_mode(series):
+    """
+    Return first mode value (handles multimodal results safely)
+    """
+    try:
+        mode_series = series.mode(dropna=True)
+        return mode_series.iloc[0] if not mode_series.empty else None
+    except Exception:
+        return None
+
+
 def run(df, params, start_date, end_date, output_dir, generate_output_name):
+    """
+    Table 02: Surgical Encounter Duration Summary by Year
+
+    Spec:
+    - Group by year derived from wheels_out_dtm
+    - duration_minutes = wheels_out_dtm - wheels_in_dtm
+    - stats:
+        min, median, mode, mean, max
+    """
 
     logger.info(f"[{VISUAL_ID}] Starting execution")
 
@@ -47,9 +75,8 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     # --------------------------------------------------
 
     required_cols = {
-        "discharge_fiscal_year",
-        "count_of_patients",
-        "total_days"
+        "wheels_in_dtm",
+        "wheels_out_dtm"
     }
 
     missing = required_cols - set(df.columns)
@@ -63,28 +90,72 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
     working_df = df.copy()
 
+    # --------------------------------------------------
+    # ✅ Date Conversion
+    # --------------------------------------------------
+
+    working_df["wheels_in_dtm"] = pd.to_datetime(
+        working_df["wheels_in_dtm"], errors="coerce"
+    )
+
+    working_df["wheels_out_dtm"] = pd.to_datetime(
+        working_df["wheels_out_dtm"], errors="coerce"
+    )
+
+    working_df = working_df.dropna(subset=["wheels_in_dtm", "wheels_out_dtm"])
+
+    # --------------------------------------------------
+    # ✅ Apply Date Filter (from driver)
+    # --------------------------------------------------
+
+    if start_date:
+        start_dt = pd.to_datetime(start_date, errors="coerce")
+        working_df = working_df[working_df["wheels_out_dtm"] >= start_dt]
+
+    if end_date:
+        end_dt = pd.to_datetime(end_date, errors="coerce")
+        working_df = working_df[working_df["wheels_out_dtm"] <= end_dt]
+
+    logger.info(
+        f"[{VISUAL_ID}] After date filter: {len(working_df):,} rows "
+        f"(start={start_date}, end={end_date})"
+    )
+
     logger.info(f"[{VISUAL_ID}] Input rows: {len(working_df):,}")
 
+    if working_df.empty:
+        logger.warning(f"[{VISUAL_ID}] No valid datetime rows")
+        return
+
     # --------------------------------------------------
-    # ✅ Data Preparation
+    # ✅ Duration Calculation (minutes)
     # --------------------------------------------------
 
-    working_df["count_of_patients"] = _safe_numeric(
-        working_df["count_of_patients"], fill_value=0
+    working_df["duration_minutes"] = (
+        working_df["wheels_out_dtm"] - working_df["wheels_in_dtm"]
+    ).dt.total_seconds() / 60.0
+
+    working_df["duration_minutes"] = _safe_numeric(
+        working_df["duration_minutes"], fill_value=0
     )
 
-    working_df["total_days"] = _safe_numeric(
-        working_df["total_days"], fill_value=0
-    )
-
-    working_df["discharge_fiscal_year"] = pd.to_numeric(
-        working_df["discharge_fiscal_year"], errors="coerce"
-    )
-
-    working_df = working_df.dropna(subset=["discharge_fiscal_year"])
+    # Remove negatives or zero durations
+    working_df = working_df[working_df["duration_minutes"] > 0]
 
     if working_df.empty:
-        logger.warning(f"[{VISUAL_ID}] No valid rows after cleaning")
+        logger.warning(f"[{VISUAL_ID}] No valid duration rows")
+        return
+
+    # --------------------------------------------------
+    # ✅ Year Derivation (from wheels_out_dtm)
+    # --------------------------------------------------
+
+    working_df["year"] = working_df["wheels_out_dtm"].dt.year
+
+    working_df = working_df.dropna(subset=["year"])
+
+    if working_df.empty:
+        logger.warning(f"[{VISUAL_ID}] No valid year values")
         return
 
     # --------------------------------------------------
@@ -94,12 +165,27 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     try:
         agg_df = (
             working_df
-            .groupby("discharge_fiscal_year", as_index=False)
+            .groupby("year")
             .agg(
-                patients=("count_of_patients", "sum"),
-                patient_days=("total_days", "sum")
+                encounter_count=("duration_minutes", "count"), 
+                min_duration=("duration_minutes", "min"),
+                median_duration=("duration_minutes", "median"),
+                mean_duration=("duration_minutes", "mean"),
+                max_duration=("duration_minutes", "max"),
             )
+            .reset_index()
         )
+
+        # Mode requires separate handling
+        mode_df = (
+            working_df
+            .groupby("year")["duration_minutes"]
+            .apply(_calculate_mode)
+            .reset_index(name="mode_duration")
+        )
+
+        agg_df = agg_df.merge(mode_df, on="year", how="left")
+
     except Exception as e:
         logger.error(f"[{VISUAL_ID}] Aggregation failed: {e}")
         return
@@ -113,21 +199,21 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     # --------------------------------------------------
 
     agg_df = agg_df.sort_values(
-        by="discharge_fiscal_year",
+        by="year",
         ascending=False
     )
 
-    for col in ["discharge_fiscal_year", "patients", "patient_days"]:
-        agg_df[col] = pd.to_numeric(agg_df[col], errors="coerce").fillna(0)
+    # Ensure numeric consistency
+    for col in agg_df.columns:
+        if col != "year":
+            agg_df[col] = pd.to_numeric(agg_df[col], errors="coerce")
 
-    agg_df["discharge_fiscal_year"] = agg_df["discharge_fiscal_year"].astype(int)
-    agg_df["patients"] = agg_df["patients"].astype(int)
-    agg_df["patient_days"] = agg_df["patient_days"].astype(int)
+    agg_df["year"] = agg_df["year"].astype(int)
 
     logger.info(f"[{VISUAL_ID}] Output rows: {len(agg_df):,}")
 
     # --------------------------------------------------
-    # ✅ Output (Excel)
+    # ✅ Output
     # --------------------------------------------------
 
     try:
@@ -149,9 +235,10 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         subtitle1 = params.get("subtitle1", "")
 
         # -----------------------
-        # ✅ Write Excel
+        # Write Excel
         # -----------------------
         with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+
             output_df.to_excel(
                 writer,
                 index=False,
@@ -160,17 +247,17 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             )
 
         # -----------------------
-        # ✅ Modify workbook
+        # Modify workbook
         # -----------------------
         wb = load_workbook(output_path)
         ws = wb.active
 
-        # ✅ Titles
+        # ✅ Title / subtitle rows
         ws["A1"] = title
         ws["A2"] = subtitle if subtitle else ""
         ws["A3"] = subtitle1 if subtitle1 else ""
 
-        # ✅ Column widths
+        # ✅ Apply column widths
         for idx, col in enumerate(output_df.columns, start=1):
             col_letter = get_column_letter(idx)
 
@@ -181,7 +268,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                 except Exception:
                     logger.warning(f"[{VISUAL_ID}] Invalid width for {col}")
 
-        # ✅ Excel number formatting
+        # ✅ Apply formats
         for idx, col in enumerate(output_df.columns, start=1):
             fmt = params.get(f"format.{col}")
             col_letter = get_column_letter(idx)
@@ -189,7 +276,8 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             if not fmt:
                 continue
 
-            for cell in ws[col_letter][1:]:  # skip header
+            for cell in ws[col_letter][1:]:  
+
                 if cell.value is None:
                     continue
 
@@ -200,12 +288,12 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                     cell.number_format = '#,##0.0'
 
                 elif fmt == "float0":
-                    cell.number_format = '#,##0'
+                    cell.number_format = '#,##0'                
 
                 elif fmt == "percent":
-                    cell.number_format = '0.0%'
+                    cell.number_format = '0.0%'        
 
-        # ✅ Freeze pane
+        # ✅ Freeze header row (row 5 in Excel)
         ws.freeze_panes = "A6"
 
         wb.save(output_path)

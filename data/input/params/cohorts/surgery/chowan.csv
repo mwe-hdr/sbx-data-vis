@@ -1,4 +1,0 @@
-"name","param","value","description"
-"all.operatingrooms.excl.endoscopy.and.ob","filter","location == ""RL ECUH CHOWAN HOSPITAL"" and or_room not in [""Obstetrics, Labor, Delivery OR"", ""Endoscopy Lab""]","RL ECUH CHOWAN HOSPITAL - Operating rooms excluding Endoscopy and OB"
-"endoscopy","filter","location == ""RL ECUH CHOWAN HOSPITAL"" and or_room in [""Endoscopy Lab""]","RL ECUH CHOWAN HOSPITAL - Endoscopy procedures"
-"ob","filter","location == ""RL ECUH CHOWAN HOSPITAL"" and or_room in [""Obstetrics, Labor, Delivery OR""]","RL ECUH CHOWAN HOSPITAL - Obstetrics operating room procedures"

@@ -3,8 +3,9 @@
 # =========================
 
 $outputFolder = "C:\lwf\sbx-data-vis\data\input\params\cohorts\surgery"
-
 New-Item -ItemType Directory -Force -Path $outputFolder | Out-Null
+
+$outputFile = Join-Path $outputFolder "surgery.csv"
 
 # =========================
 # HOSPITALS
@@ -27,40 +28,45 @@ $hospitals = @(
 # PROCESS
 # =========================
 
+$allRows = @()
+
 foreach ($h in $hospitals) {
 
     $loc = $h.Name
+    $prefix = $h.File
 
     $rows = @(
 
-        # all ORs excluding Endoscopy + OB
+        # ✅ all ORs excluding Endoscopy + OB
         [PSCustomObject]@{
-            name        = "all.operatingrooms.excl.endoscopy.and.ob"
+            name        = "$prefix.all.operatingrooms.excl.endoscopy.and.ob"
             param       = "filter"
-            value       = "location == `"$loc`" and or_room not in [`"Obstetrics, Labor, Delivery OR`", `"Endoscopy Lab`"]"
+            value       = "location == `"$loc`" and or_type not in [`"Obstetrics, Labor, Delivery OR`", `"Endoscopy Lab`"]"
             description = "$loc - Operating rooms excluding Endoscopy and OB"
         }
 
-        # Endoscopy only
+        # ✅ Endoscopy only
         [PSCustomObject]@{
-            name        = "endoscopy"
+            name        = "$prefix.endoscopy"
             param       = "filter"
-            value       = "location == `"$loc`" and or_room in [`"Endoscopy Lab`"]"
+            value       = "location == `"$loc`" and or_type in [`"Endoscopy Lab`"]"
             description = "$loc - Endoscopy procedures"
         }
 
-        # OB only
+        # ✅ OB only
         [PSCustomObject]@{
-            name        = "ob"
+            name        = "$prefix.ob"
             param       = "filter"
-            value       = "location == `"$loc`" and or_room in [`"Obstetrics, Labor, Delivery OR`"]"
+            value       = "location == `"$loc`" and or_type in [`"Obstetrics, Labor, Delivery OR`"]"
             description = "$loc - Obstetrics operating room procedures"
         }
     )
 
-    $outputPath = Join-Path $outputFolder "$($h.File).csv"
-
-    $rows | Export-Csv -NoTypeInformation -Path $outputPath
-
-    Write-Host "Created surgery file -> $($h.File).csv"
+    # ✅ accumulate instead of per-hospital file
+    $allRows += $rows
 }
+
+# ✅ single consolidated CSV
+$allRows | Export-Csv -NoTypeInformation -Path $outputFile -Encoding UTF8
+
+Write-Host "Created consolidated surgery file -> surgery.csv"

@@ -13,9 +13,10 @@ from utils.cohort_helpers import apply_filter
 BASE_DIR = os.getcwd()
 INPUT_DIR = os.path.join(BASE_DIR, "data", "input")
 PARAM_DIR = os.path.join(INPUT_DIR, "params")
+# COHORT_SUBDIR = "surgery"  
 COHORT_SUBDIR = "inpatient"  
 COHORT_DIR = os.path.join(PARAM_DIR, "cohorts", COHORT_SUBDIR)
-
+# ED_LAYOUT_FILE = os.path.join(INPUT_DIR, "ecu_surgery_export.csv")
 ED_LAYOUT_FILE = os.path.join(INPUT_DIR, "ecu_hospital_encounters_export.csv")
 VIS_DRIVER_FILE = os.path.join(PARAM_DIR, "vis_driver.csv")
 
@@ -78,7 +79,7 @@ def run_visuals(df, driver_df, cohorts, output_dir):
                 row["start_date"],
                 row["end_date"],
                 cohort_output_dir,
-                generate_output_name   # ✅ pass directly
+                generate_output_name   
             )
 
 # =========================

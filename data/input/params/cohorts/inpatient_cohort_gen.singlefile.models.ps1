@@ -3,8 +3,9 @@
 # =========================
 
 $outputFolder = "C:\lwf\sbx-data-vis\data\input\params\cohorts\inpatient"
-
 New-Item -ItemType Directory -Force -Path $outputFolder | Out-Null
+
+$outputFile = Join-Path $outputFolder "inpatient.csv"
 
 # =========================
 # HOSPITALS
@@ -51,40 +52,45 @@ $excludeStr = ($neonate + $ob | ForEach-Object { "`"$_`"" }) -join ", "
 # PROCESS
 # =========================
 
+$allRows = @()
+
 foreach ($h in $hospitals) {
 
     $loc = $h.Name
+    $prefix = $h.File
 
     $rows = @(
 
-        # all service lines excluding neonate + OB
+        # ✅ all service lines excluding neonate + OB
         [PSCustomObject]@{
-            name        = "all.service.lines.excl.neonate.and.ob"
+            name        = "$prefix.all.service.lines.excl.neonate.and.ob"
             param       = "filter"
             value       = "hospital_name == `"$loc`" and service_line not in [$excludeStr]"
             description = "$loc - All service lines excluding Neonate and OB"
         }
 
-        # neonate services only
+        # ✅ neonate services only
         [PSCustomObject]@{
-            name        = "neonate.services"
+            name        = "$prefix.neonate.services"
             param       = "filter"
             value       = "hospital_name == `"$loc`" and service_line in [$neonateStr]"
             description = "$loc - Neonatal and pediatric-related services"
         }
 
-        # psychiatry only
+        # ✅ psychiatry only
         [PSCustomObject]@{
-            name        = "psychiatry"
+            name        = "$prefix.psychiatry"
             param       = "filter"
             value       = "hospital_name == `"$loc`" and service_line in [`"Psychiatry`"]"
             description = "$loc - Psychiatry services"
         }
     )
 
-    $outputPath = Join-Path $outputFolder "$($h.File).csv"
-
-    $rows | Export-Csv -NoTypeInformation -Path $outputPath
-
-    Write-Host "Created inpatient file -> $($h.File).csv"
+    # ✅ accumulate instead of writing per hospital
+    $allRows += $rows
 }
+
+# ✅ single consolidated CSV
+$allRows | Export-Csv -NoTypeInformation -Path $outputFile -Encoding UTF8
+
+Write-Host "Created consolidated inpatient file -> inpatient.csv"

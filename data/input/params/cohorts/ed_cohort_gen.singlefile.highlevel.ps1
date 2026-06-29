@@ -2,9 +2,10 @@
 # CONFIG
 # =========================
 
-$outputFolder = "C:\lwf\sbx-data-vis\data\input\params\cohorts\emergency"
-
+$outputFolder = "C:\lwf\sbx-data-vis\data\input\params\cohorts\ed"
 New-Item -ItemType Directory -Force -Path $outputFolder | Out-Null
+
+$outputFile = Join-Path $outputFolder "ed.csv"
 
 # =========================
 # HOSPITALS
@@ -27,22 +28,27 @@ $hospitals = @(
 # PROCESS
 # =========================
 
+$allRows = @()
+
 foreach ($h in $hospitals) {
 
     $loc = $h.Name
+    $prefix = $h.File
 
     $rows = @(
         [PSCustomObject]@{
-            name        = "all.emergency"
+            name        = "$prefix.all.emergency"
             param       = "filter"
             value       = "hospital_name == `"$loc`""
             description = "All emergency encounters at $loc"
         }
     )
 
-    $outputPath = Join-Path $outputFolder "$($h.File).csv"
-
-    $rows | Export-Csv -NoTypeInformation -Path $outputPath
-
-    Write-Host "Created emergency file -> $($h.File).csv"
+    # ✅ accumulate instead of per-hospital output
+    $allRows += $rows
 }
+
+# ✅ single consolidated CSV
+$allRows | Export-Csv -NoTypeInformation -Path $outputFile -Encoding UTF8
+
+Write-Host "Created consolidated emergency file -> ed.csv"
