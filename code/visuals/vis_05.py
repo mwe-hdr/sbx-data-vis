@@ -59,7 +59,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     # =========================
     # VALIDATION
     # =========================
-    required_cols = ["visit_dtm"]
+    required_cols = ["ed_start_dtm"]
     for col in required_cols:
         if col not in df.columns:
             logging.error(f"{VISUAL_ID}: Missing required column '{col}'")
@@ -72,13 +72,13 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         df = df.copy()
 
         # Convert datetime
-        df["visit_dtm"] = pd.to_datetime(df["visit_dtm"], errors="coerce")
+        df["ed_start_dtm"] = pd.to_datetime(df["ed_start_dtm"], errors="coerce")
 
         # Drop invalid
-        df = df.dropna(subset=["visit_dtm"])
+        df = df.dropna(subset=["ed_start_dtm"])
 
         if df.empty:
-            logging.warning(f"{VISUAL_ID}: No valid visit_dtm values")
+            logging.warning(f"{VISUAL_ID}: No valid ed_start_dtm values")
             return
 
         # Filter by date range
@@ -86,9 +86,9 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         end_dt = pd.to_datetime(end_date, errors="coerce")
 
         if pd.notna(start_dt):
-            df = df[df["visit_dtm"] >= start_dt]
+            df = df[df["ed_start_dtm"] >= start_dt]
         if pd.notna(end_dt):
-            df = df[df["visit_dtm"] <= end_dt]
+            df = df[df["ed_start_dtm"] <= end_dt]
 
         if df.empty:
             logging.warning(f"{VISUAL_ID}: No data after date filtering")
@@ -102,7 +102,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     # FEATURE ENGINEERING
     # =========================
     try:
-        df["year_month"] = df["visit_dtm"].dt.to_period("M").dt.to_timestamp()
+        df["year_month"] = df["ed_start_dtm"].dt.to_period("M").dt.to_timestamp()
 
     except Exception as e:
         logging.error(f"{VISUAL_ID}: Feature engineering failed - {str(e)}")
@@ -118,6 +118,43 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             .rename("arrival_count")
             .reset_index()
         )
+
+        write_rdb = int(params.get("write_rdb", 0))
+        rdb_rows = []
+
+        if write_rdb == 1:
+
+            for _, row in monthly_counts.iterrows():
+
+                month_dt = pd.to_datetime(row["year_month"])
+
+                rdb_rows.append({
+                    "run_id": params.get("run_id"),
+                    "visual_id": VISUAL_ID,
+                    "client_name": params.get("client_name"),
+
+                    "domain": params.get("domain"),
+                    "cohort_id": params.get("cohort_id"),
+
+                    "domain_cohort":
+                        f"{params.get('domain')}.{params.get('cohort_id')}",
+
+                    "dimension": "year_month",
+                    "dimension_value": month_dt.strftime("%Y-%m"),
+                    "dimension_value_label": month_dt.strftime("%b %Y"),
+
+                    "secondary_dimension": None,
+                    "secondary_dimension_value": None,
+
+                    "metric": "arrivals",
+                    "metric_type": "count",
+                    "value": int(row["arrival_count"]),
+
+                    "start_date": start_date,
+                    "end_date": end_date,
+
+                    "report_title": "Monthly ED Arrivals"
+                })
 
         if monthly_counts.empty:
             logging.warning(f"{VISUAL_ID}: Aggregation resulted in empty dataset")
@@ -227,13 +264,26 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # =========================
         # SAVE OUTPUT
         # =========================
-        filename = generate_output_name(VISUAL_ID, start_date, end_date)
-        filepath = os.path.join(output_dir, filename)
+        filepath = os.path.join(
+                    output_dir,
+                    generate_output_name(
+                        visual_id=VISUAL_ID,
+                        start_date=start_date,
+                        end_date=end_date,
+                        cohort_id=params.get("cohort_id"),
+                        ext="png"
+                    )
+                )
 
         plt.savefig(filepath)
         plt.close()
 
         logging.info(f"{VISUAL_ID}: Saved output to {filepath}")
+
+        return {
+            "output_path": filepath,
+            "rdb": rdb_rows
+        }
 
     except Exception as e:
         logging.error(f"{VISUAL_ID}: Plotting failed - {str(e)}")

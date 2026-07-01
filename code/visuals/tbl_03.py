@@ -353,6 +353,8 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                 "dimension_value": row["year"],
                 "dimension_value_label":
                     f"{year_prefix}{int(row['year'])}",
+                "secondary_dimension": "",
+                "secondary_dimension_value": "",
                 "start_date": start_date,
                 "end_date": end_date,
                 "report_title": params.get("title")

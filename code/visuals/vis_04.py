@@ -55,7 +55,8 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     if params:
         cfg.update({k: v for k, v in params.items() if v is not None})
 
-    required_columns = ["visit_dtm", "esi"]
+    required_columns = ["ed_start_dtm", "esi"]
+    params = params or {}
 
     # ======================================================
     # VALIDATION
@@ -71,9 +72,9 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     # DATE HANDLING
     # ======================================================
     try:
-        df["visit_dtm"] = pd.to_datetime(df["visit_dtm"], errors="coerce")
-        mask = (df["visit_dtm"] >= pd.to_datetime(start_date)) & \
-               (df["visit_dtm"] <= pd.to_datetime(end_date))
+        df["ed_start_dtm"] = pd.to_datetime(df["ed_start_dtm"], errors="coerce")
+        mask = (df["ed_start_dtm"] >= pd.to_datetime(start_date)) & \
+               (df["ed_start_dtm"] <= pd.to_datetime(end_date))
         df = df.loc[mask]
     except Exception as e:
         logging.error(f"[{VISUAL_ID}] Date filtering failed: {str(e)}")
@@ -195,12 +196,97 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     # OUTPUT
     # ======================================================
     try:
-        filename = generate_output_name(VISUAL_ID, start_date, end_date)
-        filepath = os.path.join(output_dir, filename)
+        output_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id="vis_04",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
+        )
 
-        plt.savefig(filepath)
+        plt.savefig(output_file)
         plt.close()
 
-        logging.info(f"[{VISUAL_ID}] Saved output to {filepath}")
+        logging.info(f"[{VISUAL_ID}] Saved output to {output_file}")
+
     except Exception as e:
         logging.error(f"[{VISUAL_ID}] Failed to save output: {str(e)}")
+        return
+
+    # ======================================================
+    # RDB METRICS
+    # ======================================================
+    write_rdb = int(params.get("write_rdb", 0))
+    rdb_rows = []
+
+    if write_rdb == 1:
+
+        # denominator
+        rdb_rows.append({
+            "run_id": params.get("run_id"),
+            "visual_id": "vis_04",
+            "client_name": params.get("client_name"),
+
+            "domain": params.get("domain"),
+            "cohort_id": params.get("cohort_id"),
+
+            "domain_cohort":
+                f"{params.get('domain')}.{params.get('cohort_id')}",
+
+            "dimension": "esi_distribution",
+            "dimension_value": "all",
+            "dimension_value_label": "All Encounters",
+
+            "secondary_dimension": None,
+            "secondary_dimension_value": None,
+
+            "metric": "encounters",
+            "metric_type": "count",
+            "value": int(total),
+
+            "start_date": start_date,
+            "end_date": end_date,
+
+            "report_title":
+                "ESI Level Distribution"
+        })
+
+        # numerators
+        for category, count in counts.items():
+
+            rdb_rows.append({
+                "run_id": params.get("run_id"),
+                "visual_id": "vis_04",
+                "client_name": params.get("client_name"),
+
+                "domain": params.get("domain"),
+                "cohort_id": params.get("cohort_id"),
+
+                "domain_cohort":
+                    f"{params.get('domain')}.{params.get('cohort_id')}",
+
+                "dimension": "esi_distribution",
+                "dimension_value": category,
+                "dimension_value_label": category,
+
+                "secondary_dimension": None,
+                "secondary_dimension_value": None,
+
+                "metric": "encounters",
+                "metric_type": "count",
+                "value": int(count),
+
+                "start_date": start_date,
+                "end_date": end_date,
+
+                "report_title":
+                    "ESI Level Distribution"
+            })
+
+    return {
+        "output_path": output_file,
+        "rdb": rdb_rows
+    }

@@ -6,9 +6,7 @@ import matplotlib.pyplot as plt
 
 from utils.vis_helpers import format_date_range, apply_yaxis_format
 
-
 VISUAL_ID = "vis_06"
-
 
 def run(df, params, start_date, end_date, output_dir, generate_output_name):
     """
@@ -47,13 +45,12 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             "bar_color": "#1f77b4",
         }
 
-        # Merge params
         cfg = {**defaults, **(params or {})}
 
         # =============================
         # VALIDATION
         # =============================
-        required_cols = ["visit_dtm"]
+        required_cols = ["ed_start_dtm"]
         missing_cols = [col for col in required_cols if col not in df.columns]
 
         if missing_cols:
@@ -65,12 +62,12 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # =============================
         # DATETIME HANDLING
         # =============================
-        df["visit_dtm"] = pd.to_datetime(df["visit_dtm"], errors="coerce")
+        df["ed_start_dtm"] = pd.to_datetime(df["ed_start_dtm"], errors="coerce")
 
-        df = df.dropna(subset=["visit_dtm"])
+        df = df.dropna(subset=["ed_start_dtm"])
 
         if df.empty:
-            logging.warning(f"{VISUAL_ID}: No valid visit_dtm after conversion")
+            logging.warning(f"{VISUAL_ID}: No valid ed_start_dtm after conversion")
             return
 
         # =============================
@@ -80,9 +77,15 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             start_dt = pd.to_datetime(start_date)
             end_dt = pd.to_datetime(end_date)
 
-            df = df[(df["visit_dtm"] >= start_dt) & (df["visit_dtm"] <= end_dt)]
+            df = df[
+                (df["ed_start_dtm"] >= start_dt) &
+                (df["ed_start_dtm"] <= end_dt)
+            ]
+
         except Exception as e:
-            logging.warning(f"{VISUAL_ID}: Date filtering failed: {str(e)}")
+            logging.warning(
+                f"{VISUAL_ID}: Date filtering failed: {str(e)}"
+            )
 
         if df.empty:
             logging.warning(f"{VISUAL_ID}: No data after date filtering")
@@ -91,7 +94,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # =============================
         # DERIVE WEEKDAY
         # =============================
-        df["weekday_num"] = df["visit_dtm"].dt.dayofweek
+        df["weekday_num"] = df["ed_start_dtm"].dt.dayofweek
 
         weekday_map = {
             0: "Mon",
@@ -105,13 +108,24 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
         df["weekday"] = df["weekday_num"].map(weekday_map)
 
-        # Required display order per spec
-        ordered_days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+        ordered_days = [
+            "Sun",
+            "Mon",
+            "Tue",
+            "Wed",
+            "Thu",
+            "Fri",
+            "Sat"
+        ]
 
         # =============================
         # AGGREGATION
         # =============================
-        counts = df["weekday"].value_counts().reindex(ordered_days, fill_value=0)
+        counts = (
+            df["weekday"]
+            .value_counts()
+            .reindex(ordered_days, fill_value=0)
+        )
 
         total = counts.sum()
 
@@ -120,6 +134,9 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             return
 
         percents = counts / total
+
+        write_rdb = int(params.get("write_rdb", 0))
+        rdb_rows = []
 
         # =============================
         # PLOT
@@ -139,10 +156,13 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # LABELS
         # =============================
         for bar, val in zip(bars, percents.values):
+
             if val < float(cfg["label_threshold"]):
                 continue
 
-            label = f"{val * 100:.{int(cfg['label_decimals'])}f}%"
+            label = (
+                f"{val * 100:.{int(cfg['label_decimals'])}f}%"
+            )
 
             ax.text(
                 bar.get_x() + bar.get_width() / 2,
@@ -159,13 +179,22 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # =============================
         date_range_str = format_date_range(start_date, end_date)
 
+        report_title = "Weekday Arrival Distribution"
+
         ax.set_title(
-            f"Weekday Arrival Distribution {date_range_str}",
+            f"{report_title}\n{date_range_str}",
             fontsize=int(cfg["title_fontsize"])
         )
 
-        ax.set_xlabel("Day of Week", fontsize=int(cfg["axis_fontsize"]))
-        ax.set_ylabel("Percent of Arrivals", fontsize=int(cfg["axis_fontsize"]))
+        ax.set_xlabel(
+            "Day of Week",
+            fontsize=int(cfg["axis_fontsize"])
+        )
+
+        ax.set_ylabel(
+            "Percent of Arrivals",
+            fontsize=int(cfg["axis_fontsize"])
+        )
 
         # =============================
         # AXIS FORMATTING
@@ -181,8 +210,16 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # =============================
         # OUTPUT
         # =============================
-        filename = generate_output_name(VISUAL_ID, start_date, end_date)
-        output_path = os.path.join(output_dir, filename)
+        output_path = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=VISUAL_ID,
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
+        )
 
         plt.tight_layout()
         plt.savefig(output_path)
@@ -190,5 +227,81 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
         logging.info(f"{VISUAL_ID} saved to {output_path}")
 
+        # =============================
+        # RDB OUTPUT
+        # =============================
+
+        # Denominator rows
+        if write_rdb == 1:
+
+            for day in ordered_days:
+
+                rdb_rows.append({
+                    "run_id": params.get("run_id"),
+                    "visual_id": VISUAL_ID,
+                    "client_name": params.get("client_name"),
+
+                    "domain": params.get("domain"),
+                    "cohort_id": params.get("cohort_id"),
+
+                    "domain_cohort":
+                        f"{params.get('domain')}.{params.get('cohort_id')}",
+
+                    "dimension": "weekday",
+                    "dimension_value": day,
+                    "dimension_value_label": day,
+
+                    "secondary_dimension": None,
+                    "secondary_dimension_value": None,
+
+                    "metric": "arrivals",
+                    "metric_type": "denominator",
+                    "value": int(total),
+
+                    "start_date": start_date,
+                    "end_date": end_date,
+
+                    "report_title": report_title
+                })
+
+            # Numerator rows
+            for day in ordered_days:
+
+                rdb_rows.append({
+                    "run_id": params.get("run_id"),
+                    "visual_id": VISUAL_ID,
+                    "client_name": params.get("client_name"),
+
+                    "domain": params.get("domain"),
+                    "cohort_id": params.get("cohort_id"),
+
+                    "domain_cohort":
+                        f"{params.get('domain')}.{params.get('cohort_id')}",
+
+                    "dimension": "weekday",
+                    "dimension_value": day,
+                    "dimension_value_label": day,
+
+                    "secondary_dimension": None,
+                    "secondary_dimension_value": None,
+
+                    "metric": "arrivals",
+                    "metric_type": "count",
+                    "value": int(counts.loc[day]),
+
+                    "start_date": start_date,
+                    "end_date": end_date,
+
+                    "report_title": report_title
+                })
+
+        return {
+            "output_path": output_path,
+            "rdb": rdb_rows
+        }
+
     except Exception as e:
-        logging.error(f"{VISUAL_ID} failed: {str(e)}", exc_info=True)
+        logging.error(
+            f"{VISUAL_ID} failed: {str(e)}",
+            exc_info=True
+        )

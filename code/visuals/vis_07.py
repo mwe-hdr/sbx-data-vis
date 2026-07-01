@@ -8,7 +8,6 @@ from utils.vis_helpers import format_date_range
 
 VISUAL_ID = "vis_07"
 
-
 def run(df, params, start_date, end_date, output_dir, generate_output_name):
     """
     Visualization 07: Encounters by Arrival Type (Pie Chart)
@@ -152,6 +151,21 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
     counts["percent"] = counts["count"] / total
 
+    counts = (
+        df.groupby("arrival_type")
+        .size()
+        .reset_index(name="count")
+    )
+
+    total = counts["count"].sum()
+
+    write_rdb = int(params.get("write_rdb", 0))
+    rdb_rows = []
+
+    if total <= 0:
+        logging.warning(f"{VISUAL_ID}: Total encounters is zero")
+        return
+
     # =========================
     # GROUP SMALL CATEGORIES INTO "OTHER"
     # =========================
@@ -264,19 +278,90 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # =========================
         os.makedirs(output_dir, exist_ok=True)
 
-        filename = generate_output_name(
-            VISUAL_ID,
-            start_date,
-            end_date
+        output_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=VISUAL_ID,
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
         )
 
-        output_path = os.path.join(output_dir, filename)
-
         plt.tight_layout()
-        plt.savefig(output_path)
+        plt.savefig(output_file)
         plt.close()
 
-        logging.info(f"{VISUAL_ID}: Saved to {output_path}")
+        logging.info(f"{VISUAL_ID}: Saved to {output_file}")
 
     except Exception as e:
         logging.error(f"{VISUAL_ID}: Plotting failed - {str(e)}")
+
+    # =========================
+    # RDB OUTPUT
+    # =========================
+
+    total_encounters = int(counts["count"].sum())
+
+    if write_rdb == 1:
+    
+        rdb_rows.append({
+            "run_id": params.get("run_id"),
+            "visual_id": VISUAL_ID,
+            "client_name": params.get("client_name"),
+
+            "domain": params.get("domain"),
+            "cohort_id": params.get("cohort_id"),
+
+            "domain_cohort":
+                f"{params.get('domain')}.{params.get('cohort_id')}",
+
+            "dimension": "arrival_type",
+            "dimension_value": "all",
+            "dimension_value_label": "All Arrival Types",
+
+            "secondary_dimension": None,
+            "secondary_dimension_value": None,
+
+            "metric": "encounters",
+            "metric_type": "count",
+            "value": total_encounters,
+
+            "start_date": start_date,
+            "end_date": end_date,
+
+            "report_title":
+                "Encounters by Arrival Type"
+        })
+
+        for _, row in counts.iterrows():
+
+            rdb_rows.append({
+                "run_id": params.get("run_id"),
+                "visual_id": VISUAL_ID,
+                "client_name": params.get("client_name"),
+
+                "domain": params.get("domain"),
+                "cohort_id": params.get("cohort_id"),
+
+                "domain_cohort":
+                    f"{params.get('domain')}.{params.get('cohort_id')}",
+
+                "dimension": "arrival_type",
+                "dimension_value": row["arrival_type"],
+                "dimension_value_label": row["arrival_type"],
+
+                "secondary_dimension": None,
+                "secondary_dimension_value": None,
+
+                "metric": "encounters",
+                "metric_type": "count",
+                "value": int(row["count"]),
+
+                "start_date": start_date,
+                "end_date": end_date,
+
+                "report_title":
+                    "Encounters by Arrival Type"
+            })

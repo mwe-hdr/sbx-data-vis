@@ -12,7 +12,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     # =========================
     # DEFENSIVE CHECKS
     # =========================
-    required_cols = ["visit_dtm", "esi"]
+    required_cols = ["ed_start_dtm", "esi"]
     for col in required_cols:
         if col not in df.columns:
             logging.error(f"vis_01: missing required column '{col}'")
@@ -68,8 +68,8 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     # FILTER
     # =========================
     subset = df[
-        (df["visit_dtm"] >= start_date) &
-        (df["visit_dtm"] <= end_date)
+        (df["ed_start_dtm"] >= start_date) &
+        (df["ed_start_dtm"] <= end_date)
     ].copy()
 
     if subset.empty:
@@ -79,7 +79,21 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     # =========================
     # DATA PREP
     # =========================
-    subset["arrival_hour"] = subset["visit_dtm"].dt.hour
+    subset["ed_start_dtm"] = pd.to_datetime(
+    subset["ed_start_dtm"],
+    errors="coerce"
+    )
+
+    subset = subset[
+        subset["ed_start_dtm"].notna()
+    ].copy()
+    
+    subset["arrival_hour"] = subset["ed_start_dtm"].dt.hour
+
+    subset["esi"] = pd.to_numeric(
+        subset["esi"],
+        errors="coerce"
+    )
 
     esi_map = {
         1: '1 - Immediate',
@@ -107,6 +121,9 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     )
 
     totals = grouped.groupby("arrival_hour")["count"].sum().reset_index(name="total")
+
+    write_rdb = int(params.get("write_rdb", 0))
+    rdb_rows = []
 
     merged = grouped.merge(totals, on="arrival_hour")
     merged["percent"] = merged["count"] / merged["total"]
@@ -249,10 +266,90 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     # =========================
     output_file = os.path.join(
         output_dir,
-        generate_output_name("vis_01", start_date, end_date)
+        generate_output_name(
+            visual_id="vis_01",
+            start_date=start_date,
+            end_date=end_date,
+            cohort_id=params.get("cohort_id"),
+            ext="png"
+        )
     )
 
     plt.savefig(output_file)
     plt.close()
 
     logging.info(f"vis_01 output written: {output_file}")
+
+    if write_rdb == 1:
+
+        for _, row in totals.iterrows():
+
+            hour_label = f"{int(row['arrival_hour']):02d}:00"
+
+            rdb_rows.append({
+                "run_id": params.get("run_id"),
+                "visual_id": "vis_01",
+                "client_name": params.get("client_name"),
+
+                "domain": params.get("domain"),
+                "cohort_id": params.get("cohort_id"),
+
+                "domain_cohort":
+                    f"{params.get('domain')}.{params.get('cohort_id')}",
+
+                "dimension": "arrival_hour",
+                "dimension_value": int(row["arrival_hour"]),
+                "dimension_value_label": hour_label,
+
+                "secondary_dimension": None,
+                "secondary_dimension_value": None,
+
+                "metric": "arrivals",
+                "metric_type": "count",
+                "value": int(row["total"]),
+
+                "start_date": start_date,
+                "end_date": end_date,
+
+                "report_title":
+                    "Hourly Arrivals Distribution by ESI"
+            })
+
+        for _, row in grouped.iterrows():
+
+            hour_label = f"{int(row['arrival_hour']):02d}:00"
+
+            rdb_rows.append({
+                "run_id": params.get("run_id"),
+                "visual_id": "vis_01",
+                "client_name": params.get("client_name"),
+
+                "domain": params.get("domain"),
+                "cohort_id": params.get("cohort_id"),
+
+                "domain_cohort":
+                    f"{params.get('domain')}.{params.get('cohort_id')}",
+
+                "dimension": "arrival_hour",
+                "dimension_value": int(row["arrival_hour"]),
+                "dimension_value_label": hour_label,
+
+                "secondary_dimension": "esi_category",
+                "secondary_dimension_value": row["esi_category"],
+
+                "metric": "arrivals",
+                "metric_type": "count",
+                "value": int(row["count"]),
+
+                "start_date": start_date,
+                "end_date": end_date,
+
+                "report_title":
+                    "Hourly Arrivals Distribution by ESI"
+            })
+
+    return {
+    "output_path": output_file,
+    "rdb": rdb_rows
+    }
+

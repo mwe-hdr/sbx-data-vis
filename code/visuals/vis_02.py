@@ -61,7 +61,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # --------------------------------------------------
         # REQUIRED COLUMNS CHECK
         # --------------------------------------------------
-        required_cols = ["ed_start_dtm", "ed_end_dtm"]
+        required_cols = ["ed_start_dtm", "ed_stop_dtm"]
         for col in required_cols:
             if col not in df.columns:
                 logging.error(f"Missing required column: {col}")
@@ -71,10 +71,10 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # DATETIME HANDLING
         # --------------------------------------------------
         df["ed_start_dtm"] = pd.to_datetime(df["ed_start_dtm"], errors="coerce")
-        df["ed_end_dtm"] = pd.to_datetime(df["ed_end_dtm"], errors="coerce")
+        df["ed_stop_dtm"] = pd.to_datetime(df["ed_stop_dtm"], errors="coerce")
 
         # Drop null timestamps
-        df = df.dropna(subset=["ed_start_dtm", "ed_end_dtm"])
+        df = df.dropna(subset=["ed_start_dtm", "ed_stop_dtm"])
 
         # --------------------------------------------------
         # DATE FILTERING
@@ -96,7 +96,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # LOS CALCULATION (HOURS)
         # --------------------------------------------------
         df["los_hours"] = (
-            (df["ed_end_dtm"] - df["ed_start_dtm"])
+            (df["ed_stop_dtm"] - df["ed_start_dtm"])
             .dt.total_seconds() / 3600.0
         )
 
@@ -137,6 +137,80 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         })
 
         grouped = all_buckets.merge(grouped, on="los_bucket", how="left").fillna(0)
+
+        # --------------------------------------------------
+        # RDB METRICS
+        # --------------------------------------------------
+        write_rdb = int(params.get("write_rdb", 0))
+        rdb_rows = []
+
+        total_encounters = int(total)
+
+        if write_rdb == 1:
+
+            for _, row in grouped.iterrows():
+
+                bucket = int(row["los_bucket"])
+
+                # Denominator
+                rdb_rows.append({
+                    "run_id": params.get("run_id"),
+                    "visual_id": "vis_02",
+                    "client_name": params.get("client_name"),
+
+                    "domain": params.get("domain"),
+                    "cohort_id": params.get("cohort_id"),
+
+                    "domain_cohort":
+                        f"{params.get('domain')}.{params.get('cohort_id')}",
+
+                    "dimension": "los_bucket",
+                    "dimension_value": bucket,
+                    "dimension_value_label": f"{bucket} Hours",
+
+                    "secondary_dimension": None,
+                    "secondary_dimension_value": None,
+
+                    "metric": "encounters",
+                    "metric_type": "denominator",
+                    "value": total_encounters,
+
+                    "start_date": start_date,
+                    "end_date": end_date,
+
+                    "report_title":
+                        "Length of Stay Distribution (Hours)"
+                })
+
+                # Numerator
+                rdb_rows.append({
+                    "run_id": params.get("run_id"),
+                    "visual_id": "vis_02",
+                    "client_name": params.get("client_name"),
+
+                    "domain": params.get("domain"),
+                    "cohort_id": params.get("cohort_id"),
+
+                    "domain_cohort":
+                        f"{params.get('domain')}.{params.get('cohort_id')}",
+
+                    "dimension": "los_bucket",
+                    "dimension_value": bucket,
+                    "dimension_value_label": f"{bucket} Hours",
+
+                    "secondary_dimension": None,
+                    "secondary_dimension_value": None,
+
+                    "metric": "encounters",
+                    "metric_type": "numerator",
+                    "value": int(row["count"]),
+
+                    "start_date": start_date,
+                    "end_date": end_date,
+
+                    "report_title":
+                        "Length of Stay Distribution (Hours)"
+                })
 
         # --------------------------------------------------
         # PLOTTING
@@ -185,13 +259,28 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # --------------------------------------------------
         # SAVE OUTPUT
         # --------------------------------------------------
-        filename = generate_output_name("vis_02", start_date, end_date)
-        output_path = os.path.join(output_dir, filename)
+        output_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id="vis_02",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
+        )
+
+        output_path = os.path.join(output_dir, output_file)
 
         plt.savefig(output_path, dpi=int(p["dpi"]))
         plt.close()
 
         logging.info(f"vis_02 saved to {output_path}")
+
+        return {
+            "output_path": output_path,
+            "rdb": rdb_rows
+        }
 
     except Exception as e:
         logging.error(f"vis_02 failed: {str(e)}")

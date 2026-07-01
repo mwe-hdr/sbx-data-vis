@@ -30,7 +30,7 @@ def _generate_census(df, start_date, end_date):
         # =========================================================
         # VALIDATION
         # =========================================================
-        if not all(col in df.columns for col in ["ed_start_dtm", "ed_end_dtm"]):
+        if not all(col in df.columns for col in ["ed_start_dtm", "ed_stop_dtm"]):
             logging.error(f"[{VISUAL_ID}] Missing required columns")
             return
 
@@ -38,17 +38,17 @@ def _generate_census(df, start_date, end_date):
         # DATETIME PREP
         # =========================================================
         df["ed_start_dtm"] = pd.to_datetime(df["ed_start_dtm"], errors="coerce")
-        df["ed_end_dtm"] = pd.to_datetime(df["ed_end_dtm"], errors="coerce")
+        df["ed_stop_dtm"] = pd.to_datetime(df["ed_stop_dtm"], errors="coerce")
 
-        df = df.dropna(subset=["ed_start_dtm", "ed_end_dtm"])
+        df = df.dropna(subset=["ed_start_dtm", "ed_stop_dtm"])
 
-        invalid_mask = df["ed_end_dtm"] < df["ed_start_dtm"]
-        zero_mask = df["ed_end_dtm"] == df["ed_start_dtm"]
+        invalid_mask = df["ed_stop_dtm"] < df["ed_start_dtm"]
+        zero_mask = df["ed_stop_dtm"] == df["ed_start_dtm"]
 
-        df.loc[invalid_mask, "ed_end_dtm"] = (
+        df.loc[invalid_mask, "ed_stop_dtm"] = (
             df.loc[invalid_mask, "ed_start_dtm"] + pd.Timedelta(minutes=1)
         )
-        df.loc[zero_mask, "ed_end_dtm"] = (
+        df.loc[zero_mask, "ed_stop_dtm"] = (
             df.loc[zero_mask, "ed_start_dtm"] + pd.Timedelta(minutes=1)
         )
 
@@ -69,7 +69,7 @@ def _generate_census(df, start_date, end_date):
         # =========================================================
         df = df[
             (df["ed_start_dtm"] <= end_date) &
-            (df["ed_end_dtm"] >= start_date)
+            (df["ed_stop_dtm"] >= start_date)
         ].copy()
 
         if df.empty:
@@ -80,7 +80,7 @@ def _generate_census(df, start_date, end_date):
         # VISIT WINDOWS
         # =========================================================
         df["start"] = df["ed_start_dtm"]
-        df["end"] = df["ed_end_dtm"]
+        df["end"] = df["ed_stop_dtm"]
 
         df["end"] = df["end"].clip(lower=start_date, upper=end_date)
         df["end"] = df["end"] + pd.Timedelta(minutes=1)
@@ -121,7 +121,7 @@ def _generate_census(df, start_date, end_date):
 
         initial_count = df[
             (df["ed_start_dtm"] < start_date) &
-            (df["ed_end_dtm"] >= start_date)
+            (df["ed_stop_dtm"] >= start_date)
         ].shape[0]
 
         ts["census"] = ts["delta"].cumsum()
@@ -171,9 +171,8 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         }
 
         # =========================
-        # STEP 1: Census (vis_08 logic)
+        # STEP 1: Census 
         # =========================
-        df = df[df["patient_type"] != "Psych"]
         ts = _generate_census(df, start_date, end_date)
 
         if ts.empty:
@@ -329,13 +328,195 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # =========================
         # Save output
         # =========================
-        filename = generate_output_name(VISUAL_ID, start_date, end_date)
-        filepath = os.path.join(output_dir, filename)
+        output_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=VISUAL_ID,
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
+        )
 
-        plt.savefig(filepath)
+        plt.savefig(output_file)
         plt.close()
 
-        logger.info(f"[{VISUAL_ID}] Output saved to {filepath}")
+        logger.info(f"[{VISUAL_ID}] Output saved to {output_file}")
+
+        # =========================
+        # RDB OUTPUT
+        # =========================
+        write_rdb = int(params.get("write_rdb", 0))
+        rdb_rows = []
+
+        if write_rdb == 1:
+
+            report_title = (
+                "ED Hourly Census with Peak Period and Capacity Benchmarks"
+            )
+
+            # ----------------------------------
+            # Hourly census values
+            # ----------------------------------
+            for _, row in hourly.iterrows():
+
+                hour_label = f"{int(row['hour']):02d}:00"
+
+                rdb_rows.append({
+                    "run_id": params.get("run_id"),
+                    "visual_id": VISUAL_ID,
+                    "client_name": params.get("client_name"),
+
+                    "domain": params.get("domain"),
+                    "cohort_id": params.get("cohort_id"),
+
+                    "domain_cohort":
+                        f"{params.get('domain')}.{params.get('cohort_id')}",
+
+                    "dimension": "hour",
+                    "dimension_value": int(row["hour"]),
+                    "dimension_value_label": hour_label,
+
+                    "secondary_dimension": "period_type",
+                    "secondary_dimension_value": row["peak_flag"],
+
+                    "metric": "hourly_census",
+                    "metric_type": "average",
+                    "value": float(row["hourly_census"]),
+
+                    "start_date": start_date,
+                    "end_date": end_date,
+
+                    "report_title": report_title
+                })
+
+            # ----------------------------------
+            # Percentiles
+            # ----------------------------------
+            for _, row in hourly.iterrows():
+
+                hour_label = f"{int(row['hour']):02d}:00"
+
+                for metric_name in ["p70", "p80", "p90"]:
+
+                    metric_value = row[metric_name]
+
+                    if pd.isna(metric_value):
+                        continue
+
+                    rdb_rows.append({
+                        "run_id": params.get("run_id"),
+                        "visual_id": VISUAL_ID,
+                        "client_name": params.get("client_name"),
+
+                        "domain": params.get("domain"),
+                        "cohort_id": params.get("cohort_id"),
+
+                        "domain_cohort":
+                            f"{params.get('domain')}.{params.get('cohort_id')}",
+
+                        "dimension": "hour",
+                        "dimension_value": int(row["hour"]),
+                        "dimension_value_label": hour_label,
+
+                        "secondary_dimension": "percentile",
+                        "secondary_dimension_value": metric_name.upper(),
+
+                        "metric": "hourly_census",
+                        "metric_type": metric_name,
+                        "value": float(metric_value),
+
+                        "start_date": start_date,
+                        "end_date": end_date,
+
+                        "report_title": report_title
+                    })
+
+            # ----------------------------------
+            # Peak Census Benchmark by Hour
+            # ----------------------------------
+            peak_hours_set = set(
+                hourly.loc[
+                    hourly["peak_flag"] == "Peak",
+                    "hour"
+                ]
+            )            
+            
+            for _, row in hourly.iterrows():
+
+                if row["hour"] not in peak_hours_set:
+                    continue
+
+                hour_label = f"{int(row['hour']):02d}:00"
+
+                rdb_rows.append({
+                    "run_id": params.get("run_id"),
+                    "visual_id": VISUAL_ID,
+                    "client_name": params.get("client_name"),
+
+                    "domain": params.get("domain"),
+                    "cohort_id": params.get("cohort_id"),
+
+                    "domain_cohort":
+                        f"{params.get('domain')}.{params.get('cohort_id')}",
+
+                    "dimension": "hour",
+                    "dimension_value": int(row["hour"]),
+                    "dimension_value_label": hour_label,
+
+                    "secondary_dimension": "benchmark",
+                    "secondary_dimension_value": "Peak Census",
+
+                    "metric": "capacity",
+                    "metric_type": "peak_census",
+                    "value": float(peak_census),
+
+                    "start_date": start_date,
+                    "end_date": end_date,
+
+                    "report_title": report_title
+                })
+
+            # ----------------------------------
+            # Room Need Benchmark by Hour
+            # ----------------------------------
+            for _, row in hourly.iterrows():
+
+                hour_label = f"{int(row['hour']):02d}:00"
+
+                rdb_rows.append({
+                    "run_id": params.get("run_id"),
+                    "visual_id": VISUAL_ID,
+                    "client_name": params.get("client_name"),
+
+                    "domain": params.get("domain"),
+                    "cohort_id": params.get("cohort_id"),
+
+                    "domain_cohort":
+                        f"{params.get('domain')}.{params.get('cohort_id')}",
+
+                    "dimension": "hour",
+                    "dimension_value": int(row["hour"]),
+                    "dimension_value_label": hour_label,
+
+                    "secondary_dimension": "benchmark",
+                    "secondary_dimension_value": "Room Need",
+
+                    "metric": "capacity",
+                    "metric_type": "room_need",
+                    "value": float(room_need),
+
+                    "start_date": start_date,
+                    "end_date": end_date,
+
+                    "report_title": report_title
+                })            
+
+        return {
+            "output_path": output_file,
+            "rdb": rdb_rows
+        }
 
     except Exception as e:
         logger.error(f"[{VISUAL_ID}] Execution failed: {e}")

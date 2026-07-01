@@ -40,12 +40,14 @@ def generate_output_name(
     def clean(val):
         if val is None:
             return ""
+
         return (
             str(val)
-            .replace("/", "-")   
-            .replace("\\", "-")  
+            .replace("/", "-")
+            .replace("\\", "-")
             .replace(" ", "_")
             .replace(".", "_")
+            .replace(":", "-")
         )
 
     parts = [clean(visual_id)]

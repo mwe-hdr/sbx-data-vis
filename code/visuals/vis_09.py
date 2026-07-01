@@ -290,8 +290,99 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     # -----------------------------
     # SAVE
     # -----------------------------
-    filename = generate_output_name(visual_id, start_date, end_date)
-    filepath = os.path.join(output_dir, filename)
-    fig.write_image(filepath)
+    output_file = os.path.join(
+        output_dir,
+        generate_output_name(
+            visual_id=visual_id,
+            start_date=start_date,
+            end_date=end_date,
+            cohort_id=params.get("cohort_id"),
+            ext="png"
+        )
+    )
 
-    logger.info(f"[{visual_id}] Output saved to {filepath}")
+    fig.write_image(output_file)
+
+    logger.info(f"[{visual_id}] Output saved to {output_file}")
+
+    # -----------------------------
+    # RDB OUTPUT
+    # -----------------------------
+    write_rdb = int(params.get("write_rdb", 0))
+    rdb_rows = []
+
+    if write_rdb == 1:
+
+        report_title = p["title"]
+
+        flow_rows = [
+            ("Arrival", "Triage", triage_count),
+            ("Arrival", "No Triage", no_triage_count),
+            ("Triage", "ED Treatment", ed_from_triage),
+            ("Triage", "Left Before ED", left_before_ed)
+        ]
+
+        for source_node, target_node, value in flow_rows:
+
+            rdb_rows.append({
+                "run_id": params.get("run_id"),
+                "visual_id": visual_id,
+                "client_name": params.get("client_name"),
+
+                "domain": params.get("domain"),
+                "cohort_id": params.get("cohort_id"),
+
+                "domain_cohort":
+                    f"{params.get('domain')}.{params.get('cohort_id')}",
+
+                "dimension": "flow_stage",
+                "dimension_value": source_node,
+                "dimension_value_label": source_node,
+
+                "secondary_dimension": "next_stage",
+                "secondary_dimension_value": target_node,
+
+                "metric": "patients",
+                "metric_type": "count",
+                "value": int(value),
+
+                "start_date": start_date,
+                "end_date": end_date,
+
+                "report_title": report_title
+            })
+
+        for disposition, count in disp_counts.items():
+
+            rdb_rows.append({
+                "run_id": params.get("run_id"),
+                "visual_id": visual_id,
+                "client_name": params.get("client_name"),
+
+                "domain": params.get("domain"),
+                "cohort_id": params.get("cohort_id"),
+
+                "domain_cohort":
+                    f"{params.get('domain')}.{params.get('cohort_id')}",
+
+                "dimension": "flow_stage",
+                "dimension_value": "ED Treatment",
+                "dimension_value_label": "ED Treatment",
+
+                "secondary_dimension": "disposition",
+                "secondary_dimension_value": disposition,
+
+                "metric": "patients",
+                "metric_type": "count",
+                "value": int(count),
+
+                "start_date": start_date,
+                "end_date": end_date,
+
+                "report_title": report_title
+            })
+
+    return {
+        "output_path": output_file,
+        "rdb": rdb_rows
+    }

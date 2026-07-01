@@ -85,6 +85,7 @@ def run_visuals(df, driver_df, cohorts, output_dir):
             visual_id = row["visual_id"]
             client_name = row["client_name"]
             year_type = row["year_type"]
+            write_rdb = row["write_rdb"]
 
             vis_func = get_visual_function(visual_id)
             if vis_func is None:
@@ -100,6 +101,7 @@ def run_visuals(df, driver_df, cohorts, output_dir):
             params["domain"] = meta.get("domain")
             params["client_name"] = client_name
             params["year_type"] = year_type
+            params["write_rdb"] = write_rdb
             logging.info(f"[main] Injecting cohort_desc: {meta.get('description')}")
 
             result = vis_func(

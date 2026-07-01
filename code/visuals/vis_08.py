@@ -13,7 +13,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # =========================================================
         # VALIDATION
         # =========================================================
-        if not all(col in df.columns for col in ["ed_start_dtm", "ed_end_dtm"]):
+        if not all(col in df.columns for col in ["ed_start_dtm", "ed_stop_dtm"]):
             logging.error(f"[{VISUAL_ID}] Missing required columns")
             return
 
@@ -21,22 +21,22 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # DATETIME PREP
         # =========================================================
         df["ed_start_dtm"] = pd.to_datetime(df["ed_start_dtm"], errors="coerce")
-        df["ed_end_dtm"] = pd.to_datetime(df["ed_end_dtm"], errors="coerce")
+        df["ed_stop_dtm"] = pd.to_datetime(df["ed_stop_dtm"], errors="coerce")
 
-        df = df.dropna(subset=["ed_start_dtm", "ed_end_dtm"])
+        df = df.dropna(subset=["ed_start_dtm", "ed_stop_dtm"])
 
-        invalid_mask = df["ed_end_dtm"] < df["ed_start_dtm"]
-        zero_mask = df["ed_end_dtm"] == df["ed_start_dtm"]
+        invalid_mask = df["ed_stop_dtm"] < df["ed_start_dtm"]
+        zero_mask = df["ed_stop_dtm"] == df["ed_start_dtm"]
 
-        df.loc[invalid_mask, "ed_end_dtm"] = (
+        df.loc[invalid_mask, "ed_stop_dtm"] = (
             df.loc[invalid_mask, "ed_start_dtm"] + pd.Timedelta(minutes=1)
         )
-        df.loc[zero_mask, "ed_end_dtm"] = (
+        df.loc[zero_mask, "ed_stop_dtm"] = (
             df.loc[zero_mask, "ed_start_dtm"] + pd.Timedelta(minutes=1)
         )
 
-        if "encounter_id" in df.columns:
-            df = df.drop_duplicates(subset=["encounter_id"])
+        if "row_id" in df.columns:
+            df = df.drop_duplicates(subset=["row_id"])
 
         # =========================================================
         # DATE RANGE
@@ -52,7 +52,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # =========================================================
         df = df[
             (df["ed_start_dtm"] <= end_date) &
-            (df["ed_end_dtm"] >= start_date)
+            (df["ed_stop_dtm"] >= start_date)
         ].copy()
 
         if df.empty:
@@ -63,7 +63,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # VISIT WINDOWS
         # =========================================================
         df["start"] = df["ed_start_dtm"]
-        df["end"] = df["ed_end_dtm"]
+        df["end"] = df["ed_stop_dtm"]
 
         df["end"] = df["end"].clip(lower=start_date, upper=end_date)
         df["end"] = df["end"] + pd.Timedelta(minutes=1)
@@ -104,7 +104,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
         initial_count = df[
             (df["ed_start_dtm"] < start_date) &
-            (df["ed_end_dtm"] >= start_date)
+            (df["ed_stop_dtm"] >= start_date)
         ].shape[0]
 
         ts["census"] = ts["delta"].cumsum()
@@ -116,10 +116,19 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             .astype("Int64")
         )
 
+        enable_rdb = int(params.get("rdb_write", 0))
+        rdb_rows = []
+
         # =========================================================
         # OUTPUT CSV
         # =========================================================
-        filename = generate_output_name(VISUAL_ID, start_date, end_date, ext="csv")
+        filename = generate_output_name(
+            visual_id=VISUAL_ID,
+            start_date=start_date,
+            end_date=end_date,
+            cohort_id=params.get("cohort_id"),
+            ext="csv"
+        )
         output_path = os.path.join(output_dir, filename)
 
         ts[["interval", "census"]].to_csv(output_path, index=False)
@@ -159,7 +168,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         plt.figure(figsize=(14, 6))
 
         # -----------------------------------------------------
-        # THRESHOLD LOGIC (must happen BEFORE plotting)
+        # THRESHOLD LOGIC 
         # -----------------------------------------------------
         if capacity_value is not None:
             threshold = capacity_value * capacity_threshold_pct
@@ -171,7 +180,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             above = pd.Series(False, index=ts.index)
 
         # -----------------------------------------------------
-        # MAIN LINE (split into 2 colors)
+        # MAIN LINE 
         # -----------------------------------------------------
         plt.plot(
             ts["interval"],
@@ -224,13 +233,61 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         plt.tight_layout()
 
         # Save PNG
-        png_filename = generate_output_name(VISUAL_ID, start_date, end_date, ext="png")
+        png_filename = generate_output_name(
+            visual_id=VISUAL_ID,
+            start_date=start_date,
+            end_date=end_date,
+            cohort_id=params.get("cohort_id"),
+            ext="png"
+        )
         png_path = os.path.join(output_dir, png_filename)
 
         plt.savefig(png_path, dpi=150)
         plt.close()
 
+        if write_rdb == 1:
+            for _, row in ts.iterrows():
+
+                census_value = row["census"]
+
+                if pd.isna(census_value):
+                    continue
+
+                rdb_rows.append({
+                    "run_id": params.get("run_id"),
+                    "visual_id": VISUAL_ID,
+                    "client_name": params.get("client_name"),
+
+                    "domain": params.get("domain"),
+                    "cohort_id": params.get("cohort_id"),
+
+                    "domain_cohort":
+                        f"{params.get('domain')}.{params.get('cohort_id')}",
+
+                    "dimension": "interval",
+                    "dimension_value": row["interval"],
+                    "dimension_value_label":
+                        row["interval"].strftime("%Y-%m-%d %H:%M"),
+
+                    "secondary_dimension": None,
+                    "secondary_dimension_value": None,
+
+                    "metric": "ed_census",
+                    "metric_type": "count",
+                    "value": int(census_value),
+
+                    "start_date": start_date,
+                    "end_date": end_date,
+
+                    "report_title": chart_title
+                })        
+
         logging.info(f"[{VISUAL_ID}] Outputs saved: CSV and PNG")
+
+        return {
+            "output_path": png_path,
+            "rdb": rdb_rows
+        }
 
     except Exception as e:
         logging.error(f"[{VISUAL_ID}] Failed: {str(e)}")

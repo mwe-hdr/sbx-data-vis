@@ -274,6 +274,9 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             "dimension_value_label":
                 f"{year_prefix}{int(row['year'])}",
 
+            "secondary_dimension": "",
+            "secondary_dimension_value": "",
+
             "metric": "patients",
             "metric_type": "count",
             "value": row["patients"],
@@ -299,6 +302,9 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             "dimension_value": row["year"],
             "dimension_value_label":
                 f"{year_prefix}{int(row['year'])}",
+
+            "secondary_dimension": "",
+            "secondary_dimension_value": "",
 
             "metric": "patient_days",
             "metric_type": "count",
