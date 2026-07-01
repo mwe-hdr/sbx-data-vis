@@ -10,14 +10,26 @@ from utils.cohort_helpers import apply_filter
 # =========================
 # CONFIG
 # =========================
+DOMAINS = {
+    "inpatient": {
+        "data_file": "ecu_hospital_encounters_export.csv",
+        "cohort_dir": "inpatient"
+    },
+
+    "surgery": {
+        "data_file": "ecu_surgery_export.csv",
+        "cohort_dir": "surgery"
+    },
+
+    "emergency": {
+        "data_file": "ecu_emergency_export.csv",
+        "cohort_dir": "ed"
+    }
+}
+
 BASE_DIR = os.getcwd()
 INPUT_DIR = os.path.join(BASE_DIR, "data", "input")
 PARAM_DIR = os.path.join(INPUT_DIR, "params")
-# COHORT_SUBDIR = "surgery"  
-COHORT_SUBDIR = "inpatient"  
-COHORT_DIR = os.path.join(PARAM_DIR, "cohorts", COHORT_SUBDIR)
-# ED_LAYOUT_FILE = os.path.join(INPUT_DIR, "ecu_surgery_export.csv")
-ED_LAYOUT_FILE = os.path.join(INPUT_DIR, "ecu_hospital_encounters_export.csv")
 VIS_DRIVER_FILE = os.path.join(PARAM_DIR, "vis_driver.csv")
 
 # =========================
@@ -35,6 +47,9 @@ def get_visual_function(visual_id):
 # MAIN EXECUTION LOOP
 # =========================
 def run_visuals(df, driver_df, cohorts, output_dir):
+
+    # RDB Layer support
+    rdb_records = []
 
     logging.info(f"[main] Loaded cohort keys:")
     for k in cohorts.keys():
@@ -56,10 +71,20 @@ def run_visuals(df, driver_df, cohorts, output_dir):
 
         for _, row in driver_df.iterrows():
 
+            visual_domain = row["domain"]
+
+            if visual_domain != meta.get("domain"):
+                continue
+            
             if int(row["enabled"]) != 1:
                 continue
 
+            if row["type"] != "cohort":
+                continue
+
             visual_id = row["visual_id"]
+            client_name = row["client_name"]
+            year_type = row["year_type"]
 
             vis_func = get_visual_function(visual_id)
             if vis_func is None:
@@ -71,16 +96,25 @@ def run_visuals(df, driver_df, cohorts, output_dir):
             params["cohort_id"] = cohort_id
             params["filter_str"] = meta.get("filter")
             params["cohort_desc"] = meta.get("description")
+            params["run_id"] = run_id
+            params["domain"] = meta.get("domain")
+            params["client_name"] = client_name
+            params["year_type"] = year_type
             logging.info(f"[main] Injecting cohort_desc: {meta.get('description')}")
 
-            vis_func(
+            result = vis_func(
                 cohort_df,
                 params,
                 row["start_date"],
                 row["end_date"],
                 cohort_output_dir,
-                generate_output_name   
+                generate_output_name
             )
+
+            if result and "rdb" in result:
+                rdb_records.extend(result["rdb"])
+
+    return rdb_records
 
 # =========================
 # ENTRY POINT
@@ -91,9 +125,49 @@ if __name__ == "__main__":
 
     run_dir, output_dir = initialize_run()
 
-    df = load_data(ED_LAYOUT_FILE)
+    run_id = os.path.basename(run_dir)
+
     driver_df = load_driver(VIS_DRIVER_FILE)
 
-    cohorts = load_cohort_params(COHORT_DIR)
+    all_rdb_records = []
 
-    run_visuals(df, driver_df, cohorts, output_dir)
+    for domain, config in DOMAINS.items():
+
+        logging.info(f"Starting domain: {domain}")
+
+        df = load_data(
+            os.path.join(
+                INPUT_DIR,
+                config["data_file"]
+            )
+        )
+
+        cohorts = load_cohort_params(
+            os.path.join(
+                PARAM_DIR,
+                "cohorts",
+                config["cohort_dir"]
+            )
+        )
+
+        rdb = run_visuals(
+            df,
+            driver_df,
+            cohorts,
+            output_dir
+        )       
+
+        if rdb:
+            all_rdb_records.extend(rdb)
+
+    master_rdb_df = pd.DataFrame(
+        all_rdb_records
+    )
+
+    master_rdb_df.to_csv(
+        os.path.join(
+            output_dir,
+            "rdb_domain_cohort_metrics.csv"
+        ),
+        index=False
+    )

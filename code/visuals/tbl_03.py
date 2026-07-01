@@ -5,7 +5,7 @@ from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
 from openpyxl.styles import numbers
 
-VISUAL_ID = "tbl_02a"
+VISUAL_ID = "tbl_03"
 logger = logging.getLogger(__name__)
 
 
@@ -27,8 +27,16 @@ def _apply_formatting(df, params):
         if fmt == "int":
             df_formatted[col] = df_formatted[col].astype(int)
 
-        elif fmt in ["comma", "float1", "float0", "percent"]:
-            # ✅ keep numeric for Excel formatting
+        elif fmt == "comma":
+            df_formatted[col] = pd.to_numeric(df_formatted[col], errors="coerce")
+
+        elif fmt == "float1":
+            df_formatted[col] = pd.to_numeric(df_formatted[col], errors="coerce")
+
+        elif fmt == "float0-":
+            df_formatted[col] = pd.to_numeric(df_formatted[col], errors="coerce")
+
+        elif fmt == "percent":
             df_formatted[col] = pd.to_numeric(df_formatted[col], errors="coerce")
 
     return df_formatted
@@ -39,6 +47,9 @@ def _safe_numeric(series, fill_value=0):
 
 
 def _calculate_mode(series):
+    """
+    Return first mode value (handles multimodal results safely)
+    """
     try:
         mode_series = series.mode(dropna=True)
         return mode_series.iloc[0] if not mode_series.empty else None
@@ -47,6 +58,15 @@ def _calculate_mode(series):
 
 
 def run(df, params, start_date, end_date, output_dir, generate_output_name):
+    """
+    Table 03: ED Encounter Duration Summary by Year
+
+    Spec:
+    - Group by year derived from ed_stop_dtm
+    - duration_minutes = wheels_out_dtm - ed_start_dtm
+    - stats:
+        min, median, mode, mean, max
+    """
 
     logger.info(f"[{VISUAL_ID}] Starting execution")
 
@@ -54,10 +74,12 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     # ✅ Required Columns
     # --------------------------------------------------
 
+    logger.info(f"[{VISUAL_ID}] Columns:")
+    logger.info(list(df.columns))
+
     required_cols = {
-        "wheels_in_dtm",
-        "wheels_out_dtm",
-        "or_type"
+        "ed_start_dtm",
+        "ed_stop_dtm"
     }
 
     missing = required_cols - set(df.columns)
@@ -71,37 +93,82 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
     working_df = df.copy()
 
+    # --------------------------------------------------
+    # ✅ Date Conversion
+    # --------------------------------------------------
+
+    working_df["ed_start_dtm"] = pd.to_datetime(
+        working_df["ed_start_dtm"], errors="coerce"
+    )
+
+    working_df["ed_stop_dtm"] = pd.to_datetime(
+        working_df["ed_stop_dtm"], errors="coerce"
+    )
+
+    working_df = working_df.dropna(
+        subset=["ed_start_dtm", "ed_stop_dtm"]
+    )
+
+    # --------------------------------------------------
+    # ✅ Apply Date Filter (from driver)
+    # Include encounters whose ED time window overlaps
+    # the reporting period.
+    # --------------------------------------------------
+
+    start_dt = (
+        pd.to_datetime(start_date, errors="coerce")
+        if start_date else None
+    )
+
+    end_dt = (
+        pd.to_datetime(end_date, errors="coerce")
+        if end_date else None
+    )
+
+    if start_dt is not None and end_dt is not None:
+
+        working_df = working_df[
+            (working_df["ed_start_dtm"] <= end_dt) &
+            (working_df["ed_stop_dtm"] >= start_dt)
+        ]
+
+    elif start_dt is not None:
+
+        working_df = working_df[
+            working_df["ed_stop_dtm"] >= start_dt
+        ]
+
+    elif end_dt is not None:
+
+        working_df = working_df[
+            working_df["ed_start_dtm"] <= end_dt
+        ]
+
+    logger.info(
+        f"[{VISUAL_ID}] After overlap filter: "
+        f"{len(working_df):,} rows "
+        f"(start={start_date}, end={end_date})"
+    )
+
     logger.info(f"[{VISUAL_ID}] Input rows: {len(working_df):,}")
-
-    # --------------------------------------------------
-    # ✅ Datetime handling
-    # --------------------------------------------------
-
-    working_df["wheels_in_dtm"] = pd.to_datetime(
-        working_df["wheels_in_dtm"], errors="coerce"
-    )
-    working_df["wheels_out_dtm"] = pd.to_datetime(
-        working_df["wheels_out_dtm"], errors="coerce"
-    )
-
-    working_df = working_df.dropna(subset=["wheels_in_dtm", "wheels_out_dtm"])
 
     if working_df.empty:
         logger.warning(f"[{VISUAL_ID}] No valid datetime rows")
         return
 
     # --------------------------------------------------
-    # ✅ Duration
+    # ✅ Duration Calculation (minutes)
     # --------------------------------------------------
 
     working_df["duration_minutes"] = (
-        working_df["wheels_out_dtm"] - working_df["wheels_in_dtm"]
+        working_df["ed_stop_dtm"] - working_df["ed_start_dtm"]
     ).dt.total_seconds() / 60.0
 
     working_df["duration_minutes"] = _safe_numeric(
-        working_df["duration_minutes"]
+        working_df["duration_minutes"], fill_value=0
     )
 
+    # Remove negatives or zero durations
     working_df = working_df[working_df["duration_minutes"] > 0]
 
     if working_df.empty:
@@ -109,15 +176,19 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         return
 
     # --------------------------------------------------
-    # ✅ Year
+    # ✅ Report Year
     # --------------------------------------------------
 
-    working_df["year"] = working_df["wheels_out_dtm"].dt.year
-    working_df = working_df.dropna(subset=["year"])
+    report_year = pd.to_datetime(
+        end_date,
+        errors="coerce"
+    ).year
 
-    if working_df.empty:
-        logger.warning(f"[{VISUAL_ID}] No valid year values")
-        return
+    working_df["year"] = report_year
+
+    logger.info(
+        f"[{VISUAL_ID}] Assigned report_year={report_year}"
+    )
 
     # --------------------------------------------------
     # ✅ Aggregation
@@ -126,9 +197,9 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     try:
         agg_df = (
             working_df
-            .groupby(["year", "or_type"])
+            .groupby("year")
             .agg(
-                encounter_count=("duration_minutes", "count"),
+                encounter_count=("duration_minutes", "count"), 
                 min_duration=("duration_minutes", "min"),
                 median_duration=("duration_minutes", "median"),
                 mean_duration=("duration_minutes", "mean"),
@@ -137,14 +208,15 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             .reset_index()
         )
 
+        # Mode requires separate handling
         mode_df = (
             working_df
-            .groupby(["year", "or_type"])["duration_minutes"]
+            .groupby("year")["duration_minutes"]
             .apply(_calculate_mode)
             .reset_index(name="mode_duration")
         )
 
-        agg_df = agg_df.merge(mode_df, on=["year", "or_type"], how="left")
+        agg_df = agg_df.merge(mode_df, on="year", how="left")
 
     except Exception as e:
         logger.error(f"[{VISUAL_ID}] Aggregation failed: {e}")
@@ -159,12 +231,13 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     # --------------------------------------------------
 
     agg_df = agg_df.sort_values(
-        by=["year", "encounter_count"],
-        ascending=[False, False]
+        by="year",
+        ascending=False
     )
 
+    # Ensure numeric consistency
     for col in agg_df.columns:
-        if col not in ["year", "or_type"]:
+        if col != "year":
             agg_df[col] = pd.to_numeric(agg_df[col], errors="coerce")
 
     agg_df["year"] = agg_df["year"].astype(int)
@@ -172,7 +245,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     logger.info(f"[{VISUAL_ID}] Output rows: {len(agg_df):,}")
 
     # --------------------------------------------------
-    # ✅ Output (Excel)
+    # ✅ Output
     # --------------------------------------------------
 
     try:
@@ -192,11 +265,18 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         title = params.get("title", "")
         subtitle = params.get("cohort_desc")
         subtitle1 = params.get("subtitle1", "")
+        client_name = params.get("client_name")
+        year_type = params.get("year_type")
+        year_prefix = {
+            "fiscal": "FY",
+            "calendar": "CY"
+        }.get(str(params.get("year_type", "")).lower(), "")
 
         # -----------------------
-        # ✅ Write Excel
+        # Write Excel
         # -----------------------
         with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+
             output_df.to_excel(
                 writer,
                 index=False,
@@ -205,17 +285,17 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             )
 
         # -----------------------
-        # ✅ Modify workbook
+        # Modify workbook
         # -----------------------
         wb = load_workbook(output_path)
         ws = wb.active
 
-        # ✅ Titles
+        # ✅ Title / subtitle rows
         ws["A1"] = title
         ws["A2"] = subtitle if subtitle else ""
         ws["A3"] = subtitle1 if subtitle1 else ""
 
-        # ✅ Column widths
+        # ✅ Apply column widths
         for idx, col in enumerate(output_df.columns, start=1):
             col_letter = get_column_letter(idx)
 
@@ -226,7 +306,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                 except Exception:
                     logger.warning(f"[{VISUAL_ID}] Invalid width for {col}")
 
-        # ✅ Excel number formatting
+        # ✅ Apply formats
         for idx, col in enumerate(output_df.columns, start=1):
             fmt = params.get(f"format.{col}")
             col_letter = get_column_letter(idx)
@@ -234,7 +314,8 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             if not fmt:
                 continue
 
-            for cell in ws[col_letter][1:]:  # skip header
+            for cell in ws[col_letter][1:]:  
+
                 if cell.value is None:
                     continue
 
@@ -245,18 +326,80 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                     cell.number_format = '#,##0.0'
 
                 elif fmt == "float0":
-                    cell.number_format = '#,##0'
+                    cell.number_format = '#,##0'                
 
                 elif fmt == "percent":
-                    cell.number_format = '0.0%'
+                    cell.number_format = '0.0%'        
 
-        # ✅ Freeze header row
+        # ✅ Freeze header row (row 5 in Excel)
         ws.freeze_panes = "A6"
 
         wb.save(output_path)
 
         logger.info(f"[{VISUAL_ID}] Saved output to: {output_path}")
 
+        rdb_rows = []
+
+        for _, row in agg_df.iterrows():
+            base_record = {
+                "run_id": params.get("run_id"),
+                "visual_id": VISUAL_ID,
+                "client_name": params.get("client_name"),
+                "domain": params.get("domain"),
+                "cohort_id": params.get("cohort_id"),
+                "domain_cohort":
+                    f"{params.get('domain')}.{params.get('cohort_id')}",
+                "dimension": "year",
+                "dimension_value": row["year"],
+                "dimension_value_label":
+                    f"{year_prefix}{int(row['year'])}",
+                "start_date": start_date,
+                "end_date": end_date,
+                "report_title": params.get("title")
+            }
+            rdb_rows.append({
+                **base_record,
+                "metric": "encounter_count",
+                "metric_type": "count",
+                "value": row["encounter_count"]
+            })
+            rdb_rows.append({
+                **base_record,
+                "metric": "min_duration",
+                "metric_type": "duration_minutes",
+                "value": row["min_duration"]
+            })
+            rdb_rows.append({
+                **base_record,
+                "metric": "median_duration",
+                "metric_type": "duration_minutes",
+                "value": row["median_duration"]
+            })
+            rdb_rows.append({
+                **base_record,
+                "metric": "mean_duration",
+                "metric_type": "duration_minutes",
+                "value": row["mean_duration"]
+            })
+            rdb_rows.append({
+                **base_record,
+                "metric": "mode_duration",
+                "metric_type": "duration_minutes",
+                "value": row["mode_duration"]
+            })
+            rdb_rows.append({
+                **base_record,
+                "metric": "max_duration",
+                "metric_type": "duration_minutes",
+                "value": row["max_duration"]
+            })
+
+
     except Exception as e:
         logger.error(f"[{VISUAL_ID}] Failed to save output: {e}")
         return
+    
+    return {
+        "output_path": output_path,
+        "rdb": rdb_rows
+    }

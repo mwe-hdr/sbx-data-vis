@@ -106,26 +106,44 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
     # --------------------------------------------------
     # ✅ Apply Date Filter (from driver)
+    # Include encounters whose time window overlaps
+    # the reporting period.
     # --------------------------------------------------
 
-    if start_date:
-        start_dt = pd.to_datetime(start_date, errors="coerce")
-        working_df = working_df[working_df["wheels_out_dtm"] >= start_dt]
-
-    if end_date:
-        end_dt = pd.to_datetime(end_date, errors="coerce")
-        working_df = working_df[working_df["wheels_out_dtm"] <= end_dt]
-
-    logger.info(
-        f"[{VISUAL_ID}] After date filter: {len(working_df):,} rows "
-        f"(start={start_date}, end={end_date})"
+    start_dt = (
+        pd.to_datetime(start_date, errors="coerce")
+        if start_date else None
     )
 
-    logger.info(f"[{VISUAL_ID}] Input rows: {len(working_df):,}")
+    end_dt = (
+        pd.to_datetime(end_date, errors="coerce")
+        if end_date else None
+    )
 
-    if working_df.empty:
-        logger.warning(f"[{VISUAL_ID}] No valid datetime rows")
-        return
+    if start_dt is not None and end_dt is not None:
+
+        working_df = working_df[
+            (working_df["wheels_in_dtm"] <= end_dt) &
+            (working_df["wheels_out_dtm"] >= start_dt)
+        ]
+
+    elif start_dt is not None:
+
+        working_df = working_df[
+            working_df["wheels_out_dtm"] >= start_dt
+        ]
+
+    elif end_dt is not None:
+
+        working_df = working_df[
+            working_df["wheels_in_dtm"] <= end_dt
+        ]
+
+    logger.info(
+        f"[{VISUAL_ID}] After overlap filter: "
+        f"{len(working_df):,} rows "
+        f"(start={start_date}, end={end_date})"
+    )
 
     # --------------------------------------------------
     # ✅ Duration Calculation (minutes)
@@ -147,16 +165,19 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         return
 
     # --------------------------------------------------
-    # ✅ Year Derivation (from wheels_out_dtm)
+    # ✅ Report Year
     # --------------------------------------------------
 
-    working_df["year"] = working_df["wheels_out_dtm"].dt.year
+    report_year = pd.to_datetime(
+        end_date,
+        errors="coerce"
+    ).year
 
-    working_df = working_df.dropna(subset=["year"])
+    working_df["year"] = report_year
 
-    if working_df.empty:
-        logger.warning(f"[{VISUAL_ID}] No valid year values")
-        return
+    logger.info(
+        f"[{VISUAL_ID}] Assigned report_year={report_year}"
+    )
 
     # --------------------------------------------------
     # ✅ Aggregation
@@ -233,6 +254,12 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         title = params.get("title", "")
         subtitle = params.get("cohort_desc")
         subtitle1 = params.get("subtitle1", "")
+        client_name = params.get("client_name")
+        year_type = params.get("year_type")
+        year_prefix = {
+            "fiscal": "FY",
+            "calendar": "CY"
+        }.get(str(params.get("year_type", "")).lower(), "")
 
         # -----------------------
         # Write Excel
@@ -300,6 +327,68 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
         logger.info(f"[{VISUAL_ID}] Saved output to: {output_path}")
 
+        rdb_rows = []
+
+        for _, row in agg_df.iterrows():
+            base_record = {
+                "run_id": params.get("run_id"),
+                "visual_id": VISUAL_ID,
+                "client_name": params.get("client_name"),
+                "domain": params.get("domain"),
+                "cohort_id": params.get("cohort_id"),
+                "domain_cohort":
+                    f"{params.get('domain')}.{params.get('cohort_id')}",
+                "dimension": "year",
+                "dimension_value": row["year"],
+                "dimension_value_label":
+                    f"{year_prefix}{int(row['year'])}",
+                "start_date": start_date,
+                "end_date": end_date,
+                "report_title": params.get("title")
+            }
+            rdb_rows.append({
+                **base_record,
+                "metric": "encounter_count",
+                "metric_type": "count",
+                "value": row["encounter_count"]
+            })
+            rdb_rows.append({
+                **base_record,
+                "metric": "min_duration",
+                "metric_type": "duration_minutes",
+                "value": row["min_duration"]
+            })
+            rdb_rows.append({
+                **base_record,
+                "metric": "median_duration",
+                "metric_type": "duration_minutes",
+                "value": row["median_duration"]
+            })
+            rdb_rows.append({
+                **base_record,
+                "metric": "mean_duration",
+                "metric_type": "duration_minutes",
+                "value": row["mean_duration"]
+            })
+            rdb_rows.append({
+                **base_record,
+                "metric": "mode_duration",
+                "metric_type": "duration_minutes",
+                "value": row["mode_duration"]
+            })
+            rdb_rows.append({
+                **base_record,
+                "metric": "max_duration",
+                "metric_type": "duration_minutes",
+                "value": row["max_duration"]
+            })
+
+
     except Exception as e:
         logger.error(f"[{VISUAL_ID}] Failed to save output: {e}")
         return
+    
+    return {
+        "output_path": output_path,
+        "rdb": rdb_rows
+    }

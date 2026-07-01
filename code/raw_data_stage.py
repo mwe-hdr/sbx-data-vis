@@ -22,7 +22,7 @@ print("✅ Connected to database")
 # EXTRACT + SAVE TO CSV
 # --------------------------------------------------
 
-query = "SELECT * FROM ecu.clinic_encounters"
+query = "SELECT * FROM ecu.emergency_new"
 
 print("⬇️ Pulling data from table...")
 df = pd.read_sql(query, conn)
@@ -33,7 +33,7 @@ print(f"✅ Retrieved {len(df):,} rows")
 output_dir = os.path.join(".", "data", "input")
 os.makedirs(output_dir, exist_ok=True)
 
-output_file = os.path.join(output_dir, "ecu_clinic_encounters_export.csv")
+output_file = os.path.join(output_dir, "ecu_emergency_export.csv")
 
 df.to_csv(output_file, index=False)
 

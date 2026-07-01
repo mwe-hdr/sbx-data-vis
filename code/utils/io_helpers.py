@@ -77,12 +77,14 @@ def load_cohort_params(cohort_root_dir):
                 param = row["param"]
                 value = row["value"]
                 desc = row.get("description")
+                domain = row.get("domain")
 
                 cohorts[cohort_id] = {
                     "group": cohort_group,
                     "name": sub_name,
                     "filter": value if param == "filter" else None,
-                    "description": str(desc).strip() if pd.notna(desc) else None
+                    "description": str(desc).strip() if pd.notna(desc) else None,
+                    "domain": domain
                 }
 
                 logging.info(f"[loader] FINAL cohort_id: {cohort_id}")

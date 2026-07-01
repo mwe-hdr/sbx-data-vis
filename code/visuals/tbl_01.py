@@ -88,13 +88,45 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         return
 
     # --------------------------------------------------
+    # ✅ Apply Date Filter (from driver)
+    # --------------------------------------------------
+
+    report_year = pd.to_datetime(
+        end_date,
+        errors="coerce"
+    ).year
+
+    year_type = str(
+        params.get("year_type", "")
+    ).lower()
+
+    if year_type == "fiscal":
+
+        working_df = working_df[
+            working_df["discharge_fiscal_year"] == report_year
+        ]
+
+        logger.info(
+            f"[{VISUAL_ID}] Fiscal year filter applied: "
+            f"discharge_fiscal_year == {report_year}"
+        )
+
+    else:
+
+        logger.warning(
+            f"[{VISUAL_ID}] Unsupported year_type: {year_type}"
+        )
+
+    working_df["year"] = report_year
+
+    # --------------------------------------------------
     # ✅ Aggregation
     # --------------------------------------------------
 
     try:
         agg_df = (
             working_df
-            .groupby("discharge_fiscal_year", as_index=False)
+            .groupby("year", as_index=False)
             .agg(
                 patients=("count_of_patients", "sum"),
                 patient_days=("total_days", "sum")
@@ -113,14 +145,14 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     # --------------------------------------------------
 
     agg_df = agg_df.sort_values(
-        by="discharge_fiscal_year",
+        by="year",
         ascending=False
     )
 
-    for col in ["discharge_fiscal_year", "patients", "patient_days"]:
+    for col in ["year", "patients", "patient_days"]:
         agg_df[col] = pd.to_numeric(agg_df[col], errors="coerce").fillna(0)
 
-    agg_df["discharge_fiscal_year"] = agg_df["discharge_fiscal_year"].astype(int)
+    agg_df["year"] = agg_df["year"].astype(int)
     agg_df["patients"] = agg_df["patients"].astype(int)
     agg_df["patient_days"] = agg_df["patient_days"].astype(int)
 
@@ -147,6 +179,12 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         title = params.get("title", "")
         subtitle = params.get("cohort_desc")
         subtitle1 = params.get("subtitle1", "")
+        client_name = params.get("client_name")
+        year_type = params.get("year_type")
+        year_prefix = {
+            "fiscal": "FY",
+            "calendar": "CY"
+        }.get(str(params.get("year_type", "")).lower(), "")
 
         # -----------------------
         # ✅ Write Excel
@@ -215,3 +253,64 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     except Exception as e:
         logger.error(f"[{VISUAL_ID}] Failed to save output: {e}")
         return
+    
+    rdb_rows = []
+
+    for _, row in agg_df.iterrows():
+
+        rdb_rows.append({
+            "run_id": params.get("run_id"),
+            "visual_id": VISUAL_ID,
+            "client_name": params.get("client_name"),
+
+            "domain": params.get("domain"),
+            "cohort_id": params.get("cohort_id"),
+
+            "domain_cohort":
+                f"{params.get('domain')}.{params.get('cohort_id')}",
+
+            "dimension": "year",
+            "dimension_value": row["year"],
+            "dimension_value_label":
+                f"{year_prefix}{int(row['year'])}",
+
+            "metric": "patients",
+            "metric_type": "count",
+            "value": row["patients"],
+
+            "start_date": start_date,
+            "end_date": end_date,
+
+            "report_title": params.get("title")
+        })
+
+        rdb_rows.append({
+            "run_id": params.get("run_id"),
+            "visual_id": VISUAL_ID,
+            "client_name": params.get("client_name"),
+
+            "domain": params.get("domain"),
+            "cohort_id": params.get("cohort_id"),
+
+            "domain_cohort":
+                f"{params.get('domain')}.{params.get('cohort_id')}",
+
+            "dimension": "year",
+            "dimension_value": row["year"],
+            "dimension_value_label":
+                f"{year_prefix}{int(row['year'])}",
+
+            "metric": "patient_days",
+            "metric_type": "count",
+            "value": row["patient_days"],
+
+            "start_date": start_date,
+            "end_date": end_date,
+
+            "report_title": params.get("title")
+        })
+
+    return {
+    "output_path": output_path,
+    "rdb": rdb_rows
+    }

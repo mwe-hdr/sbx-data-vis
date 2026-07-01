@@ -39,7 +39,7 @@ foreach ($h in $hospitals) {
         [PSCustomObject]@{
             name        = "$prefix.all.emergency"
             param       = "filter"
-            value       = "hospital_name == `"$loc`""
+            value       = "facility_name == `"$loc`""
             description = "All emergency encounters at $loc"
         }
     )
