@@ -1,0 +1,21 @@
+param,value,description
+,,
+## ===== THRESHOLDS =====
+label_threshold,0,Minimum percent to display label
+group_other_threshold,0.065,Minimum percent before grouping into Other
+
+## ===== LABEL CONTROL =====
+show_counts,True,Include counts in labels
+show_percent,True,Include percent in labels
+label_decimals,1,Percent decimal precision
+
+## ===== FIGURE =====
+fig_width,6,Figure width
+fig_height,6,Figure height
+dpi,100,Resolution
+
+## ===== COLORS =====
+color_ambulance,#1f77b4,Ambulance
+color_car,#ff7f0e,Car
+color_wheelchair,#d62728,Wheelchair
+color_other,#7f7f7f,Other

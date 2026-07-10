@@ -1,0 +1,62 @@
+Graph Title:
+Weekday Arrival Distribution
+
+GPT Paragraph Prompt:
+Generate a vertical bar chart showing the distribution of emergency department arrivals by day of week for a defined time period. Use visit_dtm to derive the weekday for each encounter, aggregate encounter counts by weekday, and convert counts into percentages of total encounters. Plot each weekday as a separate bar ordered from Sunday through Saturday. Include percentage labels above each bar, ensure the implementation is fully parameterized to support any time range, and save the output as a PNG file.
+
+Detailed Breakdown:
+
+1. Data Preparation
+- Use visit_dtm as the primary timestamp.
+- Convert visit_dtm to datetime if not already.
+- Optionally filter the dataset to a defined time period using parameterized start and end dates.
+
+2. Derived Field: Weekday
+- Create a weekday field:
+  arrival_weekday = visit_dtm.dt.dayofweek
+- Map numeric weekday values to labels:
+  0 -> 'Mon'
+  1 -> 'Tue'
+  2 -> 'Wed'
+  3 -> 'Thu'
+  4 -> 'Fri'
+  5 -> 'Sat'
+  6 -> 'Sun'
+- Reorder to desired display order:
+  ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+3. Aggregation Logic
+- Group data by weekday label.
+- Compute encounter counts per weekday.
+
+4. Percentage Calculation
+- Compute total encounters across all weekdays.
+- For each weekday:
+  percent = count / total_count
+
+5. Ensure All Categories Present
+- Ensure all seven weekdays are represented.
+- Fill missing weekdays with zero values if necessary.
+
+6. Chart Construction
+- Create a vertical bar chart.
+- X-axis: weekday labels ordered Sunday through Saturday.
+- Y-axis: percentage of encounters.
+
+7. Labels on Bars
+- Add percentage labels above each bar.
+- Format labels with 1 decimal precision (e.g., 15.3%).
+
+8. Title and Axis Labels
+- Title should be parameterized (e.g., 'Weekday Arrival Distribution').
+- X-axis label: 'Day of Week'.
+- Y-axis label: 'Percent of Arrivals'.
+
+9. Visual Characteristics
+- Bars should be evenly spaced.
+- Use a single consistent color for all bars.
+- Distribution should approximately sum to 100% across all days.
+
+10. Output
+- Save the chart as a PNG file with a parameterized filename, e.g.:
+  'weekday_arrival_distribution.png'.

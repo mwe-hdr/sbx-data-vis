@@ -1,0 +1,2 @@
+﻿name,param,value,description,cohort_file
+ed.non_psych,filter,"psych_patient_flag == ""No""",Non-Psych ED encounters,ed_cohort_gen.singlefile.psych.nonpsych.ps1

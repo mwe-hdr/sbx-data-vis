@@ -1,0 +1,18 @@
+﻿*.log
+*.csv
+*.xlsx
+*.xlsm
+*.hyper
+*.twb
+*.twbx
+*.shp
+
+# Ignore all data
+data/*
+
+# Re-allow params folder structure
+!data/input/
+!data/input/params/
+!data/input/params/**/*.csv
+
+data/input/geo/*

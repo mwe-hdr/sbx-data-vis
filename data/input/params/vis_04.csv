@@ -1,0 +1,30 @@
+param,value,description
+,,
+## ===== LABEL CONTROL =====,,
+label_threshold,0.01,Min percent threshold for labels
+label_decimals,1,Decimal places for labels
+label_color,black,Label text color
+,,
+## ===== FIGURE =====,,
+fig_width,12,Figure width
+fig_height,6,Figure height
+dpi,100,Resolution
+,,
+## ===== FONT SIZES =====,,
+title_fontsize,14,Title size
+axis_fontsize,11,Axis labels
+label_fontsize,9,Bar label font
+,,
+## ===== AXIS FORMATTING =====,,
+y_axis_mode,percent,percent count raw
+y_axis_decimals,0,Decimals on axis
+y_axis_multiplier,100,Multiplier
+y_axis_suffix,%,Suffix
+,,
+## ===== COLORS =====,,
+0 - Unknown,#7f7f7f,Unknown color
+1 - Immediate,#ff7f0e,Immediate
+2 - Emergent,#17becf,Emergent
+3 - Urgent,#1f77b4,Urgent
+4 - Less Urgent,#2ca02c,Less urgent
+5 - Non-Urgent,#ffd966,Non-urgent

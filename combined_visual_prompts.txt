@@ -1,0 +1,925 @@
+Graph Title:
+Cluster-Level ESI Distribution Heatmap
+
+GPT Paragraph Prompt:
+Generate a heatmap visualizing the distribution of patient acuity (ESI levels) and discharge outcomes across previously defined room clusters. Use the cluster assignments derived from a prior PCA or clustering analysis at the room level, then map each encounter to its corresponding cluster via er_room. Construct a matrix where rows represent clusters and columns represent combined feature categories (e.g., ESI level crossed with discharge category or standalone ESI proportions), and populate each cell with the proportion of encounters in that cluster belonging to that category. Normalize values within each cluster to sum to 1. Plot the matrix as a heatmap with clusters on the y-axis and feature categories on the x-axis, using a continuous color scale to represent proportions. Ensure the process is fully parameterized and save the output as a PNG file.
+
+Detailed Breakdown:
+
+1. Data Preparation
+- Use encounter-level dataset.
+- Required fields:
+  er_room
+  esi
+  disch_disp_desc
+- Assume availability of precomputed room-level cluster assignments (from PCA or clustering step):
+  er_room -> cluster_id
+- Join cluster assignments back to encounter-level data.
+
+2. Feature Engineering (Combined Categories)
+- Create combined categorical variable representing patient mix:
+  feature_category = 'ESI{X}_{Disposition}'
+
+- Map esi values:
+  1 → 'ESI1'
+  2 → 'ESI2'
+  3 → 'ESI3'
+  4 → 'ESI4'
+  5 → 'ESI5'
+
+- Map disposition categories (parameterizable):
+  'Discharged' → 'Discharge'
+  'Admitted' → 'Inpatient'
+  'Observation' → 'Observation'
+  'Transfer' → 'Transfer'
+  'Left Without Being Seen', etc. → 'ExitWithoutCare'
+  'Expired' → 'Expired'
+
+- Combine:
+  feature_category = ESI label + '_' + disposition label
+
+3. Aggregation Logic
+- Group by:
+  cluster_id and feature_category
+- Compute encounter counts.
+
+4. Normalization
+- For each cluster_id:
+  total_cluster_encounters = sum of counts
+- Compute proportion for each feature_category:
+  proportion = count / total_cluster_encounters
+
+5. Matrix Construction
+- Pivot data into matrix form:
+  Rows: cluster_id
+  Columns: feature_category
+  Values: proportion
+
+- Fill missing combinations with 0.
+
+6. Ordering
+- Order clusters numerically or by size.
+- Order columns logically:
+  - First by ESI (1 → 5)
+  - Within each ESI, order by disposition category
+
+7. Heatmap Construction
+- Plot heatmap using seaborn or matplotlib.
+- X-axis: feature_category labels (may be rotated for readability).
+- Y-axis: cluster_id.
+- Color scale: continuous (e.g., blue → red) representing proportion magnitude.
+
+8. Colorbar
+- Include a colorbar indicating proportion values.
+- Range should be from 0 to max proportion observed.
+
+9. Labels and Title
+- Title parameterized (e.g., 'Cluster Patient Mix Profiles').
+- X-axis label: 'ESI and Disposition Categories'.
+- Y-axis label: 'Cluster'.
+
+10. Output
+- Save the heatmap as PNG file:
+  'cluster_esi_heatmap.png'
+
+11. Validation Checks
+- Each row (cluster) should sum to approximately 1.0
+- No missing clusters from PCA step
+- Ensure feature categories correctly mapped and consistent
+
+12. Interpretation Guidance (Optional)
+- Identify clusters dominated by:
+  - Low acuity / discharge combinations
+  - High acuity / inpatient combinations
+  - Observation-heavy profiles
+- Compare distributions visually across clusters
+
+Graph Title:
+ED Hourly Census with Peak Utilization and Capacity Thresholds
+
+GPT Paragraph Prompt:
+Create a combined bar-and-line chart that visualizes Emergency Department (ED) hourly census patterns across a defined time period, incorporating projected growth, percentile thresholds, and peak-period classification. Derive hourly census by aggregating interval-level census observations (optionally adjusted for projected growth) and averaging within each hour. Compute hourly percentiles (70th, 80th, 90th) across the full distribution of hourly census values. Classify each hour as Peak or Off-Peak using configurable start time and duration parameters, including wrap-around logic past midnight. Display bars representing hourly census, colored by peak classification, and overlay line plots for percentile thresholds (70th, 80th, 90th). Include horizontal reference lines for ED peak census and calculated room need based on utilization. The visualization should be parameter-driven and saved as a PNG file.
+
+Detailed Breakdown:
+
+A. Data Preparation:
+- Required Fields: Interval, Census
+- Filter by parameterized time window
+- Remove nulls and ensure Census >= 0
+
+B. Derived Metrics:
+- ED_Census_with_Growth = Census * (1 + Variable_10_Year_Growth)
+- Hour = hour(Interval)
+- ED_Hourly_Census = SUM(ED_Census_with_Growth) / COUNT_DISTINCT(Interval)
+- Peak classification using parameterized logic
+- P70, P80, P90 percentiles
+- ED_Peak_Census = max hourly census
+- ED_Room_Need = peak / utilization
+
+C. Aggregation:
+- Group by Hour (0–23)
+- Ensure all hours present
+
+D. Normalization:
+- Percentiles computed across all hours
+
+E. Data Reshaping:
+- Final table: Hour, Census, Peak flag, Percentiles
+
+F. Chart Construction:
+- Bar chart (hourly census)
+- Line overlays (percentiles)
+- Horizontal lines (capacity metrics)
+
+G. Visual Encoding:
+- Bars: teal (Peak), gray (Off-Peak)
+- Lines: green (70th), yellow (80th), orange (90th)
+- Reference: dark blue (peak census), magenta (room need)
+
+H. Labels:
+- Title: ED Hourly Census with Peak Period and Capacity Benchmarks
+- X: Hour of Day
+- Y: ED Census
+
+I. Output:
+- Filename: ed_hourly_census_peak_capacity.png
+
+J. Validation:
+- Ensure 24 hours present
+- Percentile ordering correct
+- No negative values
+- Room need >= peak census (if utilization <1)
+
+K. Interpretation:
+- Identifies peak load periods, demand variability, and capacity gaps
+
+Graph Title:
+ED Minute-Level Census Trend with Capacity Reference Line
+
+GPT Paragraph Prompt:
+Generate a time-series visualization showing the minute-by-minute emergency department (ED) census over a defined 12-month (or parameterized) time period. Construct census as the number of patients simultaneously in the ED at each minute using ed_start_dtm and ed_end_dtm timestamps. Plot the resulting high-frequency time series as a continuous line or filled area. Overlay a horizontal reference line representing a fixed capacity value (e.g., current treatment rooms), and optionally include an average census line. Ensure the full pipeline (interval expansion, aggregation, and plotting) is parameterized for any time period and capacity value. Save the visualization as a PNG file.
+
+Detailed Breakdown:
+
+1. Data Preparation
+- Use ed_start_dtm as entry into ED treatment and ed_end_dtm as exit.
+- Convert both fields to datetime.
+- Filter dataset to a defined time period (parameterized start_date and end_date).
+- Drop records with missing or invalid timestamps (e.g., ed_end_dtm < ed_start_dtm).
+
+2. Derived Metric: Minute-Level Census
+- Create a continuous minute-level time index spanning the full time period:
+  time_index = date_range(start_date, end_date, freq='T')
+
+- For each encounter, define its active interval:
+  interval = [ed_start_dtm, ed_end_dtm)
+
+- For each minute in time_index, compute census as:
+  census_t = count of encounters where:
+    ed_start_dtm <= t < ed_end_dtm
+
+- Efficient implementations may use:
+  - Interval expansion with +1 at start and -1 at end, then cumulative sum
+  - Or vectorized overlap counting
+
+3. Optional Smoothing / Aggregation
+- Optionally leave series at full minute-level granularity (as shown).
+- No downsampling required unless parameterized.
+
+4. Average Line (Optional)
+- Compute mean census across all minutes:
+  avg_census = mean(census_t)
+- Add optional horizontal line representing this value.
+
+5. Capacity Reference Line
+- Define a parameter:
+  capacity_value (e.g., number of treatment rooms)
+- Add a horizontal dashed line at this value.
+- Include optional annotation label (e.g., 'Tx Rooms: X').
+
+6. Chart Construction
+- Create a time-series plot.
+- X-axis: datetime at minute granularity across full period.
+- Y-axis: ED census (integer count).
+
+7. Visual Encoding
+- Primary series: dense line or filled area (high-frequency signal).
+- Highlight portions above capacity (optional):
+  - Use different color shading where census_t > capacity_value
+
+8. Labels and Title
+- Title parameterized (e.g., 'ED Census Trend').
+- X-axis label: 'Time'.
+- Y-axis label: 'ED Census'.
+
+9. Axis Handling
+- Format x-axis for readability:
+  - Monthly tick marks (e.g., Jan–Dec)
+  - Ensure chronological continuity
+
+10. Performance Considerations
+- For large datasets, avoid explicit loop over minutes.
+- Prefer cumulative sum approach:
+  - Create events dataframe with:
+    +1 at ed_start_dtm (floored to minute)
+    -1 at ed_end_dtm (floored to minute)
+  - Reindex to full minute index and cumulative sum to get census
+
+11. Output
+- Save the chart as a PNG file with a parameterized filename, e.g.:
+  'ed_census_minute_timeseries.png'
+
+12. Validation Checks
+- Census should never be negative
+- Peak census should align with expected volumes
+- Time series should be continuous with no missing minutes
+
+Graph Title:
+ED Patient Flow Sankey (Arrival to Discharge Outcomes)
+
+GPT Paragraph Prompt:
+Generate a Sankey diagram visualizing patient flow through key emergency department stages for a defined time period. Use encounter-level timestamps and outcomes to construct a staged flow from Arrival to Triage, to ED Treatment, and finally to disposition categories such as Discharge, Inpatient, Observation, Transfer, Exit Without Care, and Expired. Compute counts and percentages at each transition step, ensuring that flows are conserved between stages. Represent each stage as a node and each transition as a weighted link proportional to encounter counts. Include node labels with counts and percentages of total arrivals, and render the Sankey diagram with left-to-right flow. Ensure the implementation is fully parameterized for any time period and save the output as a PNG file.
+
+Detailed Breakdown:
+
+1. Data Preparation
+- Use encounter-level data.
+- Optionally filter dataset for a defined time period using visit_dtm.
+
+2. Define Core Stages
+Construct the following sequential stages:
+- Arrival (all encounters)
+- Triage
+- ED Treatment
+- Disposition outcomes
+
+3. Stage Inclusion Logic
+- Arrival: all encounters (base population)
+
+- Triage:
+  Include encounters with non-null triage_start_dtm
+  Create a complementary group:
+    'No Triage' = encounters without triage_start_dtm
+
+- ED Treatment:
+  Include encounters with non-null ed_start_dtm
+
+  Create a complementary group:
+    'Left Before ED' = encounters without ed_start_dtm but with arrival
+
+4. Disposition Mapping
+Use disch_disp_desc to map encounters into final categories (parameterizable mapping):
+
+- 'Discharged' or similar → 'Discharge'
+- 'Admitted' → 'Inpatient'
+- 'Observation' → 'Observation'
+- 'Transfer' → 'Transfer'
+- 'Left Without Being Seen', 'Against Medical Advice', etc. → 'Exit Without Care'
+- 'Expired' → 'Expired'
+
+Ensure all encounters reaching ED Treatment are assigned to one and only one final category.
+
+5. Flow Construction
+Build flows between nodes as counts:
+
+- Arrival → Triage: count of encounters with triage
+- Arrival → No Triage: count of encounters without triage
+
+- Triage → ED Treatment: count of encounters entering ED room
+- Triage → Left Before ED: count not entering ED room
+
+- ED Treatment → each disposition category: counts per mapped outcome
+
+6. Percent Calculations
+- Compute total encounters (Arrival base)
+- For each node:
+  percent = node_count / total_arrivals
+- Include both count and percent in labels
+
+7. Node Definitions
+Nodes should include:
+- 'Arrival'
+- 'Triage'
+- 'No Triage'
+- 'ED Treatment'
+- 'Left Before ED'
+- Final disposition categories
+
+8. Link Definitions
+Each link includes:
+- Source node
+- Target node
+- Value = encounter count
+
+Ensure conservation of flow (sum of outgoing = incoming for intermediate nodes)
+
+9. Label Formatting
+- Node labels should include:
+  Name + count + percentage
+  Example: 'Arrival
+75,975 (100.0%)'
+
+10. Visualization Construction
+- Use a Sankey diagram (Plotly recommended for native support)
+- Orientation: left-to-right
+- Node widths proportional visually but determined by library
+- Link thickness proportional to counts
+
+11. Color Logic (Optional)
+- Use consistent base color for main flow
+- Lighter shades for branches or outcomes
+- Allow parameterization of colors
+
+12. Title
+- Title should be parameterized, e.g.:
+  'ED Patient Flow Sankey'
+
+13. Output
+- Save as PNG file (e.g., using plotly image export):
+  'ed_patient_flow_sankey.png'
+
+14. Validation Checks
+- Total flow leaving Arrival equals total encounters
+- Flow balances at each stage
+- Percentages align with counts
+- No duplicate or missing encounter assignments in transitions
+
+Graph Title:
+ED Visits by Year
+
+GPT Paragraph Prompt:
+Generate a vertical bar chart showing total emergency department visit volume by year for a defined time period. Use visit_dtm as the source timestamp to derive the calendar year, aggregate the number of encounters per year, and plot each year as a separate bar. Display the total visit count as labels above each bar, ensure the logic is parameterized to support any date range, and save the output as a PNG file.
+
+Detailed Breakdown:
+
+1. Data Preparation
+- Use visit_dtm as the reference timestamp.
+- Convert visit_dtm to datetime if necessary.
+- Optionally filter data to a defined time period using parameterized start and end dates.
+
+2. Derived Field: Year
+- Create a year field:
+  arrival_year = visit_dtm.dt.year
+
+3. Aggregation Logic
+- Group data by arrival_year.
+- Compute total encounter count per year.
+  (Each row represents an encounter; count rows or distinct encounter_id if needed.)
+
+4. Sorting
+- Sort results in ascending order by year.
+
+5. Chart Construction
+- Create a vertical bar chart.
+- X-axis: arrival_year (categorical or integer years).
+- Y-axis: total encounter count.
+
+6. Labels on Bars
+- Add data labels above each bar showing total counts.
+- Format labels with thousands separators (e.g., 74,826).
+
+7. Title and Axis Labels
+- Title should be parameterized, e.g., 'ED Visits by Year'.
+- X-axis label: 'Year'.
+- Y-axis label: 'Number of Visits'.
+
+8. Visual Characteristics
+- Bars should be evenly spaced.
+- Use a single consistent color for all bars unless segmentation is added.
+- Maintain clean formatting for readability.
+
+9. Output
+- Save the chart as a PNG file with a parameterized filename, e.g.:
+  'ed_visits_by_year.png'.
+
+Graph Title:
+ESI Level Distribution
+
+GPT Paragraph Prompt:
+Generate a vertical bar chart showing the distribution of Emergency Severity Index (ESI) levels for encounters within a defined time period. Use the esi field to categorize encounters, optionally including an 'Unknown' or missing category. Aggregate encounter counts by ESI category, convert counts to percentages of total encounters, and plot each category as a separate bar. Order categories logically from lowest acuity (highest number) to highest acuity (lowest number), include percentage labels above each bar, and ensure the implementation is fully parameterized for any time period. Save the output as a PNG file.
+
+Detailed Breakdown:
+
+1. Data Preparation
+- Use the esi field as the core categorical variable.
+- Optionally filter data for a defined time period using parameterized date filters applied to visit_dtm.
+
+2. Data Cleaning and Category Handling
+- Handle missing or null esi values by assigning them to an '0 - Unknown' or 'Unknown' category.
+- Ensure esi values are treated as categorical rather than numeric for plotting.
+
+3. ESI Category Mapping
+- Map values into labeled categories:
+  Missing/Null -> '0 - Unknown'
+  1 -> '1 - Immediate'
+  2 -> '2 - Emergent'
+  3 -> '3 - Urgent'
+  4 -> '4 - Less Urgent'
+  5 -> '5 - Non-Urgent'
+
+4. Aggregation Logic
+- Group data by esi_category.
+- Compute total encounter count for each category.
+
+5. Percentage Calculation
+- Compute total encounters across all categories.
+- For each category:
+  percent = count / total_count
+
+6. Category Ordering
+- Explicitly order categories as:
+  '0 - Unknown'
+  '1 - Immediate'
+  '2 - Emergent'
+  '3 - Urgent'
+  '4 - Less Urgent'
+  '5 - Non-Urgent'
+
+7. Chart Construction
+- Create a vertical bar chart.
+- X-axis: ESI categories (ordered categorically).
+- Y-axis: percentage of encounters.
+
+8. Labels on Bars
+- Add percentage labels above each bar.
+- Format labels with 1 decimal precision (e.g., 59.6%).
+
+9. Colors
+- Assign distinct but consistent colors per category (parameterizable). Example:
+  '0 - Unknown' -> gray
+  '1 - Immediate' -> orange
+  '2 - Emergent' -> dark teal
+  '3 - Urgent' -> blue
+  '4 - Less Urgent' -> green
+  '5 - Non-Urgent' -> light orange or yellow
+
+10. Title and Axis Labels
+- Title should be parameterized, e.g., 'ESI Level Distribution'.
+- X-axis label: 'ESI Level'.
+- Y-axis label: 'Percent of Encounters'.
+
+11. Output
+- Save the chart as a PNG file with a parameterized filename, e.g.:
+  'esi_distribution.png'.
+
+Graph Title:
+Hourly Arrivals Distribution by ESI
+
+GPT Paragraph Prompt:
+Generate a stacked bar chart showing the distribution of emergency department arrivals by hour of day (0–23) for a defined time period using visit_dtm as the arrival timestamp. Derive the arrival hour from visit_dtm, map numeric ESI values (1–5) into labeled categories, and aggregate encounter counts by hour and ESI category. Convert counts into within-hour percentages so each hour sums to 100%. Pivot the data into wide format and plot stacked bars with hour on the x-axis and percentage on the y-axis, segmented by ESI category in a consistent order from least urgent to most urgent. Include percentage labels inside each segment where values are sufficiently large, add a legend titled 'ESI', and save the output as a PNG file. Ensure the logic works for any filtered time period without hardcoding dates.
+
+Detailed Breakdown:
+
+1. Data Preparation
+- Use the visit_dtm field as the arrival timestamp.
+- Convert visit_dtm to datetime if not already.
+- Assume data may already be filtered to a target time period OR include a parameterizable filter step.
+- Create a new field:
+  arrival_hour = visit_dtm.dt.hour
+
+2. ESI Category Mapping
+- Map numeric esi values into categorical labels:
+  1 -> '1 - Immediate'
+  2 -> '2 - Emergent'
+  3 -> '3 - Urgent'
+  4 -> '4 - Less Urgent'
+  5 -> '5 - Non-Urgent'
+- Ensure categories are explicitly ordered for plotting.
+
+3. Aggregation Logic
+- Group data by:
+  arrival_hour and esi_category
+- Compute encounter counts within each group.
+
+4. Percentage Calculation
+- For each arrival_hour, compute total encounters.
+- Divide each group count by total encounters for that hour:
+  percent = count / total_hourly_count
+- Ensure the sum of percentages per hour equals 1.0.
+
+5. Data Reshaping
+- Pivot the dataset:
+  Index: arrival_hour (0–23)
+  Columns: esi_category
+  Values: percent
+- Fill missing combinations with 0.
+- Ensure all hours 0–23 are present, even if no arrivals occurred.
+
+6. Chart Construction
+- Create a stacked bar chart.
+- X-axis: arrival_hour (0–23)
+- Y-axis: percent (0–1 scale or formatted as percentage)
+
+7. Stacking Order (bottom to top)
+- '5 - Non-Urgent'
+- '4 - Less Urgent'
+- '3 - Urgent'
+- '2 - Emergent'
+- '1 - Immediate'
+
+8. Colors
+- Assign consistent but parameterizable colors, for example:
+  '5 - Non-Urgent' -> green
+  '4 - Less Urgent' -> light blue
+  '3 - Urgent' -> medium blue
+  '2 - Emergent' -> dark teal
+  '1 - Immediate' -> orange
+
+9. Labels Inside Bars
+- Add text labels showing percentage values for each segment.
+- Format as percentage with 1 decimal place.
+- Only display labels where percent exceeds a configurable threshold (e.g., >0.5%).
+
+10. Title and Legend
+- Title should be dynamically generated based on the filtered time period (e.g., 'Hourly Arrivals Distribution').
+- Legend title: 'ESI'
+
+11. Output
+- Save the figure as a PNG file with a parameterizable filename (e.g., 'hourly_arrivals_distribution.png').
+
+Graph Title:
+Length of Stay Distribution (Hours)
+
+GPT Paragraph Prompt:
+Generate a histogram-style bar chart showing the distribution of emergency department length of stay (LOS) in hours for a defined time period. Calculate LOS as the difference between ed_end_dtm and ed_start_dtm in hours. Bin LOS into discrete hourly buckets (e.g., 0–1, 1–2, … or integer hour buckets based on floor values), then compute the percentage of total encounters falling into each bucket. Plot a bar chart with LOS hour buckets on the x-axis and percentage of encounters on the y-axis. Include percentage labels above each bar, ensure the logic is generalized for any time period, and save the output as a PNG file.
+
+Detailed Breakdown:
+
+1. Data Preparation
+- Use ed_start_dtm and ed_end_dtm as the start and end of ED stay.
+- Convert both fields to datetime if needed.
+- Optionally filter dataset for a defined time period.
+
+2. Derived Metric: Length of Stay
+- Compute LOS in hours:
+  los_hours = (ed_end_dtm - ed_start_dtm).total_seconds() / 3600
+- Drop records with missing or negative LOS values.
+
+3. Binning Logic
+- Create discrete hourly buckets:
+  los_bucket = floor(los_hours)
+- Cap or group extreme values into a max bucket if desired (e.g., >=23 hours).
+- Ensure buckets start at 0 and increment by 1.
+
+4. Aggregation
+- Group by los_bucket.
+- Compute count of encounters in each bucket.
+
+5. Percentage Calculation
+- Compute total encounters across all buckets.
+- For each bucket:
+  percent = count / total_count
+
+6. Ensure Continuity
+- Ensure all integer buckets from min to max (e.g., 0–23) are present.
+- Fill missing buckets with 0 percent.
+
+7. Chart Construction
+- Use a vertical bar chart (not stacked).
+- X-axis: LOS bucket (integer hours).
+- Y-axis: percentage of encounters.
+
+8. Labels
+- Add percentage labels above each bar.
+- Format with 1 decimal place (e.g., 12.3%).
+
+9. Title and Axis Labels
+- Title should be parameterized (e.g., 'LOS Distribution (Hours)').
+- X-axis label: 'Length of Stay (Hours)'.
+- Y-axis label: 'Percent of Encounters'.
+
+10. Visual Characteristics
+- Bars are uniform in width and aligned to integer hour ticks.
+- Distribution is typically right-skewed with most observations in lower hour buckets.
+
+11. Output
+- Save chart as a PNG file with a parameterized filename, e.g.:
+  'los_distribution_hours.png'.
+
+Graph Title:
+Monthly ED Arrivals Trend
+
+GPT Paragraph Prompt:
+Generate a line chart showing the total number of emergency department arrivals by month for a defined time period. Use visit_dtm to derive calendar month and year, aggregate encounter counts by month, and plot the results as a continuous time series ordered chronologically. Ensure months are properly ordered (Jan–Dec within each year or continuous across years), include optional labels for selected points (e.g., first and last values), and save the visualization as a PNG file. The implementation should be fully parameterized to work for any filtered date range.
+
+Detailed Breakdown:
+
+1. Data Preparation
+- Use visit_dtm as the primary timestamp.
+- Convert visit_dtm to datetime if not already.
+- Optionally filter to a defined time period using parameterized start and end dates.
+
+2. Derived Fields
+- Create fields for:
+  arrival_year = visit_dtm.dt.year
+  arrival_month = visit_dtm.dt.month
+- Optionally create a combined period field for ordering:
+  year_month = visit_dtm.dt.to_period('M') or use datetime representing first day of month.
+
+3. Aggregation Logic
+- Group data by year_month (preferred for multi-year continuity) OR by (arrival_year, arrival_month).
+- Compute total encounter count per month.
+
+4. Sorting and Continuity
+- Sort results chronologically by year_month.
+- Ensure all months within the defined time period are represented.
+- Fill missing months with zero counts if necessary.
+
+5. Optional Month Labels
+- Create abbreviated month labels (Jan, Feb, …, Dec) if plotting within a single year.
+- For multi-year data, use formatted labels such as 'YYYY-MM' or 'MMM YYYY'.
+
+6. Chart Construction
+- Create a line chart.
+- X-axis: ordered monthly periods.
+- Y-axis: total encounter count.
+- Plot a single continuous line connecting all monthly points.
+
+7. Styling (Minimal, Parameterizable)
+- Use a single consistent line color.
+- Optionally include markers at each data point.
+
+8. Data Labels
+- Optionally annotate selected points (e.g., first and last month values or peaks).
+- Format labels with thousands separators (e.g., 6,714).
+
+9. Title and Axis Labels
+- Title should be parameterized (e.g., 'Monthly ED Arrivals').
+- X-axis label: 'Month'.
+- Y-axis label: 'Number of Arrivals'.
+
+10. Output
+- Save the chart as a PNG file with a parameterized filename, e.g.:
+  'monthly_ed_arrivals.png'.
+
+11. Validation Characteristics
+- The line should reflect month-to-month variation in arrivals.
+- Values typically fluctuate moderately with possible seasonal patterns.
+- Ensure no gaps in the time series unless intentionally present in the data.
+
+Graph Title:
+Room-Level PCA Clustering of ED Utilization Patterns
+
+GPT Paragraph Prompt:
+Generate a 2-dimensional PCA scatter plot to identify clustering patterns in emergency department room utilization based on patient acuity (ESI distribution) and discharge outcomes. Construct a room-level feature matrix where each row represents an ED room and columns represent aggregated metrics such as proportions of encounters by ESI level and proportions of discharge disposition categories for that room. Standardize the feature space, apply Principal Component Analysis (PCA) to reduce dimensionality to two components, and plot each room as a point in PCA space. Use color encoding to reflect dominant discharge or utilization pattern clusters. Annotate or interpret clusters (e.g., high-discharge rooms, core ED rooms, observation-heavy rooms), ensure all steps are parameterized, and save the visualization as a PNG file.
+
+Detailed Breakdown:
+
+1. Data Preparation
+- Use encounter-level dataset.
+- Key fields:
+  er_room (room identifier)
+  esi (acuity level)
+  disch_disp_desc (disposition outcome)
+- Optionally filter to a defined time period using visit_dtm.
+- Drop encounters with missing room assignments if necessary.
+
+2. Room-Level Aggregation
+- Group by er_room.
+- For each room, compute:
+
+  a. ESI Distribution Features (proportions):
+    pct_esi_1, pct_esi_2, ..., pct_esi_5
+
+  b. Disposition Distribution Features (proportions):
+    pct_discharge
+    pct_inpatient
+    pct_observation
+    pct_transfer
+    pct_exit_without_care
+    pct_expired
+
+- Each proportion is defined as:
+  count of encounters in category / total encounters in that room
+
+3. Feature Matrix Construction
+- Create a dataframe where:
+  Rows = unique er_room
+  Columns = all proportion-based features
+- Fill missing feature values with 0.
+- Optionally remove rooms with very low encounter volume (threshold parameterizable).
+
+4. Feature Scaling
+- Standardize features using z-score normalization:
+  mean = 0, standard deviation = 1
+- Use sklearn StandardScaler or equivalent.
+
+5. PCA Transformation
+- Apply PCA to standardized features.
+- Reduce to 2 principal components:
+  PCA1 and PCA2
+- Capture explained variance ratio (optional annotation).
+
+6. Plot Construction
+- Create a scatter plot:
+  X-axis: PCA1
+  Y-axis: PCA2
+
+- Each point represents a room.
+
+7. Color Encoding (Cluster Interpretation)
+- Assign colors based on dominant feature patterns. Options include:
+  a. Dominant discharge category per room
+  b. K-means clustering on PCA output (optional parameter)
+  c. Simple rule-based segmentation
+
+- Ensure color mapping is parameterized.
+
+8. Annotations (Optional but Recommended)
+- Identify and label clusters visually:
+  e.g.:
+    'High Discharge Rooms'
+    'Core ED Rooms'
+    'Observation-heavy Rooms'
+- Optionally annotate extreme points or cluster centroids.
+
+9. Axis Labels
+- X-axis: 'PCA 1'
+- Y-axis: 'PCA 2'
+
+10. Title
+- Title parameterized, e.g.:
+  'ED Room Utilization PCA Clusters'
+
+11. Output
+- Save chart as PNG with parameterized filename, e.g.:
+  'room_pca_clusters.png'
+
+12. Validation Checks
+- Ensure all rooms have valid feature vectors
+- Confirm proportions per room sum to 1 across each feature group
+- Confirm PCA outputs finite numeric values
+- Verify cluster separation is visually meaningful (not all points collapsed)
+
+13. Interpretation Guidance (Optional for GPT)
+- Clusters may reflect operational roles:
+  - High discharge + low acuity → fast-track type rooms
+  - Balanced acuity + mixed outcomes → core ED rooms
+  - High observation/admission → higher acuity or boarding areas
+
+Graph Title:
+Weekday Arrival Distribution
+
+GPT Paragraph Prompt:
+Generate a vertical bar chart showing the distribution of emergency department arrivals by day of week for a defined time period. Use visit_dtm to derive the weekday for each encounter, aggregate encounter counts by weekday, and convert counts into percentages of total encounters. Plot each weekday as a separate bar ordered from Sunday through Saturday. Include percentage labels above each bar, ensure the implementation is fully parameterized to support any time range, and save the output as a PNG file.
+
+Detailed Breakdown:
+
+1. Data Preparation
+- Use visit_dtm as the primary timestamp.
+- Convert visit_dtm to datetime if not already.
+- Optionally filter the dataset to a defined time period using parameterized start and end dates.
+
+2. Derived Field: Weekday
+- Create a weekday field:
+  arrival_weekday = visit_dtm.dt.dayofweek
+- Map numeric weekday values to labels:
+  0 -> 'Mon'
+  1 -> 'Tue'
+  2 -> 'Wed'
+  3 -> 'Thu'
+  4 -> 'Fri'
+  5 -> 'Sat'
+  6 -> 'Sun'
+- Reorder to desired display order:
+  ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+3. Aggregation Logic
+- Group data by weekday label.
+- Compute encounter counts per weekday.
+
+4. Percentage Calculation
+- Compute total encounters across all weekdays.
+- For each weekday:
+  percent = count / total_count
+
+5. Ensure All Categories Present
+- Ensure all seven weekdays are represented.
+- Fill missing weekdays with zero values if necessary.
+
+6. Chart Construction
+- Create a vertical bar chart.
+- X-axis: weekday labels ordered Sunday through Saturday.
+- Y-axis: percentage of encounters.
+
+7. Labels on Bars
+- Add percentage labels above each bar.
+- Format labels with 1 decimal precision (e.g., 15.3%).
+
+8. Title and Axis Labels
+- Title should be parameterized (e.g., 'Weekday Arrival Distribution').
+- X-axis label: 'Day of Week'.
+- Y-axis label: 'Percent of Arrivals'.
+
+9. Visual Characteristics
+- Bars should be evenly spaced.
+- Use a single consistent color for all bars.
+- Distribution should approximately sum to 100% across all days.
+
+10. Output
+- Save the chart as a PNG file with a parameterized filename, e.g.:
+  'weekday_arrival_distribution.png'.
+
+Graph Title:
+Encounters by Arrival Type
+
+GPT Paragraph Prompt:
+Create a categorical distribution pie chart that visualizes Emergency Department (ED) encounters by arrival method across a defined time period. Use the arrival_method field to classify encounters into standardized categories such as Ambulance, Car (including walk-in/self), and Wheelchair. Aggregate total encounters for each category and compute each category’s percentage of total encounters. Display the distribution as a pie chart with labeled slices showing both encounter count and percentage. Ensure the visualization is fully parameterized, robust to missing categories, and saved as a PNG file.
+
+Detailed Breakdown:
+
+A. Data Preparation:
+- Required Fields:
+  - arrival_method
+- Optional Filtering:
+  - Filter records using:
+        start_date <= visit_dtm <= end_date
+- Data Cleaning:
+  - Remove null or empty arrival_method values
+  - Normalize text (trim whitespace, consistent casing)
+  - Handle inconsistent labels via mapping logic
+
+B. Derived Metrics:
+- Standardized Arrival Categories:
+  - Map raw arrival_method values into:
+        "Ambulance"
+        "Car"        (includes walk-in, self, private vehicle)
+        "Wheelchair"
+        "Other"      (optional, parameter-driven)
+- Encounter Count:
+        count(encounter_id)
+- Percentage:
+        percent = count / total_encounters
+
+C. Aggregation:
+- Group by standardized arrival category
+- Compute:
+  - Total encounter counts
+  - Percent of total encounters
+
+D. Category Completeness:
+- Ensure categories always present:
+        Ambulance, Car, Wheelchair
+- Fill missing categories with zero values
+- Include "Other" if enabled
+
+E. Data Structure:
+Final dataset should contain:
+        Arrival_Type | Count | Percent
+
+F. Chart Construction:
+- Chart type: Pie chart
+- Slice size: Percent
+- Labels:
+  - Category name
+  - Count
+  - Percent
+
+G. Visual Encoding:
+- Default Colors:
+  - Ambulance   -> Blue
+  - Car         -> Orange
+  - Wheelchair  -> Accent (e.g., red)
+  - Other       -> Gray (if included)
+- Apply consistent, high-contrast color palette
+- Maintain equal aspect ratio (circular pie)
+
+H. Labeling:
+- Title:
+        "Encounters by Arrival Type"
+- Slice Labels Format:
+        <Category>
+        <count> (<percent>%)
+- Formatting:
+  - Count uses thousand separators
+  - Percent precision controlled by parameter
+
+I. Output:
+- Save visualization as PNG
+- Default filename:
+        encounters_by_arrival_type.png
+- Filename should be parameterized via framework helper
+
+J. Validation Rules:
+- Validate total encounters > 0
+- Percent values sum to approximately 100%
+- No negative counts
+- All required categories present
+- Handle empty dataset gracefully without crashing
+
+K. Parameterization:
+Support configurable parameters for:
+- include_other_category (true/false)
+- label_decimals
+- show_counts (true/false)
+- show_percent (true/false)
+- explode_slices (optional list)
+- figure size and DPI
+- category color overrides
+
+L. Interpretation:
+- Illustrates distribution of ED arrival methods
+- Highlights EMS (ambulance) dependency vs walk-in demand
+- Identifies operational implications for intake, triage, and infrastructure
+- Supports planning for front-door flow, EMS utilization, and accessibility needs
+

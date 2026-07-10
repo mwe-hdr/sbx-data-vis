@@ -1,0 +1,30 @@
+param,value,description
+# ===== FIGURE =====,,
+fig_width,12,Figure width
+fig_height,6,Figure height
+dpi,100,Resolution
+,,
+# ===== FONTS =====,,
+title_fontsize,14,Title font size
+axis_fontsize,11,Axis font size
+label_fontsize,12,Label font size
+,,
+# ===== LINE STYLE =====,,
+line_color,#1f77b4,Line color
+marker,o,Marker style
+marker_size,4,Marker size
+,,
+# ===== LABEL CONTROL =====,,
+show_labels,TRUE,Show labels
+label_first_last_only,TRUE,Only label first/last point
+label_decimals,0,Decimal places
+,,
+# ===== AXIS =====,,
+y_axis_separator,TRUE,Use thousands separator
+,,
+# ===== AXIS RANGE =====,,
+y_min,5000,Minimum y-axis value (optional)
+y_max,7000,Maximum y-axis value (optional)
+,,
+# ===== TITLE =====,,
+title,Monthly ED Arrivals,Chart title

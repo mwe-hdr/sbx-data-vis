@@ -1,0 +1,58 @@
+Graph Title:
+Length of Stay Distribution (Hours)
+
+GPT Paragraph Prompt:
+Generate a histogram-style bar chart showing the distribution of emergency department length of stay (LOS) in hours for a defined time period. Calculate LOS as the difference between ed_end_dtm and ed_start_dtm in hours. Bin LOS into discrete hourly buckets (e.g., 0–1, 1–2, … or integer hour buckets based on floor values), then compute the percentage of total encounters falling into each bucket. Plot a bar chart with LOS hour buckets on the x-axis and percentage of encounters on the y-axis. Include percentage labels above each bar, ensure the logic is generalized for any time period, and save the output as a PNG file.
+
+Detailed Breakdown:
+
+1. Data Preparation
+- Use ed_start_dtm and ed_end_dtm as the start and end of ED stay.
+- Convert both fields to datetime if needed.
+- Optionally filter dataset for a defined time period.
+
+2. Derived Metric: Length of Stay
+- Compute LOS in hours:
+  los_hours = (ed_end_dtm - ed_start_dtm).total_seconds() / 3600
+- Drop records with missing or negative LOS values.
+
+3. Binning Logic
+- Create discrete hourly buckets:
+  los_bucket = floor(los_hours)
+- Cap or group extreme values into a max bucket if desired (e.g., >=23 hours).
+- Ensure buckets start at 0 and increment by 1.
+
+4. Aggregation
+- Group by los_bucket.
+- Compute count of encounters in each bucket.
+
+5. Percentage Calculation
+- Compute total encounters across all buckets.
+- For each bucket:
+  percent = count / total_count
+
+6. Ensure Continuity
+- Ensure all integer buckets from min to max (e.g., 0–23) are present.
+- Fill missing buckets with 0 percent.
+
+7. Chart Construction
+- Use a vertical bar chart (not stacked).
+- X-axis: LOS bucket (integer hours).
+- Y-axis: percentage of encounters.
+
+8. Labels
+- Add percentage labels above each bar.
+- Format with 1 decimal place (e.g., 12.3%).
+
+9. Title and Axis Labels
+- Title should be parameterized (e.g., 'LOS Distribution (Hours)').
+- X-axis label: 'Length of Stay (Hours)'.
+- Y-axis label: 'Percent of Encounters'.
+
+10. Visual Characteristics
+- Bars are uniform in width and aligned to integer hour ticks.
+- Distribution is typically right-skewed with most observations in lower hour buckets.
+
+11. Output
+- Save chart as a PNG file with a parameterized filename, e.g.:
+  'los_distribution_hours.png'.

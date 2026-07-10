@@ -1,0 +1,16 @@
+param,value,description
+
+# ===== CORE PARAMETERS =====
+zcta_file,data/input/geo/tl_2025_us_zcta520/tl_2025_us_zcta520.shp
+focus_county_geoids,51700;51650;51735;51199;51093;51181
+county_file,data/input/geo/tl_2025_us_county/tl_2025_us_county.shp
+
+# ===== FIGURE =====
+fig_width,16,Figure width
+fig_height,5,Figure height
+dpi,600,Image resolution
+title_fontsize,10,Title font size
+
+county_label_fontsize,6,County label font size
+county_label_color,#444444,County label color
+county_label_weight,bold,County label font weight

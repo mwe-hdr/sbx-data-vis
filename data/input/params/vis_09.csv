@@ -1,0 +1,21 @@
+param,value,description
+title,ED Patient Flow Sankey,Chart title
+
+## ===== FIGURE =====
+fig_width,1200,Width in pixels
+fig_height,900,Height in pixels
+
+top_anchor_y,0.02,Top lock alignment
+cascade_start_offset,0.35,Start of right cascade
+cascade_step,0.08,Spacing between cascade nodes
+
+## ===== FONT CONTROL =====
+font_family,Arial,Global font family
+node_font_size,16,Node label font size
+title_font_size,24,Chart title font size
+title_x,0.01,Title horizontal alignment
+node_font_color,#1a1a1a,Node label color
+label_min_pct,0.00,Hide labels below threshold
+
+## ===== STYLE =====
+flow_opacity,0.3,Link opacity

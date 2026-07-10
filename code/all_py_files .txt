@@ -1,0 +1,754 @@
+﻿===== FILE START: C:\lwf\sbx-data-vis\code\utils\cohort_helpers.py =====
+import pandas as pd
+import logging
+
+def apply_filter(df, filter_str):
+    if df is None or df.empty:
+        logging.warning("apply_filter: input dataframe is empty")
+        return df
+
+    if not filter_str or pd.isna(filter_str):
+        logging.info("apply_filter: no filter provided; returning original dataframe")
+        return df
+
+    try:
+        before_count = len(df)
+
+        # Minimal normalization (safe + cheap)
+        df_copy = df.copy()
+        for col in df_copy.select_dtypes(include="object").columns:
+            df_copy[col] = df_copy[col].str.strip()
+
+        filtered_df = df_copy.query(filter_str, engine="python")
+
+        after_count = len(filtered_df)
+
+        logging.info(
+            f"apply_filter: rows {before_count} â†’ {after_count} | filter: {filter_str}"
+        )
+
+        return filtered_df
+
+    except Exception as e:
+        logging.error(f"apply_filter failed: {str(e)}")
+        return df.iloc[0:0]
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\code\utils\io_helpers.py =====
+import os
+import pandas as pd
+import logging
+
+def load_data(file_path):
+    logging.info("Loading data")
+    df = pd.read_csv(file_path, low_memory=False)
+
+    # defensive datetime parsing
+    if "visit_dtm" in df.columns:
+        df["visit_dtm"] = pd.to_datetime(df["visit_dtm"], errors="coerce")
+
+    return df
+
+
+def load_driver(file_path):
+    logging.info("Loading visual driver")
+    return pd.read_csv(file_path)
+
+
+def load_params(param_dir, visual_id):
+
+    param_file = os.path.join(param_dir, f"{visual_id}.csv")
+
+    if not os.path.exists(param_file):
+        logging.warning(f"No params found for {visual_id}")
+        return pd.DataFrame()
+
+    try:
+        return pd.read_csv(param_file)
+
+    except Exception as e:
+        logging.error(
+            f"Failed to load params for {visual_id}: {str(e)}"
+        )
+        return pd.DataFrame()
+    
+def load_cohort_params(cohort_root_dir):
+    """
+    Recursively load all cohort CSVs.
+    Supports existing structure:
+        cohorts/<domain>/<file>.csv
+
+    Each row = subcohort
+    """
+
+    cohorts = {}
+
+    for root, _, files in os.walk(cohort_root_dir):
+        for file in files:
+            if not file.endswith(".csv"):
+                continue
+
+            file_path = os.path.join(root, file)
+
+            try:
+                df = pd.read_csv(file_path)
+            except Exception as e:
+                logging.error(f"Failed to read {file_path}: {e}")
+                continue
+
+            required_cols = {"name", "param", "value"}
+            if not required_cols.issubset(df.columns):
+                logging.warning(f"Skipping {file_path} (invalid columns)")
+                continue
+
+            # derive namespace from folder + filename
+            relative_path = os.path.relpath(file_path, cohort_root_dir)
+            parts = relative_path.replace(".csv", "").split(os.sep)
+
+            # e.g. emergency/beaufort â†’ emergency.beaufort
+            cohort_group = ".".join(parts)
+
+            for _, row in df.iterrows():
+
+                sub_name = str(row["name"]).strip()
+                cohort_id = f"{cohort_group}.{sub_name}"
+
+                param = row["param"]
+                value = row["value"]
+                desc = row.get("description")
+                domain = row.get("domain")
+                cohort_file = row.get("cohort_file") if "cohort_file" in df.columns else None
+
+                if pd.isna(domain) or str(domain).strip() == "":
+                    domain = parts[0] if parts else None
+
+                cohorts[cohort_id] = {
+                    "group": cohort_group,
+                    "name": sub_name,
+                    "filter": value if param == "filter" else None,
+                    "description": str(desc).strip() if pd.notna(desc) else None,
+                    "domain": str(domain).strip() if pd.notna(domain) else None,
+                    "cohort_file": str(cohort_file).strip() if pd.notna(cohort_file) else None
+                }
+
+                logging.info(f"[loader] FINAL cohort_id: {cohort_id}")
+                logging.info(f"[loader] DATA: {cohorts[cohort_id]}")
+
+    logging.info(f"Loaded {len(cohorts)} cohorts")
+    return cohorts
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\code\utils\processing_helpers.py =====
+import os
+import logging
+import pandas as pd
+
+from utils.io_helpers import load_params
+
+
+def build_processing_driver(
+    cohorts,
+    visual_driver_df,
+    param_dir,
+    output_file
+):
+    """
+    Build processing driver file.
+
+    Creates one row per cohort x report combination using each report
+    parameter file as the default parameter set.
+    """
+
+    logging.info("Building processing driver")
+
+    driver_rows = []
+
+    enabled_reports = visual_driver_df.copy()
+
+    if "enabled" in enabled_reports.columns:
+        enabled_reports = enabled_reports[
+            enabled_reports["enabled"]
+            .astype(str)
+            .str.upper()
+            .isin(["Y", "YES", "TRUE", "1"])
+        ]
+
+    for _, report_row in enabled_reports.iterrows():
+
+        report_id = report_row.get("visual_id") or report_row.get("report_id")
+
+        if not report_id:
+            logging.warning("Skipping row without report identifier")
+            continue
+
+        try:
+            params_df = load_params(param_dir, report_id)
+        except Exception as e:
+
+            logging.error(
+                f"Unable to load params for {report_id}: {e}"
+            )
+
+            continue
+
+        report_domain = str(report_row.get("domain", "")).strip().lower()
+
+        for cohort_id, cohort_meta in cohorts.items():
+
+            cohort_meta = cohort_meta or {}
+
+            cohort_domain = str(
+                cohort_meta.get("domain") or cohort_meta.get("group") or ""
+            ).strip().lower()
+
+            if cohort_domain and report_domain and cohort_domain != report_domain:
+                continue
+
+            row = {
+                "active_flag": "Y",
+                "report_id": report_id,
+                "visual_id": report_id,
+                "domain": cohort_meta.get("domain"),
+                "cohort_id": cohort_id,
+                "cohort_file": cohort_meta.get("cohort_file"),
+                "cohort_desc": cohort_meta.get("description"),
+                "filter_str": cohort_meta.get("filter"),
+                "group": cohort_meta.get("group"),
+                "name": cohort_meta.get("name")
+            }
+
+            # include vis_driver metadata
+            for col in visual_driver_df.columns:
+                if col not in row:
+                    row[col] = report_row[col]
+
+            # flatten report parameters
+            if not params_df.empty:
+
+                for _, param_row in params_df.iterrows():
+
+                    param_name = str(param_row["param"]).strip()
+
+                    row[param_name] = param_row.get("value")
+
+                    row[f"{param_name}_desc"] = (
+                        param_row.get("description")
+                    )
+
+                    row[f"{param_name}_display"] = (
+                        param_row.get("display")
+                    )
+
+                    row[f"{param_name}_format"] = (
+                        param_row.get("display_format")
+                    )
+
+            driver_rows.append(row)
+
+    driver_df = pd.DataFrame(driver_rows)
+
+    if driver_df.empty:
+        logging.warning("No processing driver rows generated")
+        return driver_df
+
+    system_cols = [
+        "active_flag",
+        "report_id",
+        "visual_id",
+        "domain",
+        "cohort_id",
+        "cohort_file",
+        "cohort_desc",
+        "filter_str",
+        "group",
+        "name"
+    ]
+
+    other_cols = [
+        c for c in driver_df.columns
+        if c not in system_cols
+    ]
+
+    driver_df = driver_df[
+        system_cols + sorted(other_cols, key=str)
+    ]
+
+    os.makedirs(
+        os.path.dirname(output_file),
+        exist_ok=True
+    )
+
+    driver_df.to_csv(
+        output_file,
+        index=False
+    )
+
+    logging.info(
+        f"Generated processing driver with {len(driver_df):,} rows"
+    )
+    logging.info(f"Saved processing driver: {output_file}")
+
+    return driver_df
+
+
+def load_processing_driver(file_path):
+
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(
+            f"Missing processing driver: {file_path}"
+        )
+
+    return pd.read_csv(file_path)
+
+
+def row_to_params(row):
+
+    system_fields = {
+        "execution_id",
+        "active_flag",
+        "report_id",
+        "visual_id",
+        "domain",
+        "cohort_id",
+        "cohort_file",
+        "cohort_desc",
+        "filter_str",
+        "group",
+        "name",
+        "client_name",
+        "year_type",
+        "write_rdb",
+        "start_date",
+        "end_date",
+        "enabled",
+        "type"
+    }
+
+    return {
+        k: v
+        for k, v in row.items()
+        if k not in system_fields
+    }
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\code\utils\run_helpers.py =====
+import os
+import logging
+from datetime import datetime
+
+BASE_DIR = os.getcwd()
+RUNS_DIR = os.path.join(BASE_DIR, "data", "runs")
+
+def initialize_run():
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    run_dir = os.path.join(RUNS_DIR, f"run_{timestamp}")
+    output_dir = os.path.join(run_dir, "outputs")
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    # setup logging
+    log_file = os.path.join(run_dir, "logfile.txt")
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s | %(levelname)s | %(message)s",
+        handlers=[
+            logging.FileHandler(log_file),
+            logging.StreamHandler()
+        ]
+    )
+
+    return run_dir, output_dir
+
+
+def generate_output_name(
+    *,
+    visual_id,
+    start_date,
+    end_date,
+    cohort_id=None,
+    ext="csv"
+):
+    def clean(val):
+        if val is None:
+            return ""
+
+        return (
+            str(val)
+            .replace("/", "-")
+            .replace("\\", "-")
+            .replace(" ", "_")
+            .replace(".", "_")
+            .replace(":", "-")
+        )
+
+    parts = [clean(visual_id)]
+
+    if cohort_id:
+        parts.append(clean(cohort_id))
+
+    if start_date and end_date:
+        parts.append(f"{clean(start_date)}_to_{clean(end_date)}")
+
+    filename = "__".join(parts) + f".{ext}"
+
+    return filename
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\code\utils\visual_ancillary_helpers.py =====
+import os
+import logging
+import pandas as pd
+import matplotlib.pyplot as plt
+
+def save_legend_png(
+    ax,
+    output_file,
+    ncol=4,
+    width=8,
+    height=1.5
+    ):
+    
+    handles, labels = ax.get_legend_handles_labels()
+
+    legend_fig = plt.figure(
+        figsize=(width, height)
+    )
+
+    legend_fig.legend(
+        handles,
+        labels,
+        loc="center",
+        ncol=ncol,
+        frameon=False
+    )
+
+    legend_fig.savefig(
+        output_file,
+        transparent=True,
+        bbox_inches="tight"
+    )
+
+    plt.close(legend_fig)
+
+    return output_file
+
+def _format_display_value(value, fmt):
+
+    try:
+
+        if pd.isna(value):
+            return ""
+
+        fmt = str(fmt).strip().lower()
+
+        if fmt == "percent0":
+            return f"{float(value):.0%}"
+
+        if fmt == "percent1":
+            return f"{float(value):.1%}"
+
+        if fmt == "integer":
+            return f"{int(float(value)):,}"
+
+        if fmt == "decimal1":
+            return f"{float(value):,.1f}"
+
+        if fmt == "decimal2":
+            return f"{float(value):,.2f}"
+
+        if fmt == "hour24":
+            return f"{int(float(value)):02d}:00"
+
+        if fmt == "hour12":
+            hour = int(float(value))
+
+            am_pm = "AM" if hour < 12 else "PM"
+
+            hour12 = hour % 12
+
+            if hour12 == 0:
+                hour12 = 12
+
+            return f"{hour12}:00 {am_pm}"
+
+        return str(value)
+
+    except Exception:
+        return str(value)
+
+def _get_display_parameters(params):
+
+    display_params = []
+
+    base_params = []
+
+    for key in params.keys():
+
+        if (
+            key.endswith("_desc")
+            or key.endswith("_display")
+            or key.endswith("_format")
+            or key.endswith("_display_order")
+        ):
+            continue
+
+        if f"{key}_display" not in params:
+            continue
+
+        base_params.append(key)
+
+    def sort_key(param_name):
+
+        try:
+            return int(
+                params.get(
+                    f"{param_name}_display_order",
+                    999999
+                )
+            )
+
+        except Exception:
+            return 999999
+
+    base_params = sorted(
+        base_params,
+        key=sort_key
+    )
+
+    for param_name in base_params:
+
+        display_raw = params.get(
+            f"{param_name}_display",
+            0
+        )
+
+        try:
+
+            display_flag = float(display_raw)
+
+        except Exception:
+
+            display_flag = 0
+
+        if display_flag != 1:
+            continue
+
+        description = params.get(
+            f"{param_name}_desc",
+            param_name
+        )
+
+        display_format = params.get(
+            f"{param_name}_format",
+            ""
+        )
+
+        formatted_value = _format_display_value(
+            params.get(param_name),
+            display_format
+        )
+
+        display_params.append({
+            "description": description,
+            "value": formatted_value
+        })
+
+    return display_params
+
+def _build_parameter_table(
+    params,
+    output_file
+):
+
+    rows = []
+
+    display_params = _get_display_parameters(params)
+
+    if not display_params:
+        return None
+
+    for item in display_params:
+
+        rows.append([item["description"]])
+        rows.append([item["value"]])
+
+    table_df = pd.DataFrame(
+        rows,
+        columns=["value"]
+    )
+
+    fig_height = max(
+        2,
+        len(table_df) * 0.40
+    )
+
+    fig, ax = plt.subplots(
+        figsize=(3, fig_height)
+    )
+
+    ax.axis("off")
+
+    table = ax.table(
+        cellText=table_df.values,
+        loc="center",
+        cellLoc="center"
+    )
+
+    table.auto_set_font_size(False)
+    table.set_fontsize(10)
+    table.scale(1.0, 1.5)
+
+    for row_idx in range(len(table_df)):
+
+        cell = table[(row_idx, 0)]
+
+        if row_idx % 2 == 0:
+
+            cell.set_facecolor("#e6e6e6")
+
+            cell.get_text().set_weight("bold")
+
+        else:
+
+            cell.set_facecolor("#ffffff")
+
+    plt.tight_layout()
+
+    plt.savefig(
+        output_file,
+        bbox_inches="tight"
+    )
+
+    plt.close()
+
+    return output_file
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\code\utils\vis_helpers.py =====
+import pandas as pd
+import matplotlib.ticker as mtick
+
+
+def normalize_params(params):
+    if params is None:
+        return {}
+
+    if not isinstance(params, dict):
+        try:
+            params = dict(params)
+        except Exception:
+            return {}
+
+    normalized = {}
+    for key, value in params.items():
+        try:
+            normalized[key] = None if pd.isna(value) else value
+        except Exception:
+            normalized[key] = value
+
+    return normalized
+
+
+def format_date_range(start_date, end_date):
+    try:
+        start = pd.to_datetime(start_date).date()
+        end = pd.to_datetime(end_date).date()
+        return f"({start} to {end})"
+    except Exception:
+        return f"({start_date} to {end_date})"
+
+def apply_axis_range(ax, axis="y", min_val=None, max_val=None):
+    """
+    Apply axis range limits safely.
+
+    Parameters
+    ----------
+    ax : matplotlib axis
+    axis : str ("x" or "y")
+    min_val : float or None
+    max_val : float or None
+
+    Behavior
+    --------
+    - Only applies limits if values are valid numbers
+    - Supports partial overrides (only min or only max)
+    - Prevents crashes from invalid input
+    """
+
+    try:
+        # Validate axis
+        if axis not in ("x", "y"):
+            return
+
+        # Convert safely
+        def _safe_float(v):
+            try:
+                return float(v)
+            except Exception:
+                return None
+
+        min_val = _safe_float(min_val)
+        max_val = _safe_float(max_val)
+
+        # Get current limits
+        if axis == "y":
+            current_min, current_max = ax.get_ylim()
+        else:
+            current_min, current_max = ax.get_xlim()
+
+        # Determine new limits
+        new_min = min_val if min_val is not None else current_min
+        new_max = max_val if max_val is not None else current_max
+
+        # Prevent invalid bounds
+        if new_min >= new_max:
+            return
+
+        # Apply
+        if axis == "y":
+            ax.set_ylim(new_min, new_max)
+        else:
+            ax.set_xlim(new_min, new_max)
+
+    except Exception:
+        # Fail silently (consistent with helper philosophy)
+        return
+
+def apply_yaxis_format(ax, mode="percent", decimals=1, multiplier=100, suffix="%"):
+    """
+    Apply consistent y-axis formatting
+    """
+    try:
+        decimals = int(decimals)
+        multiplier = float(multiplier)
+
+        if mode == "percent":
+            if multiplier == 1:
+                # already percent
+                fmt = lambda x, _: f"{x:.{decimals}f}{suffix}"
+            else:
+                # proportion â†’ percent
+                fmt = lambda x, _: f"{x * multiplier:.{decimals}f}{suffix}"
+
+            ax.yaxis.set_major_formatter(mtick.FuncFormatter(fmt))
+
+        elif mode == "count":
+            ax.yaxis.set_major_formatter(
+                mtick.FuncFormatter(
+                    lambda x, _: f"{int(x):,}"
+                )
+            )
+
+        elif mode == "raw":
+            ax.yaxis.set_major_formatter(
+                mtick.FuncFormatter(
+                    lambda x, _: f"{x:.{decimals}f}"
+                )
+            )
+
+    except Exception:
+        pass
+===== FILE END =====

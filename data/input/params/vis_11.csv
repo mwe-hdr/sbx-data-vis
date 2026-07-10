@@ -1,0 +1,27 @@
+param,value,description
+
+# ===== CORE PARAMETERS =====
+variable_10_year_growth,0.0,Growth adjustment factor
+utilization,0.75,Capacity utilization factor
+
+# ===== FIGURE =====
+fig_width,8,Figure width
+fig_height,2.5,Figure height
+dpi,100,Image resolution
+
+# ===== TABLE =====
+table_col_width_acuity,0.30,Acuity column width
+table_col_width_peak,0.25,Peak census column width
+table_col_width_room,0.25,Room need column width
+table_scale_x,1.5
+table_scale_y,1.8
+table_font_family,Arial,Font family
+table_header_font_size,12,Header font size
+table_band_color,#f2f2f2,Banding color
+table_header_color,#d9d9d9,Header color
+table_border_color,#cccccc,Border color
+table_border_width,0.4,Border width
+table_grand_total_color,#d9d9d9,Grand total color
+table_header_font_weight,bold
+table_grand_total_font_weight,bold
+table_grand_total_border_width,1.0

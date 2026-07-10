@@ -1,0 +1,80 @@
+Graph Title:
+ED Minute-Level Census Trend with Capacity Reference Line
+
+GPT Paragraph Prompt:
+Generate a time-series visualization showing the minute-by-minute emergency department (ED) census over a defined 12-month (or parameterized) time period. Construct census as the number of patients simultaneously in the ED at each minute using ed_start_dtm and ed_end_dtm timestamps. Plot the resulting high-frequency time series as a continuous line or filled area. Overlay a horizontal reference line representing a fixed capacity value (e.g., current treatment rooms), and optionally include an average census line. Ensure the full pipeline (interval expansion, aggregation, and plotting) is parameterized for any time period and capacity value. Save the visualization as a PNG file.
+
+Detailed Breakdown:
+
+1. Data Preparation
+- Use ed_start_dtm as entry into ED treatment and ed_end_dtm as exit.
+- Convert both fields to datetime.
+- Filter dataset to a defined time period (parameterized start_date and end_date).
+- Drop records with missing or invalid timestamps (e.g., ed_end_dtm < ed_start_dtm).
+
+2. Derived Metric: Minute-Level Census
+- Create a continuous minute-level time index spanning the full time period:
+  time_index = date_range(start_date, end_date, freq='T')
+
+- For each encounter, define its active interval:
+  interval = [ed_start_dtm, ed_end_dtm)
+
+- For each minute in time_index, compute census as:
+  census_t = count of encounters where:
+    ed_start_dtm <= t < ed_end_dtm
+
+- Efficient implementations may use:
+  - Interval expansion with +1 at start and -1 at end, then cumulative sum
+  - Or vectorized overlap counting
+
+3. Optional Smoothing / Aggregation
+- Optionally leave series at full minute-level granularity (as shown).
+- No downsampling required unless parameterized.
+
+4. Average Line (Optional)
+- Compute mean census across all minutes:
+  avg_census = mean(census_t)
+- Add optional horizontal line representing this value.
+
+5. Capacity Reference Line
+- Define a parameter:
+  capacity_value (e.g., number of treatment rooms)
+- Add a horizontal dashed line at this value.
+- Include optional annotation label (e.g., 'Tx Rooms: X').
+
+6. Chart Construction
+- Create a time-series plot.
+- X-axis: datetime at minute granularity across full period.
+- Y-axis: ED census (integer count).
+
+7. Visual Encoding
+- Primary series: dense line or filled area (high-frequency signal).
+- Highlight portions above capacity (optional):
+  - Use different color shading where census_t > capacity_value
+
+8. Labels and Title
+- Title parameterized (e.g., 'ED Census Trend').
+- X-axis label: 'Time'.
+- Y-axis label: 'ED Census'.
+
+9. Axis Handling
+- Format x-axis for readability:
+  - Monthly tick marks (e.g., Jan–Dec)
+  - Ensure chronological continuity
+
+10. Performance Considerations
+- For large datasets, avoid explicit loop over minutes.
+- Prefer cumulative sum approach:
+  - Create events dataframe with:
+    +1 at ed_start_dtm (floored to minute)
+    -1 at ed_end_dtm (floored to minute)
+  - Reindex to full minute index and cumulative sum to get census
+
+11. Output
+- Save the chart as a PNG file with a parameterized filename, e.g.:
+  'ed_census_minute_timeseries.png'
+
+12. Validation Checks
+- Census should never be negative
+- Peak census should align with expected volumes
+- Time series should be continuous with no missing minutes

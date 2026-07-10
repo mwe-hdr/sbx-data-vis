@@ -1,0 +1,255 @@
+VISUAL ID: vis_10
+
+TITLE:
+ED Hourly Census with Peak Period and Capacity Benchmarks
+
+--------------------------------------------------
+1. PURPOSE
+--------------------------------------------------
+Build a production-grade visualization analyzing ED hourly demand patterns using:
+
+- Encounter-derived census (via vis_08 methodology)
+- Growth-adjusted hourly census
+- Peak-period classification
+- Percentile benchmarks (P70 / P80 / P90)
+- Capacity and room need metrics
+
+This visual MUST be driven by a formally defined Analytical Data Set (ADS)
+constructed from raw encounter data.
+
+--------------------------------------------------
+2. SOURCE DATA ARCHITECTURE
+--------------------------------------------------
+
+2.1 Input Dataset (Encounter-Level)
+Source schema defined per ed_layout:
+
+Required fields:
+- encounter_id
+- ed_start_dtm
+- ed_end_dtm
+
+These represent the ED treatment room occupancy window for each visit.
+
+--------------------------------------------------
+2.2 Census Generation Layer (vis_08 Dependency)
+--------------------------------------------------
+
+The census dataset MUST be generated using the vis_08 methodology.
+
+Source code for vis_08 is located in:
+C:\lwf\sbx-data-vis\code\visuals\vis_08.py
+(see all_py_files.txt for reference)
+
+For this step:
+- Execute only the portion of vis_08.py required to construct the dataframe `ts`
+- DO NOT execute any code that:
+  - Writes output to CSV
+  - Generates Plotly visualizations
+
+Expected output:
+- A fully constructed dataframe `ts`, to be used as the input dataset for step 2.3 and beyond
+
+--------------------------------------------------
+2.3 Analytical Data Set (ADS) – REQUIRED LAYER
+--------------------------------------------------
+
+The ADS is derived from the vis_08 output and serves as the sole input
+to visualization logic.
+
+--------------------------------------------------
+3. DATA PREPARATION (ADS CONSTRUCTION)
+--------------------------------------------------
+
+3.1 Validation
+- Required columns:
+  - interval
+  - census
+- Convert interval to datetime
+- Drop nulls
+- Enforce:
+  - census >= 0
+
+3.2 Date Filtering
+Restrict to:
+start_date <= interval <= end_date
+
+--------------------------------------------------
+3.3 DERIVED FIELDS
+--------------------------------------------------
+
+3.3.1 Growth Adjustment
+ED_Census_with_Growth = census * (1 + variable_10_year_growth)
+
+3.3.2 Hour Extraction
+hour = hour(interval)
+
+--------------------------------------------------
+3.3.3 Hourly Aggregation (CORE METRIC)
+--------------------------------------------------
+
+ED_Hourly_Census =
+  SUM(ED_Census_with_Growth)
+  / COUNT_DISTINCT(interval)
+GROUPED BY hour
+
+Interpretation:
+Average census within each hour across the full time series.
+
+--------------------------------------------------
+3.3.4 Hour Completeness
+--------------------------------------------------
+- Must include all 24 hours (0–23)
+- Missing hours must be filled appropriately
+
+--------------------------------------------------
+3.3.5 Peak Period Classification
+--------------------------------------------------
+
+IF hour >= peak_start AND hour < peak_start + length:
+    Peak
+ELSE IF (peak_start + length > 23) AND
+        hour < (peak_start + length - 24):
+    Peak
+ELSE:
+    Off-Peak
+
+--------------------------------------------------
+3.3.6 Percentile Benchmarks
+--------------------------------------------------
+
+Computed across hourly census values:
+
+P70 = percentile(ED_Hourly_Census, 0.7)
+P80 = percentile(ED_Hourly_Census, 0.8)
+P90 = percentile(ED_Hourly_Census, 0.9)
+
+--------------------------------------------------
+3.3.7 Capacity Metrics
+--------------------------------------------------
+
+ED_Peak_Census = MAX(ED_Hourly_Census)
+
+ED_Room_Need = ED_Peak_Census / utilization
+
+Constraint:
+If utilization < 1, then:
+ED_Room_Need >= ED_Peak_Census
+
+--------------------------------------------------
+4. FINAL ADS STRUCTURE
+--------------------------------------------------
+
+Columns:
+- hour (0–23)
+- hourly_census
+- peak_flag (Peak / Off-Peak)
+- P70 (scalar)
+- P80 (scalar)
+- P90 (scalar)
+
+--------------------------------------------------
+5. PARAMETERS
+--------------------------------------------------
+
+Core Parameters:
+- variable_10_year_growth (default: 0.0)
+- peak_period_start (default: 15)
+- peak_period_length_hours (default: 8)
+- utilization (default: 0.85)
+
+Figure Parameters:
+- fig_width = 14
+- fig_height = 7
+- dpi = 100
+
+Color Parameters:
+- peak_bar_color = teal
+- offpeak_bar_color = gray
+- p70_color = green
+- p80_color = yellow
+- p90_color = orange
+- peak_line_color = darkblue
+- room_need_color = magenta
+
+--------------------------------------------------
+6. VISUALIZATION CONSTRUCTION
+--------------------------------------------------
+
+Chart Type:
+Combined Bar + Line Chart
+
+Bars:
+- X-axis: hour
+- Y-axis: hourly_census
+- Color:
+    Peak → teal
+    Off-Peak → gray
+
+Lines:
+- P70 (green)
+- P80 (yellow)
+- P90 (orange)
+
+Reference Lines:
+- ED Peak Census (dark blue)
+- ED Room Need (magenta)
+
+--------------------------------------------------
+7. LABELING
+--------------------------------------------------
+
+Title:
+ED Hourly Census with Peak Period and Capacity Benchmarks
+(include date range)
+
+X-axis: Hour of Day
+Y-axis: ED Census
+
+Legend must include:
+- Peak vs Off-Peak
+- Percentiles
+- Capacity lines
+
+--------------------------------------------------
+8. OUTPUT
+--------------------------------------------------
+
+Filename:
+generate_output_name(visual_id, start_date, end_date)
+
+Format:
+PNG
+
+--------------------------------------------------
+9. VALIDATION RULES
+--------------------------------------------------
+
+- Exactly 24 hours present
+- No negative values
+- Percentiles ordered: P70 ≤ P80 ≤ P90
+- Room need ≥ peak census (if utilization < 1)
+- Handle empty datasets gracefully
+
+--------------------------------------------------
+10. LOGGING & ERROR HANDLING
+--------------------------------------------------
+
+Must log:
+- Start of run
+- Validation results
+- Warnings for empty datasets
+- Output path
+- Errors
+
+Must fail safely without crashing.
+
+--------------------------------------------------
+11. INTERPRETATION
+--------------------------------------------------
+
+Supports:
+- Peak demand identification
+- Variability assessment
+- Percentile benchmarking
+- Capacity planning vs utilization

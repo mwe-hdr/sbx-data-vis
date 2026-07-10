@@ -1,0 +1,65 @@
+param,value
+
+# =========================
+# FIGURE SETTINGS
+# =========================
+figure_width,14
+figure_height,6
+dpi,150
+
+# =========================
+# TITLE / LABELS
+# =========================
+chart_title,ED Minute-Level Census Trend with Capacity Reference Line
+x_label,Time
+y_label,ED Census
+
+title_fontsize,16
+label_fontsize,12
+tick_fontsize,10
+
+# =========================
+# LINE STYLING
+# =========================
+line_color,#1f77b4
+line_width,0.8
+
+# =========================
+# CAPACITY LINE
+# =========================
+capacity_value,39
+capacity_linestyle,--
+capacity_linewidth,1.5
+
+# =========================
+# ABOVE CAPACITY 
+# =========================
+capacity_threshold_pct,0.8
+below_color,#000000
+above_color,#d62728
+
+# =========================
+# AVERAGE LINE
+# =========================
+include_avg_line,True
+avg_line_color,#000000
+avg_linestyle,:
+avg_linewidth,1.5
+
+# =========================
+# AXIS FORMATTING
+# =========================
+auto_format_dates,True
+rotate_x_labels,True
+
+# =========================
+# LEGEND
+# =========================
+show_legend,True
+legend_fontsize,10
+
+# =========================
+# OUTPUT CONTROL
+# =========================
+save_png,True
+save_csv,True

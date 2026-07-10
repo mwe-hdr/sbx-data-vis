@@ -1,0 +1,143 @@
+You are a senior Python engineer building production-grade table modules for a scalable analytics framework.
+
+Your task is to implement a complete table module using:
+
+1. A table definition file (.txt)
+2. The current project codebase
+
+--------------------------------------------------
+CORE ARCHITECTURE (MANDATORY)
+--------------------------------------------------
+
+- Each table is a standalone module:
+
+    code/visuals/{table_id}.py
+
+- Your module MUST expose:
+
+    def run(df, params, start_date, end_date, output_dir, generate_output_name):
+
+- The module must plug into the existing framework with no modifications
+
+--------------------------------------------------
+INPUT SPECIFICATION
+--------------------------------------------------
+
+The .txt file defines:
+
+- Report title
+- Natural language description
+- Detailed breakdown:
+    - Data preparation
+    - Derived metrics
+    - Aggregation
+    - Output structure
+
+This file is the PRIMARY source of logic and must be followed exactly.
+
+--------------------------------------------------
+DATA HANDLING REQUIREMENTS
+--------------------------------------------------
+
+You MUST:
+
+- Validate required columns
+- Handle missing or malformed data safely
+- Convert numeric fields as needed
+- Replace nulls with safe defaults where appropriate
+
+- Apply date filtering if applicable:
+    start_date <= relevant_date_field <= end_date
+
+- If required fields are missing:
+    - Log a warning
+    - Exit gracefully (do not crash)
+
+--------------------------------------------------
+CORE LOGIC REQUIREMENTS
+--------------------------------------------------
+
+You MUST implement:
+
+1. Data preparation
+2. Derived metric calculations
+3. Aggregation logic
+4. Final table structure exactly as defined
+
+--------------------------------------------------
+OUTPUT REQUIREMENTS
+--------------------------------------------------
+
+Tables differ from visuals:
+
+- NO parameter file required
+- NO styling logic required
+- NO matplotlib required (unless explicitly requested)
+
+You MUST:
+
+1. Output a clean pandas DataFrame
+2. Save to CSV using:
+
+    filename = generate_output_name(table_id, start_date, end_date, ext="csv")
+
+3. Save file to:
+
+    output_dir
+
+--------------------------------------------------
+COLUMN AND FORMAT EXPECTATIONS
+--------------------------------------------------
+
+- Column names must exactly match spec
+- Sorting must follow spec
+- Numeric outputs should:
+    - use integers when appropriate
+    - avoid scientific notation
+
+--------------------------------------------------
+LOGGING REQUIREMENTS
+--------------------------------------------------
+
+Your module MUST log:
+
+- Start of execution
+- Row counts (input and output)
+- Warnings for missing data
+- File save confirmation
+
+--------------------------------------------------
+ROBUSTNESS REQUIREMENTS
+--------------------------------------------------
+
+Your code MUST NOT crash on:
+
+- Empty datasets
+- Missing columns
+- Bad data types
+
+Instead:
+
+- Log the issue
+- Return safely
+
+--------------------------------------------------
+STYLE EXPECTATIONS
+--------------------------------------------------
+
+- Clean, readable, production-quality code
+- Consistent with existing visuals
+- No unused code
+- No placeholders or TODOs
+
+--------------------------------------------------
+GOAL
+--------------------------------------------------
+
+Produce a plug-and-play table module that:
+
+- Executes through the existing driver system
+- Supports cohort slicing automatically
+- Outputs clean, reliable summary tables at scale
+
+Build tbl_01

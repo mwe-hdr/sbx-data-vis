@@ -1,0 +1,5056 @@
+﻿
+===== FILE START: C:\lwf\sbx-data-vis\code\main.py =====
+import os
+import logging
+import pandas as pd
+import importlib
+
+from utils.io_helpers import load_data, load_driver, load_params, load_cohort_params
+from utils.run_helpers import initialize_run, generate_output_name
+from utils.cohort_helpers import apply_filter
+
+# =========================
+# CONFIG
+# =========================
+DOMAINS = {
+    "inpatient": {
+        "data_file": "ecu_hospital_encounters_export.csv",
+        "cohort_dir": "inpatient"
+    },
+
+    "surgery": {
+        "data_file": "ecu_surgery_export.csv",
+        "cohort_dir": "surgery"
+    },
+
+    "emergency": {
+        "data_file": "ecu_emergency_export.csv",
+        "cohort_dir": "ed"
+    }
+}
+
+BASE_DIR = os.getcwd()
+INPUT_DIR = os.path.join(BASE_DIR, "data", "input")
+PARAM_DIR = os.path.join(INPUT_DIR, "params")
+VIS_DRIVER_FILE = os.path.join(PARAM_DIR, "vis_driver.csv")
+
+# =========================
+# DYNAMIC VISUAL LOADER
+# =========================
+def get_visual_function(visual_id):
+    try:
+        module = importlib.import_module(f"visuals.{visual_id}")
+        return module.run
+    except Exception as e:
+        logging.error(f"Failed to load {visual_id}: {str(e)}")
+        return None
+
+# =========================
+# MAIN EXECUTION LOOP
+# =========================
+def run_visuals(df, driver_df, cohorts, output_dir):
+
+    # RDB Layer support
+    rdb_records = []
+
+    logging.info(f"[main] Loaded cohort keys:")
+    for k in cohorts.keys():
+        logging.info(f"[main] - {k}")
+
+    for cohort_id, meta in cohorts.items():
+
+        logging.info(f"Running FULL cohort_id: {cohort_id}")
+        logging.info(f"[main] meta keys: {list(meta.keys())}")
+
+        cohort_df = apply_filter(df, meta.get("filter"))
+
+        if cohort_df.empty:
+            logging.warning(f"No data for {cohort_id}")
+            continue
+
+        cohort_output_dir = os.path.join(output_dir, cohort_id)
+        os.makedirs(cohort_output_dir, exist_ok=True)
+
+        for _, row in driver_df.iterrows():
+
+            visual_domain = row["domain"]
+
+            if visual_domain != meta.get("domain"):
+                continue
+            
+            if int(row["enabled"]) != 1:
+                continue
+
+            if row["type"] != "cohort":
+                continue
+
+            visual_id = row["visual_id"]
+            client_name = row["client_name"]
+            year_type = row["year_type"]
+            write_rdb = row["write_rdb"]
+
+            vis_func = get_visual_function(visual_id)
+            if vis_func is None:
+                continue
+
+            params = load_params(PARAM_DIR, visual_id) or {}
+            params = dict(params)
+
+            params["cohort_id"] = cohort_id
+            params["filter_str"] = meta.get("filter")
+            params["cohort_desc"] = meta.get("description")
+            params["run_id"] = run_id
+            params["domain"] = meta.get("domain")
+            params["client_name"] = client_name
+            params["year_type"] = year_type
+            params["write_rdb"] = write_rdb
+            logging.info(f"[main] Injecting cohort_desc: {meta.get('description')}")
+
+            result = vis_func(
+                cohort_df,
+                params,
+                row["start_date"],
+                row["end_date"],
+                cohort_output_dir,
+                generate_output_name
+            )
+
+            if result and "rdb" in result:
+                rdb_records.extend(result["rdb"])
+
+    return rdb_records
+
+# =========================
+# ENTRY POINT
+# =========================
+if __name__ == "__main__":
+
+    logging.basicConfig(level=logging.INFO)
+
+    run_dir, output_dir = initialize_run()
+
+    run_id = os.path.basename(run_dir)
+
+    driver_df = load_driver(VIS_DRIVER_FILE)
+
+    all_rdb_records = []
+
+    for domain, config in DOMAINS.items():
+
+        logging.info(f"Starting domain: {domain}")
+
+        df = load_data(
+            os.path.join(
+                INPUT_DIR,
+                config["data_file"]
+            )
+        )
+
+        cohorts = load_cohort_params(
+            os.path.join(
+                PARAM_DIR,
+                "cohorts",
+                config["cohort_dir"]
+            )
+        )
+
+        rdb = run_visuals(
+            df,
+            driver_df,
+            cohorts,
+            output_dir
+        )       
+
+        if rdb:
+            all_rdb_records.extend(rdb)
+
+    master_rdb_df = pd.DataFrame(
+        all_rdb_records
+    )
+
+    master_rdb_df.to_csv(
+        os.path.join(
+            output_dir,
+            "rdb_domain_cohort_metrics.csv"
+        ),
+        index=False
+    )
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\code\raw_data_stage.py =====
+import pyodbc
+import pandas as pd
+import os
+
+# --------------------------------------------------
+# DATABASE CONNECTION
+# --------------------------------------------------
+
+print("ðŸ”Œ Connecting to SQL Server...")
+
+conn = pyodbc.connect(
+    "DRIVER={ODBC Driver 18 for SQL Server};"
+    "SERVER=OMAPI-HCADB19;"
+    "DATABASE=CLIENT;"
+    "Trusted_Connection=yes;"
+    "TrustServerCertificate=yes;"
+)
+
+print("âœ… Connected to database")
+
+# --------------------------------------------------
+# EXTRACT + SAVE TO CSV
+# --------------------------------------------------
+
+query = "SELECT * FROM ecu.emergency_new"
+
+print("â¬‡ï¸ Pulling data from table...")
+df = pd.read_sql(query, conn)
+
+print(f"âœ… Retrieved {len(df):,} rows")
+
+# Ensure output directory exists
+output_dir = os.path.join(".", "data", "input")
+os.makedirs(output_dir, exist_ok=True)
+
+output_file = os.path.join(output_dir, "ecu_emergency_export.csv")
+
+df.to_csv(output_file, index=False)
+
+print(f"ðŸ’¾ Data exported to {output_file}")
+
+# --------------------------------------------------
+# CLEANUP
+# --------------------------------------------------
+
+conn.close()
+print("ðŸ”’ Connection closed")
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\code\utils\cohort_helpers.py =====
+import pandas as pd
+import logging
+
+def apply_filter(df, filter_str):
+    if df is None or df.empty:
+        logging.warning("apply_filter: input dataframe is empty")
+        return df
+
+    if not filter_str or pd.isna(filter_str):
+        logging.info("apply_filter: no filter provided; returning original dataframe")
+        return df
+
+    try:
+        before_count = len(df)
+
+        # Minimal normalization (safe + cheap)
+        df_copy = df.copy()
+        for col in df_copy.select_dtypes(include="object").columns:
+            df_copy[col] = df_copy[col].str.strip()
+
+        filtered_df = df_copy.query(filter_str, engine="python")
+
+        after_count = len(filtered_df)
+
+        logging.info(
+            f"apply_filter: rows {before_count} â†’ {after_count} | filter: {filter_str}"
+        )
+
+        return filtered_df
+
+    except Exception as e:
+        logging.error(f"apply_filter failed: {str(e)}")
+        return df.iloc[0:0]
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\code\utils\io_helpers.py =====
+import os
+import pandas as pd
+import logging
+
+def load_data(file_path):
+    logging.info("Loading data")
+    df = pd.read_csv(file_path, low_memory=False)
+
+    # defensive datetime parsing
+    if "visit_dtm" in df.columns:
+        df["visit_dtm"] = pd.to_datetime(df["visit_dtm"], errors="coerce")
+
+    return df
+
+
+def load_driver(file_path):
+    logging.info("Loading visual driver")
+    return pd.read_csv(file_path)
+
+
+def load_params(param_dir, visual_id):
+
+    param_file = os.path.join(param_dir, f"{visual_id}.csv")
+
+    if not os.path.exists(param_file):
+        logging.warning(f"No params found for {visual_id}")
+        return {}
+
+    try:
+        df = pd.read_csv(param_file)
+        return dict(zip(df["param"], df["value"]))
+    except Exception as e:
+        logging.error(f"Failed to load params for {visual_id}: {str(e)}")
+        return {}
+    
+def load_cohort_params(cohort_root_dir):
+    """
+    Recursively load all cohort CSVs.
+    Supports existing structure:
+        cohorts/<domain>/<file>.csv
+
+    Each row = subcohort
+    """
+
+    cohorts = {}
+
+    for root, _, files in os.walk(cohort_root_dir):
+        for file in files:
+            if not file.endswith(".csv"):
+                continue
+
+            file_path = os.path.join(root, file)
+
+            try:
+                df = pd.read_csv(file_path)
+            except Exception as e:
+                logging.error(f"Failed to read {file_path}: {e}")
+                continue
+
+            required_cols = {"name", "param", "value"}
+            if not required_cols.issubset(df.columns):
+                logging.warning(f"Skipping {file_path} (invalid columns)")
+                continue
+
+            # derive namespace from folder + filename
+            relative_path = os.path.relpath(file_path, cohort_root_dir)
+            parts = relative_path.replace(".csv", "").split(os.sep)
+
+            # e.g. emergency/beaufort â†’ emergency.beaufort
+            cohort_group = ".".join(parts)
+
+            for _, row in df.iterrows():
+
+                sub_name = str(row["name"]).strip()
+                cohort_id = f"{cohort_group}.{sub_name}"
+
+                param = row["param"]
+                value = row["value"]
+                desc = row.get("description")
+                domain = row.get("domain")
+
+                cohorts[cohort_id] = {
+                    "group": cohort_group,
+                    "name": sub_name,
+                    "filter": value if param == "filter" else None,
+                    "description": str(desc).strip() if pd.notna(desc) else None,
+                    "domain": domain
+                }
+
+                logging.info(f"[loader] FINAL cohort_id: {cohort_id}")
+                logging.info(f"[loader] DATA: {cohorts[cohort_id]}")
+
+    logging.info(f"Loaded {len(cohorts)} cohorts")
+    return cohorts
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\code\utils\run_helpers.py =====
+import os
+import logging
+from datetime import datetime
+
+BASE_DIR = os.getcwd()
+RUNS_DIR = os.path.join(BASE_DIR, "data", "runs")
+
+def initialize_run():
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    run_dir = os.path.join(RUNS_DIR, f"run_{timestamp}")
+    output_dir = os.path.join(run_dir, "outputs")
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    # setup logging
+    log_file = os.path.join(run_dir, "logfile.txt")
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s | %(levelname)s | %(message)s",
+        handlers=[
+            logging.FileHandler(log_file),
+            logging.StreamHandler()
+        ]
+    )
+
+    return run_dir, output_dir
+
+
+def generate_output_name(
+    *,
+    visual_id,
+    start_date,
+    end_date,
+    cohort_id=None,
+    ext="csv"
+):
+    def clean(val):
+        if val is None:
+            return ""
+
+        return (
+            str(val)
+            .replace("/", "-")
+            .replace("\\", "-")
+            .replace(" ", "_")
+            .replace(".", "_")
+            .replace(":", "-")
+        )
+
+    parts = [clean(visual_id)]
+
+    if cohort_id:
+        parts.append(clean(cohort_id))
+
+    if start_date and end_date:
+        parts.append(f"{clean(start_date)}_to_{clean(end_date)}")
+
+    filename = "__".join(parts) + f".{ext}"
+
+    return filename
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\code\utils\vis_helpers.py =====
+import pandas as pd
+import matplotlib.ticker as mtick
+
+def format_date_range(start_date, end_date):
+    try:
+        start = pd.to_datetime(start_date).date()
+        end = pd.to_datetime(end_date).date()
+        return f"({start} to {end})"
+    except Exception:
+        return f"({start_date} to {end_date})"
+
+def apply_axis_range(ax, axis="y", min_val=None, max_val=None):
+    """
+    Apply axis range limits safely.
+
+    Parameters
+    ----------
+    ax : matplotlib axis
+    axis : str ("x" or "y")
+    min_val : float or None
+    max_val : float or None
+
+    Behavior
+    --------
+    - Only applies limits if values are valid numbers
+    - Supports partial overrides (only min or only max)
+    - Prevents crashes from invalid input
+    """
+
+    try:
+        # Validate axis
+        if axis not in ("x", "y"):
+            return
+
+        # Convert safely
+        def _safe_float(v):
+            try:
+                return float(v)
+            except Exception:
+                return None
+
+        min_val = _safe_float(min_val)
+        max_val = _safe_float(max_val)
+
+        # Get current limits
+        if axis == "y":
+            current_min, current_max = ax.get_ylim()
+        else:
+            current_min, current_max = ax.get_xlim()
+
+        # Determine new limits
+        new_min = min_val if min_val is not None else current_min
+        new_max = max_val if max_val is not None else current_max
+
+        # Prevent invalid bounds
+        if new_min >= new_max:
+            return
+
+        # Apply
+        if axis == "y":
+            ax.set_ylim(new_min, new_max)
+        else:
+            ax.set_xlim(new_min, new_max)
+
+    except Exception:
+        # Fail silently (consistent with helper philosophy)
+        return
+
+def apply_yaxis_format(ax, mode="percent", decimals=1, multiplier=100, suffix="%"):
+    """
+    Apply consistent y-axis formatting
+    """
+    try:
+        decimals = int(decimals)
+        multiplier = float(multiplier)
+
+        if mode == "percent":
+            if multiplier == 1:
+                # already percent
+                fmt = lambda x, _: f"{x:.{decimals}f}{suffix}"
+            else:
+                # proportion â†’ percent
+                fmt = lambda x, _: f"{x * multiplier:.{decimals}f}{suffix}"
+
+            ax.yaxis.set_major_formatter(mtick.FuncFormatter(fmt))
+
+        elif mode == "count":
+            ax.yaxis.set_major_formatter(
+                mtick.FuncFormatter(
+                    lambda x, _: f"{int(x):,}"
+                )
+            )
+
+        elif mode == "raw":
+            ax.yaxis.set_major_formatter(
+                mtick.FuncFormatter(
+                    lambda x, _: f"{x:.{decimals}f}"
+                )
+            )
+
+    except Exception:
+        pass
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\code\utils\__init__.py =====
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\code\visuals\tbl_01.py =====
+import os
+import logging
+import pandas as pd
+from openpyxl import load_workbook
+from openpyxl.utils import get_column_letter
+from openpyxl.styles import numbers
+
+VISUAL_ID = "tbl_01"
+logger = logging.getLogger(__name__)
+
+
+def _apply_formatting(df, params):
+    if not params:
+        return df
+
+    df_formatted = df.copy()
+
+    for key, fmt in params.items():
+        if not key.startswith("format."):
+            continue
+
+        col = key.replace("format.", "")
+
+        if col not in df_formatted.columns:
+            continue
+
+        if fmt == "int":
+            df_formatted[col] = df_formatted[col].astype(int)
+
+        elif fmt in ["comma", "float1", "float0", "percent"]:
+            # âœ… keep numeric (no string formatting)
+            df_formatted[col] = pd.to_numeric(df_formatted[col], errors="coerce")
+
+    return df_formatted
+
+
+def _safe_numeric(series, fill_value=0):
+    return pd.to_numeric(series, errors="coerce").fillna(fill_value)
+
+
+def run(df, params, start_date, end_date, output_dir, generate_output_name):
+
+    logger.info(f"[{VISUAL_ID}] Starting execution")
+
+    # --------------------------------------------------
+    # âœ… Required Columns
+    # --------------------------------------------------
+
+    required_cols = {
+        "discharge_fiscal_year",
+        "count_of_patients",
+        "total_days"
+    }
+
+    missing = required_cols - set(df.columns)
+    if missing:
+        logger.warning(f"[{VISUAL_ID}] Missing required columns: {missing}")
+        return
+
+    if df.empty:
+        logger.warning(f"[{VISUAL_ID}] Input dataframe is empty")
+        return
+
+    working_df = df.copy()
+
+    logger.info(f"[{VISUAL_ID}] Input rows: {len(working_df):,}")
+
+    # --------------------------------------------------
+    # âœ… Data Preparation
+    # --------------------------------------------------
+
+    working_df["count_of_patients"] = _safe_numeric(
+        working_df["count_of_patients"], fill_value=0
+    )
+
+    working_df["total_days"] = _safe_numeric(
+        working_df["total_days"], fill_value=0
+    )
+
+    working_df["discharge_fiscal_year"] = pd.to_numeric(
+        working_df["discharge_fiscal_year"], errors="coerce"
+    )
+
+    working_df = working_df.dropna(subset=["discharge_fiscal_year"])
+
+    if working_df.empty:
+        logger.warning(f"[{VISUAL_ID}] No valid rows after cleaning")
+        return
+
+    # --------------------------------------------------
+    # âœ… Apply Date Filter (from driver)
+    # --------------------------------------------------
+
+    report_year = pd.to_datetime(
+        end_date,
+        errors="coerce"
+    ).year
+
+    year_type = str(
+        params.get("year_type", "")
+    ).lower()
+
+    if year_type == "fiscal":
+
+        working_df = working_df[
+            working_df["discharge_fiscal_year"] == report_year
+        ]
+
+        logger.info(
+            f"[{VISUAL_ID}] Fiscal year filter applied: "
+            f"discharge_fiscal_year == {report_year}"
+        )
+
+    else:
+
+        logger.warning(
+            f"[{VISUAL_ID}] Unsupported year_type: {year_type}"
+        )
+
+    working_df["year"] = report_year
+
+    # --------------------------------------------------
+    # âœ… Aggregation
+    # --------------------------------------------------
+
+    try:
+        agg_df = (
+            working_df
+            .groupby("year", as_index=False)
+            .agg(
+                patients=("count_of_patients", "sum"),
+                patient_days=("total_days", "sum")
+            )
+        )
+    except Exception as e:
+        logger.error(f"[{VISUAL_ID}] Aggregation failed: {e}")
+        return
+
+    if agg_df.empty:
+        logger.warning(f"[{VISUAL_ID}] Aggregation returned empty dataset")
+        return
+
+    # --------------------------------------------------
+    # âœ… Sorting
+    # --------------------------------------------------
+
+    agg_df = agg_df.sort_values(
+        by="year",
+        ascending=False
+    )
+
+    for col in ["year", "patients", "patient_days"]:
+        agg_df[col] = pd.to_numeric(agg_df[col], errors="coerce").fillna(0)
+
+    agg_df["year"] = agg_df["year"].astype(int)
+    agg_df["patients"] = agg_df["patients"].astype(int)
+    agg_df["patient_days"] = agg_df["patient_days"].astype(int)
+
+    logger.info(f"[{VISUAL_ID}] Output rows: {len(agg_df):,}")
+
+    # --------------------------------------------------
+    # âœ… Output (Excel)
+    # --------------------------------------------------
+
+    try:
+        filename = generate_output_name(
+            visual_id=VISUAL_ID,
+            start_date=start_date,
+            end_date=end_date,
+            cohort_id=(params or {}).get("cohort_id"),
+            ext="xlsx"
+        )
+
+        output_path = os.path.join(output_dir, filename)
+
+        output_df = _apply_formatting(agg_df, params)
+        params = params or {}
+
+        title = params.get("title", "")
+        subtitle = params.get("cohort_desc")
+        subtitle1 = params.get("subtitle1", "")
+        client_name = params.get("client_name")
+        year_type = params.get("year_type")
+        year_prefix = {
+            "fiscal": "FY",
+            "calendar": "CY"
+        }.get(str(params.get("year_type", "")).lower(), "")
+
+        # -----------------------
+        # âœ… Write Excel
+        # -----------------------
+        with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+            output_df.to_excel(
+                writer,
+                index=False,
+                sheet_name="Sheet1",
+                startrow=4
+            )
+
+        # -----------------------
+        # âœ… Modify workbook
+        # -----------------------
+        wb = load_workbook(output_path)
+        ws = wb.active
+
+        # âœ… Titles
+        ws["A1"] = title
+        ws["A2"] = subtitle if subtitle else ""
+        ws["A3"] = subtitle1 if subtitle1 else ""
+
+        # âœ… Column widths
+        for idx, col in enumerate(output_df.columns, start=1):
+            col_letter = get_column_letter(idx)
+
+            width = params.get(f"colwidth.{col}")
+            if width:
+                try:
+                    ws.column_dimensions[col_letter].width = float(width)
+                except Exception:
+                    logger.warning(f"[{VISUAL_ID}] Invalid width for {col}")
+
+        # âœ… Excel number formatting
+        for idx, col in enumerate(output_df.columns, start=1):
+            fmt = params.get(f"format.{col}")
+            col_letter = get_column_letter(idx)
+
+            if not fmt:
+                continue
+
+            for cell in ws[col_letter][1:]:  # skip header
+                if cell.value is None:
+                    continue
+
+                if fmt == "comma":
+                    cell.number_format = '#,##0'
+
+                elif fmt == "float1":
+                    cell.number_format = '#,##0.0'
+
+                elif fmt == "float0":
+                    cell.number_format = '#,##0'
+
+                elif fmt == "percent":
+                    cell.number_format = '0.0%'
+
+        # âœ… Freeze pane
+        ws.freeze_panes = "A6"
+
+        wb.save(output_path)
+
+        logger.info(f"[{VISUAL_ID}] Saved output to: {output_path}")
+
+    except Exception as e:
+        logger.error(f"[{VISUAL_ID}] Failed to save output: {e}")
+        return
+    
+    rdb_rows = []
+
+    for _, row in agg_df.iterrows():
+
+        rdb_rows.append({
+            "run_id": params.get("run_id"),
+            "visual_id": VISUAL_ID,
+            "client_name": params.get("client_name"),
+
+            "domain": params.get("domain"),
+            "cohort_id": params.get("cohort_id"),
+
+            "domain_cohort":
+                f"{params.get('domain')}.{params.get('cohort_id')}",
+
+            "dimension": "year",
+            "dimension_value": row["year"],
+            "dimension_value_label":
+                f"{year_prefix}{int(row['year'])}",
+
+            "secondary_dimension": "",
+            "secondary_dimension_value": "",
+
+            "metric": "patients",
+            "metric_type": "count",
+            "value": row["patients"],
+
+            "start_date": start_date,
+            "end_date": end_date,
+
+            "report_title": params.get("title")
+        })
+
+        rdb_rows.append({
+            "run_id": params.get("run_id"),
+            "visual_id": VISUAL_ID,
+            "client_name": params.get("client_name"),
+
+            "domain": params.get("domain"),
+            "cohort_id": params.get("cohort_id"),
+
+            "domain_cohort":
+                f"{params.get('domain')}.{params.get('cohort_id')}",
+
+            "dimension": "year",
+            "dimension_value": row["year"],
+            "dimension_value_label":
+                f"{year_prefix}{int(row['year'])}",
+
+            "secondary_dimension": "",
+            "secondary_dimension_value": "",
+
+            "metric": "patient_days",
+            "metric_type": "count",
+            "value": row["patient_days"],
+
+            "start_date": start_date,
+            "end_date": end_date,
+
+            "report_title": params.get("title")
+        })
+
+    return {
+    "output_path": output_path,
+    "rdb": rdb_rows
+    }
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\code\visuals\tbl_02.py =====
+import os
+import logging
+import pandas as pd
+from openpyxl import load_workbook
+from openpyxl.utils import get_column_letter
+from openpyxl.styles import numbers
+
+VISUAL_ID = "tbl_02"
+logger = logging.getLogger(__name__)
+
+
+def _apply_formatting(df, params):
+    if not params:
+        return df
+
+    df_formatted = df.copy()
+
+    for key, fmt in params.items():
+        if not key.startswith("format."):
+            continue
+
+        col = key.replace("format.", "")
+
+        if col not in df_formatted.columns:
+            continue
+
+        if fmt == "int":
+            df_formatted[col] = df_formatted[col].astype(int)
+
+        elif fmt == "comma":
+            df_formatted[col] = pd.to_numeric(df_formatted[col], errors="coerce")
+
+        elif fmt == "float1":
+            df_formatted[col] = pd.to_numeric(df_formatted[col], errors="coerce")
+
+        elif fmt == "float0-":
+            df_formatted[col] = pd.to_numeric(df_formatted[col], errors="coerce")
+
+        elif fmt == "percent":
+            df_formatted[col] = pd.to_numeric(df_formatted[col], errors="coerce")
+
+    return df_formatted
+
+
+def _safe_numeric(series, fill_value=0):
+    return pd.to_numeric(series, errors="coerce").fillna(fill_value)
+
+
+def _calculate_mode(series):
+    """
+    Return first mode value (handles multimodal results safely)
+    """
+    try:
+        mode_series = series.mode(dropna=True)
+        return mode_series.iloc[0] if not mode_series.empty else None
+    except Exception:
+        return None
+
+
+def run(df, params, start_date, end_date, output_dir, generate_output_name):
+    """
+    Table 02: Surgical Encounter Duration Summary by Year
+
+    Spec:
+    - Group by year derived from wheels_out_dtm
+    - duration_minutes = wheels_out_dtm - wheels_in_dtm
+    - stats:
+        min, median, mode, mean, max
+    """
+
+    logger.info(f"[{VISUAL_ID}] Starting execution")
+
+    # --------------------------------------------------
+    # âœ… Required Columns
+    # --------------------------------------------------
+
+    required_cols = {
+        "wheels_in_dtm",
+        "wheels_out_dtm"
+    }
+
+    missing = required_cols - set(df.columns)
+    if missing:
+        logger.warning(f"[{VISUAL_ID}] Missing required columns: {missing}")
+        return
+
+    if df.empty:
+        logger.warning(f"[{VISUAL_ID}] Input dataframe is empty")
+        return
+
+    working_df = df.copy()
+
+    # --------------------------------------------------
+    # âœ… Date Conversion
+    # --------------------------------------------------
+
+    working_df["wheels_in_dtm"] = pd.to_datetime(
+        working_df["wheels_in_dtm"], errors="coerce"
+    )
+
+    working_df["wheels_out_dtm"] = pd.to_datetime(
+        working_df["wheels_out_dtm"], errors="coerce"
+    )
+
+    working_df = working_df.dropna(subset=["wheels_in_dtm", "wheels_out_dtm"])
+
+    # --------------------------------------------------
+    # âœ… Apply Date Filter (from driver)
+    # Include encounters whose time window overlaps
+    # the reporting period.
+    # --------------------------------------------------
+
+    start_dt = (
+        pd.to_datetime(start_date, errors="coerce")
+        if start_date else None
+    )
+
+    end_dt = (
+        pd.to_datetime(end_date, errors="coerce")
+        if end_date else None
+    )
+
+    if start_dt is not None and end_dt is not None:
+
+        working_df = working_df[
+            (working_df["wheels_in_dtm"] <= end_dt) &
+            (working_df["wheels_out_dtm"] >= start_dt)
+        ]
+
+    elif start_dt is not None:
+
+        working_df = working_df[
+            working_df["wheels_out_dtm"] >= start_dt
+        ]
+
+    elif end_dt is not None:
+
+        working_df = working_df[
+            working_df["wheels_in_dtm"] <= end_dt
+        ]
+
+    logger.info(
+        f"[{VISUAL_ID}] After overlap filter: "
+        f"{len(working_df):,} rows "
+        f"(start={start_date}, end={end_date})"
+    )
+
+    # --------------------------------------------------
+    # âœ… Duration Calculation (minutes)
+    # --------------------------------------------------
+
+    working_df["duration_minutes"] = (
+        working_df["wheels_out_dtm"] - working_df["wheels_in_dtm"]
+    ).dt.total_seconds() / 60.0
+
+    working_df["duration_minutes"] = _safe_numeric(
+        working_df["duration_minutes"], fill_value=0
+    )
+
+    # Remove negatives or zero durations
+    working_df = working_df[working_df["duration_minutes"] > 0]
+
+    if working_df.empty:
+        logger.warning(f"[{VISUAL_ID}] No valid duration rows")
+        return
+
+    # --------------------------------------------------
+    # âœ… Report Year
+    # --------------------------------------------------
+
+    report_year = pd.to_datetime(
+        end_date,
+        errors="coerce"
+    ).year
+
+    working_df["year"] = report_year
+
+    logger.info(
+        f"[{VISUAL_ID}] Assigned report_year={report_year}"
+    )
+
+    # --------------------------------------------------
+    # âœ… Aggregation
+    # --------------------------------------------------
+
+    try:
+        agg_df = (
+            working_df
+            .groupby("year")
+            .agg(
+                encounter_count=("duration_minutes", "count"), 
+                min_duration=("duration_minutes", "min"),
+                median_duration=("duration_minutes", "median"),
+                mean_duration=("duration_minutes", "mean"),
+                max_duration=("duration_minutes", "max"),
+            )
+            .reset_index()
+        )
+
+        # Mode requires separate handling
+        mode_df = (
+            working_df
+            .groupby("year")["duration_minutes"]
+            .apply(_calculate_mode)
+            .reset_index(name="mode_duration")
+        )
+
+        agg_df = agg_df.merge(mode_df, on="year", how="left")
+
+    except Exception as e:
+        logger.error(f"[{VISUAL_ID}] Aggregation failed: {e}")
+        return
+
+    if agg_df.empty:
+        logger.warning(f"[{VISUAL_ID}] Aggregation returned empty dataset")
+        return
+
+    # --------------------------------------------------
+    # âœ… Sorting
+    # --------------------------------------------------
+
+    agg_df = agg_df.sort_values(
+        by="year",
+        ascending=False
+    )
+
+    # Ensure numeric consistency
+    for col in agg_df.columns:
+        if col != "year":
+            agg_df[col] = pd.to_numeric(agg_df[col], errors="coerce")
+
+    agg_df["year"] = agg_df["year"].astype(int)
+
+    logger.info(f"[{VISUAL_ID}] Output rows: {len(agg_df):,}")
+
+    # --------------------------------------------------
+    # âœ… Output
+    # --------------------------------------------------
+
+    try:
+        filename = generate_output_name(
+            visual_id=VISUAL_ID,
+            start_date=start_date,
+            end_date=end_date,
+            cohort_id=(params or {}).get("cohort_id"),
+            ext="xlsx"
+        )
+
+        output_path = os.path.join(output_dir, filename)
+
+        output_df = _apply_formatting(agg_df, params)
+        params = params or {}
+
+        title = params.get("title", "")
+        subtitle = params.get("cohort_desc")
+        subtitle1 = params.get("subtitle1", "")
+        client_name = params.get("client_name")
+        year_type = params.get("year_type")
+        year_prefix = {
+            "fiscal": "FY",
+            "calendar": "CY"
+        }.get(str(params.get("year_type", "")).lower(), "")
+
+        # -----------------------
+        # Write Excel
+        # -----------------------
+        with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+
+            output_df.to_excel(
+                writer,
+                index=False,
+                sheet_name="Sheet1",
+                startrow=4
+            )
+
+        # -----------------------
+        # Modify workbook
+        # -----------------------
+        wb = load_workbook(output_path)
+        ws = wb.active
+
+        # âœ… Title / subtitle rows
+        ws["A1"] = title
+        ws["A2"] = subtitle if subtitle else ""
+        ws["A3"] = subtitle1 if subtitle1 else ""
+
+        # âœ… Apply column widths
+        for idx, col in enumerate(output_df.columns, start=1):
+            col_letter = get_column_letter(idx)
+
+            width = params.get(f"colwidth.{col}")
+            if width:
+                try:
+                    ws.column_dimensions[col_letter].width = float(width)
+                except Exception:
+                    logger.warning(f"[{VISUAL_ID}] Invalid width for {col}")
+
+        # âœ… Apply formats
+        for idx, col in enumerate(output_df.columns, start=1):
+            fmt = params.get(f"format.{col}")
+            col_letter = get_column_letter(idx)
+
+            if not fmt:
+                continue
+
+            for cell in ws[col_letter][1:]:  
+
+                if cell.value is None:
+                    continue
+
+                if fmt == "comma":
+                    cell.number_format = '#,##0'
+
+                elif fmt == "float1":
+                    cell.number_format = '#,##0.0'
+
+                elif fmt == "float0":
+                    cell.number_format = '#,##0'                
+
+                elif fmt == "percent":
+                    cell.number_format = '0.0%'        
+
+        # âœ… Freeze header row (row 5 in Excel)
+        ws.freeze_panes = "A6"
+
+        wb.save(output_path)
+
+        logger.info(f"[{VISUAL_ID}] Saved output to: {output_path}")
+
+        rdb_rows = []
+
+        for _, row in agg_df.iterrows():
+            base_record = {
+                "run_id": params.get("run_id"),
+                "visual_id": VISUAL_ID,
+                "client_name": params.get("client_name"),
+                "domain": params.get("domain"),
+                "cohort_id": params.get("cohort_id"),
+                "domain_cohort":
+                    f"{params.get('domain')}.{params.get('cohort_id')}",
+                "dimension": "year",
+                "dimension_value": row["year"],
+                "dimension_value_label":
+                    f"{year_prefix}{int(row['year'])}",
+                "secondary_dimension": "",
+                "secondary_dimension_value": "",
+                "start_date": start_date,
+                "end_date": end_date,
+                "report_title": params.get("title")
+            }
+            rdb_rows.append({
+                **base_record,
+                "metric": "encounter_count",
+                "metric_type": "count",
+                "value": row["encounter_count"]
+            })
+            rdb_rows.append({
+                **base_record,
+                "metric": "min_duration",
+                "metric_type": "duration_minutes",
+                "value": row["min_duration"]
+            })
+            rdb_rows.append({
+                **base_record,
+                "metric": "median_duration",
+                "metric_type": "duration_minutes",
+                "value": row["median_duration"]
+            })
+            rdb_rows.append({
+                **base_record,
+                "metric": "mean_duration",
+                "metric_type": "duration_minutes",
+                "value": row["mean_duration"]
+            })
+            rdb_rows.append({
+                **base_record,
+                "metric": "mode_duration",
+                "metric_type": "duration_minutes",
+                "value": row["mode_duration"]
+            })
+            rdb_rows.append({
+                **base_record,
+                "metric": "max_duration",
+                "metric_type": "duration_minutes",
+                "value": row["max_duration"]
+            })
+
+
+    except Exception as e:
+        logger.error(f"[{VISUAL_ID}] Failed to save output: {e}")
+        return
+    
+    return {
+        "output_path": output_path,
+        "rdb": rdb_rows
+    }
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\code\visuals\tbl_03.py =====
+import os
+import logging
+import pandas as pd
+from openpyxl import load_workbook
+from openpyxl.utils import get_column_letter
+from openpyxl.styles import numbers
+
+VISUAL_ID = "tbl_03"
+logger = logging.getLogger(__name__)
+
+
+def _apply_formatting(df, params):
+    if not params:
+        return df
+
+    df_formatted = df.copy()
+
+    for key, fmt in params.items():
+        if not key.startswith("format."):
+            continue
+
+        col = key.replace("format.", "")
+
+        if col not in df_formatted.columns:
+            continue
+
+        if fmt == "int":
+            df_formatted[col] = df_formatted[col].astype(int)
+
+        elif fmt == "comma":
+            df_formatted[col] = pd.to_numeric(df_formatted[col], errors="coerce")
+
+        elif fmt == "float1":
+            df_formatted[col] = pd.to_numeric(df_formatted[col], errors="coerce")
+
+        elif fmt == "float0-":
+            df_formatted[col] = pd.to_numeric(df_formatted[col], errors="coerce")
+
+        elif fmt == "percent":
+            df_formatted[col] = pd.to_numeric(df_formatted[col], errors="coerce")
+
+    return df_formatted
+
+
+def _safe_numeric(series, fill_value=0):
+    return pd.to_numeric(series, errors="coerce").fillna(fill_value)
+
+
+def _calculate_mode(series):
+    """
+    Return first mode value (handles multimodal results safely)
+    """
+    try:
+        mode_series = series.mode(dropna=True)
+        return mode_series.iloc[0] if not mode_series.empty else None
+    except Exception:
+        return None
+
+
+def run(df, params, start_date, end_date, output_dir, generate_output_name):
+    """
+    Table 03: ED Encounter Duration Summary by Year
+
+    Spec:
+    - Group by year derived from ed_stop_dtm
+    - duration_minutes = wheels_out_dtm - ed_start_dtm
+    - stats:
+        min, median, mode, mean, max
+    """
+
+    logger.info(f"[{VISUAL_ID}] Starting execution")
+
+    # --------------------------------------------------
+    # âœ… Required Columns
+    # --------------------------------------------------
+
+    logger.info(f"[{VISUAL_ID}] Columns:")
+    logger.info(list(df.columns))
+
+    required_cols = {
+        "ed_start_dtm",
+        "ed_stop_dtm"
+    }
+
+    missing = required_cols - set(df.columns)
+    if missing:
+        logger.warning(f"[{VISUAL_ID}] Missing required columns: {missing}")
+        return
+
+    if df.empty:
+        logger.warning(f"[{VISUAL_ID}] Input dataframe is empty")
+        return
+
+    working_df = df.copy()
+
+    # --------------------------------------------------
+    # âœ… Date Conversion
+    # --------------------------------------------------
+
+    working_df["ed_start_dtm"] = pd.to_datetime(
+        working_df["ed_start_dtm"], errors="coerce"
+    )
+
+    working_df["ed_stop_dtm"] = pd.to_datetime(
+        working_df["ed_stop_dtm"], errors="coerce"
+    )
+
+    working_df = working_df.dropna(
+        subset=["ed_start_dtm", "ed_stop_dtm"]
+    )
+
+    # --------------------------------------------------
+    # âœ… Apply Date Filter (from driver)
+    # Include encounters whose ED time window overlaps
+    # the reporting period.
+    # --------------------------------------------------
+
+    start_dt = (
+        pd.to_datetime(start_date, errors="coerce")
+        if start_date else None
+    )
+
+    end_dt = (
+        pd.to_datetime(end_date, errors="coerce")
+        if end_date else None
+    )
+
+    if start_dt is not None and end_dt is not None:
+
+        working_df = working_df[
+            (working_df["ed_start_dtm"] <= end_dt) &
+            (working_df["ed_stop_dtm"] >= start_dt)
+        ]
+
+    elif start_dt is not None:
+
+        working_df = working_df[
+            working_df["ed_stop_dtm"] >= start_dt
+        ]
+
+    elif end_dt is not None:
+
+        working_df = working_df[
+            working_df["ed_start_dtm"] <= end_dt
+        ]
+
+    logger.info(
+        f"[{VISUAL_ID}] After overlap filter: "
+        f"{len(working_df):,} rows "
+        f"(start={start_date}, end={end_date})"
+    )
+
+    logger.info(f"[{VISUAL_ID}] Input rows: {len(working_df):,}")
+
+    if working_df.empty:
+        logger.warning(f"[{VISUAL_ID}] No valid datetime rows")
+        return
+
+    # --------------------------------------------------
+    # âœ… Duration Calculation (minutes)
+    # --------------------------------------------------
+
+    working_df["duration_minutes"] = (
+        working_df["ed_stop_dtm"] - working_df["ed_start_dtm"]
+    ).dt.total_seconds() / 60.0
+
+    working_df["duration_minutes"] = _safe_numeric(
+        working_df["duration_minutes"], fill_value=0
+    )
+
+    # Remove negatives or zero durations
+    working_df = working_df[working_df["duration_minutes"] > 0]
+
+    if working_df.empty:
+        logger.warning(f"[{VISUAL_ID}] No valid duration rows")
+        return
+
+    # --------------------------------------------------
+    # âœ… Report Year
+    # --------------------------------------------------
+
+    report_year = pd.to_datetime(
+        end_date,
+        errors="coerce"
+    ).year
+
+    working_df["year"] = report_year
+
+    logger.info(
+        f"[{VISUAL_ID}] Assigned report_year={report_year}"
+    )
+
+    # --------------------------------------------------
+    # âœ… Aggregation
+    # --------------------------------------------------
+
+    try:
+        agg_df = (
+            working_df
+            .groupby("year")
+            .agg(
+                encounter_count=("duration_minutes", "count"), 
+                min_duration=("duration_minutes", "min"),
+                median_duration=("duration_minutes", "median"),
+                mean_duration=("duration_minutes", "mean"),
+                max_duration=("duration_minutes", "max"),
+            )
+            .reset_index()
+        )
+
+        # Mode requires separate handling
+        mode_df = (
+            working_df
+            .groupby("year")["duration_minutes"]
+            .apply(_calculate_mode)
+            .reset_index(name="mode_duration")
+        )
+
+        agg_df = agg_df.merge(mode_df, on="year", how="left")
+
+    except Exception as e:
+        logger.error(f"[{VISUAL_ID}] Aggregation failed: {e}")
+        return
+
+    if agg_df.empty:
+        logger.warning(f"[{VISUAL_ID}] Aggregation returned empty dataset")
+        return
+
+    # --------------------------------------------------
+    # âœ… Sorting
+    # --------------------------------------------------
+
+    agg_df = agg_df.sort_values(
+        by="year",
+        ascending=False
+    )
+
+    # Ensure numeric consistency
+    for col in agg_df.columns:
+        if col != "year":
+            agg_df[col] = pd.to_numeric(agg_df[col], errors="coerce")
+
+    agg_df["year"] = agg_df["year"].astype(int)
+
+    logger.info(f"[{VISUAL_ID}] Output rows: {len(agg_df):,}")
+
+    # --------------------------------------------------
+    # âœ… Output
+    # --------------------------------------------------
+
+    try:
+        filename = generate_output_name(
+            visual_id=VISUAL_ID,
+            start_date=start_date,
+            end_date=end_date,
+            cohort_id=(params or {}).get("cohort_id"),
+            ext="xlsx"
+        )
+
+        output_path = os.path.join(output_dir, filename)
+
+        output_df = _apply_formatting(agg_df, params)
+        params = params or {}
+
+        title = params.get("title", "")
+        subtitle = params.get("cohort_desc")
+        subtitle1 = params.get("subtitle1", "")
+        client_name = params.get("client_name")
+        year_type = params.get("year_type")
+        year_prefix = {
+            "fiscal": "FY",
+            "calendar": "CY"
+        }.get(str(params.get("year_type", "")).lower(), "")
+
+        # -----------------------
+        # Write Excel
+        # -----------------------
+        with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+
+            output_df.to_excel(
+                writer,
+                index=False,
+                sheet_name="Sheet1",
+                startrow=4
+            )
+
+        # -----------------------
+        # Modify workbook
+        # -----------------------
+        wb = load_workbook(output_path)
+        ws = wb.active
+
+        # âœ… Title / subtitle rows
+        ws["A1"] = title
+        ws["A2"] = subtitle if subtitle else ""
+        ws["A3"] = subtitle1 if subtitle1 else ""
+
+        # âœ… Apply column widths
+        for idx, col in enumerate(output_df.columns, start=1):
+            col_letter = get_column_letter(idx)
+
+            width = params.get(f"colwidth.{col}")
+            if width:
+                try:
+                    ws.column_dimensions[col_letter].width = float(width)
+                except Exception:
+                    logger.warning(f"[{VISUAL_ID}] Invalid width for {col}")
+
+        # âœ… Apply formats
+        for idx, col in enumerate(output_df.columns, start=1):
+            fmt = params.get(f"format.{col}")
+            col_letter = get_column_letter(idx)
+
+            if not fmt:
+                continue
+
+            for cell in ws[col_letter][1:]:  
+
+                if cell.value is None:
+                    continue
+
+                if fmt == "comma":
+                    cell.number_format = '#,##0'
+
+                elif fmt == "float1":
+                    cell.number_format = '#,##0.0'
+
+                elif fmt == "float0":
+                    cell.number_format = '#,##0'                
+
+                elif fmt == "percent":
+                    cell.number_format = '0.0%'        
+
+        # âœ… Freeze header row (row 5 in Excel)
+        ws.freeze_panes = "A6"
+
+        wb.save(output_path)
+
+        logger.info(f"[{VISUAL_ID}] Saved output to: {output_path}")
+
+        rdb_rows = []
+
+        for _, row in agg_df.iterrows():
+            base_record = {
+                "run_id": params.get("run_id"),
+                "visual_id": VISUAL_ID,
+                "client_name": params.get("client_name"),
+                "domain": params.get("domain"),
+                "cohort_id": params.get("cohort_id"),
+                "domain_cohort":
+                    f"{params.get('domain')}.{params.get('cohort_id')}",
+                "dimension": "year",
+                "dimension_value": row["year"],
+                "dimension_value_label":
+                    f"{year_prefix}{int(row['year'])}",
+                "secondary_dimension": "",
+                "secondary_dimension_value": "",
+                "start_date": start_date,
+                "end_date": end_date,
+                "report_title": params.get("title")
+            }
+            rdb_rows.append({
+                **base_record,
+                "metric": "encounter_count",
+                "metric_type": "count",
+                "value": row["encounter_count"]
+            })
+            rdb_rows.append({
+                **base_record,
+                "metric": "min_duration",
+                "metric_type": "duration_minutes",
+                "value": row["min_duration"]
+            })
+            rdb_rows.append({
+                **base_record,
+                "metric": "median_duration",
+                "metric_type": "duration_minutes",
+                "value": row["median_duration"]
+            })
+            rdb_rows.append({
+                **base_record,
+                "metric": "mean_duration",
+                "metric_type": "duration_minutes",
+                "value": row["mean_duration"]
+            })
+            rdb_rows.append({
+                **base_record,
+                "metric": "mode_duration",
+                "metric_type": "duration_minutes",
+                "value": row["mode_duration"]
+            })
+            rdb_rows.append({
+                **base_record,
+                "metric": "max_duration",
+                "metric_type": "duration_minutes",
+                "value": row["max_duration"]
+            })
+
+
+    except Exception as e:
+        logger.error(f"[{VISUAL_ID}] Failed to save output: {e}")
+        return
+    
+    return {
+        "output_path": output_path,
+        "rdb": rdb_rows
+    }
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\code\visuals\vis_01.py =====
+import os
+import logging
+import numpy as np
+import matplotlib.pyplot as plt
+import pandas as pd
+from utils.vis_helpers import format_date_range, apply_yaxis_format
+
+def run(df, params, start_date, end_date, output_dir, generate_output_name):
+
+    logging.info("Running vis_01_ed_hourly_arrivals")
+
+    # =========================
+    # DEFENSIVE CHECKS
+    # =========================
+    required_cols = ["ed_start_dtm", "esi"]
+    for col in required_cols:
+        if col not in df.columns:
+            logging.error(f"vis_01: missing required column '{col}'")
+            return
+
+    # =========================
+    # PARAM HANDLING
+    # =========================
+    params = params or {}
+    chart_mode = params.get("chart_mode", "percent").lower()
+
+    # ---- Label behavior ----
+    label_threshold = float(params.get("label_threshold", 0.005))
+    label_decimals = int(params.get("label_decimals", 1))
+    label_multiplier = float(params.get("label_multiplier", 100))
+    label_prefix = str(params.get("label_prefix", "")).strip()
+    label_suffix = str(params.get("label_suffix", "")).strip()
+    label_color = str(params.get("label_color", "white"))
+
+    # ---- Figure ----
+    fig_width = float(params.get("fig_width", 12))
+    fig_height = float(params.get("fig_height", 6))
+    dpi = int(params.get("dpi", 100))
+
+    # ---- Fonts ----
+    title_fs = int(params.get("title_fontsize", 14))
+    axis_fs = int(params.get("axis_fontsize", 11))
+    label_fs = int(params.get("label_fontsize", 8))
+    legend_fs = int(params.get("legend_fontsize", 10))
+
+    # ---- Legend ----
+    legend_pos = params.get("legend_position", "upper left")
+    legend_x = float(params.get("legend_anchor_x", 1.05))
+    legend_y = float(params.get("legend_anchor_y", 1.0))
+
+    # ---- Axis ----
+    y_max = float(params.get("y_max", 1))
+    y_axis_mode = params.get("y_axis_mode", chart_mode)
+    y_axis_decimals = params.get("y_axis_decimals", 1)
+    y_axis_multiplier = params.get("y_axis_multiplier", 100)
+    y_axis_suffix = params.get("y_axis_suffix", "%")
+
+    # ---- Colors ----
+    colors = {
+        '5 - Non-Urgent': params.get('5 - Non-Urgent', '#2ca02c'),
+        '4 - Less Urgent': params.get('4 - Less Urgent', '#8fd0ff'),
+        '3 - Urgent': params.get('3 - Urgent', '#1f77b4'),
+        '2 - Emergent': params.get('2 - Emergent', '#17becf'),
+        '1 - Immediate': params.get('1 - Immediate', '#ff7f0e'),
+    }
+
+    # =========================
+    # FILTER
+    # =========================
+    subset = df[
+        (df["ed_start_dtm"] >= start_date) &
+        (df["ed_start_dtm"] <= end_date)
+    ].copy()
+
+    if subset.empty:
+        logging.warning("vis_01: no data after filtering")
+        return
+
+    # =========================
+    # DATA PREP
+    # =========================
+    subset["ed_start_dtm"] = pd.to_datetime(
+    subset["ed_start_dtm"],
+    errors="coerce"
+    )
+
+    subset = subset[
+        subset["ed_start_dtm"].notna()
+    ].copy()
+    
+    subset["arrival_hour"] = subset["ed_start_dtm"].dt.hour
+
+    subset["esi"] = pd.to_numeric(
+        subset["esi"],
+        errors="coerce"
+    )
+
+    esi_map = {
+        1: '1 - Immediate',
+        2: '2 - Emergent',
+        3: '3 - Urgent',
+        4: '4 - Less Urgent',
+        5: '5 - Non-Urgent'
+    }
+
+    subset["esi_category"] = subset["esi"].map(esi_map)
+
+    subset = subset[subset["esi_category"].notna()]
+
+    if subset.empty:
+        logging.warning("vis_01: no valid ESI data")
+        return
+
+    # =========================
+    # AGGREGATION
+    # =========================
+    grouped = (
+        subset.groupby(["arrival_hour", "esi_category"])
+        .size()
+        .reset_index(name="count")
+    )
+
+    totals = grouped.groupby("arrival_hour")["count"].sum().reset_index(name="total")
+
+    write_rdb = int(params.get("write_rdb", 0))
+    rdb_rows = []
+
+    merged = grouped.merge(totals, on="arrival_hour")
+    merged["percent"] = merged["count"] / merged["total"]
+    merged["percent"] = pd.to_numeric(merged["percent"], errors="coerce")
+    merged["percent"] = merged["percent"].fillna(0)
+
+    pivot_counts = (
+        subset.groupby(["arrival_hour", "esi_category"])
+        .size()
+        .unstack(fill_value=0)
+    )
+
+    pivot_pct = merged.pivot(
+        index="arrival_hour",
+        columns="esi_category",
+        values="percent"
+    ).fillna(0)
+
+    if chart_mode == "count":
+        plot_data = pivot_counts
+    else:
+        plot_data = pivot_pct
+
+    plot_data = plot_data.reindex(range(24), fill_value=0)
+
+    esi_order = [
+        '5 - Non-Urgent',
+        '4 - Less Urgent',
+        '3 - Urgent',
+        '2 - Emergent',
+        '1 - Immediate'
+    ]
+
+    for col in esi_order:
+        if col not in plot_data.columns:
+            plot_data[col] = 0
+
+    plot_data = plot_data[esi_order]
+
+    # =========================
+    # LABEL FORMATTER
+    # =========================
+    def format_label(val):
+        if not np.isfinite(val):
+            return ""
+
+        return f"{val:.{label_decimals}%}"
+    
+    # =========================
+    # PLOT
+    # =========================
+    fig, ax = plt.subplots(figsize=(fig_width, fig_height), dpi=dpi)
+
+    
+    if chart_mode == "count":
+        pivot_plot = pivot_counts  
+        y_label = "Number of Arrivals"
+        y_limit = None
+    else:
+        pivot_plot = pivot_pct
+        y_label = "Percentage"
+        y_limit = y_max
+
+    bottom = np.zeros(len(plot_data))
+
+    ax.set_ylabel(y_label, fontsize=axis_fs)
+
+    if y_limit:
+        ax.set_ylim(0, y_limit)
+
+    pivot_pct = pivot_pct.reindex(range(24), fill_value=0)
+    
+    for col in esi_order:
+        values = plot_data[col].values
+
+        ax.bar(
+            plot_data.index,
+            values,
+            bottom=bottom,
+            label=col,
+            color=colors[col]
+        )
+        
+        for i, v in enumerate(values):
+
+            if chart_mode == "percent":
+                value_for_label = v
+            else:
+                value_for_label = pivot_pct.loc[i, col]
+
+            if not np.isfinite(value_for_label):
+                continue
+
+            if chart_mode == "percent":
+                show_label = v > label_threshold
+            else:
+                show_label = value_for_label > label_threshold
+
+            if show_label:
+                ax.text(
+                    i,
+                    bottom[i] + v / 2,
+                    format_label(value_for_label),
+                    ha='center',
+                    va='center',
+                    color=label_color,
+                    fontsize=label_fs
+                )
+
+        bottom += values
+
+    # =========================
+    # FORMATTING
+    # =========================
+    ax.set_xticks(range(24))
+    ax.set_xlabel("Hour of Day", fontsize=axis_fs)
+
+    date_range = format_date_range(start_date, end_date)
+    title = f"Hourly Arrivals Distribution by ESI\n{date_range}"
+    ax.set_title(title, fontsize=title_fs)
+
+    ax.legend(
+        loc=legend_pos,
+        bbox_to_anchor=(legend_x, legend_y),
+        fontsize=legend_fs
+    )
+
+    apply_yaxis_format(
+    ax,
+    mode=y_axis_mode,
+    decimals=y_axis_decimals,
+    multiplier=y_axis_multiplier,
+    suffix=y_axis_suffix
+    )
+
+    plt.tight_layout()
+
+    # =========================
+    # SAVE
+    # =========================
+    output_file = os.path.join(
+        output_dir,
+        generate_output_name(
+            visual_id="vis_01",
+            start_date=start_date,
+            end_date=end_date,
+            cohort_id=params.get("cohort_id"),
+            ext="png"
+        )
+    )
+
+    plt.savefig(output_file)
+    plt.close()
+
+    logging.info(f"vis_01 output written: {output_file}")
+
+    if write_rdb == 1:
+
+        for _, row in totals.iterrows():
+
+            hour_label = f"{int(row['arrival_hour']):02d}:00"
+
+            rdb_rows.append({
+                "run_id": params.get("run_id"),
+                "visual_id": "vis_01",
+                "client_name": params.get("client_name"),
+
+                "domain": params.get("domain"),
+                "cohort_id": params.get("cohort_id"),
+
+                "domain_cohort":
+                    f"{params.get('domain')}.{params.get('cohort_id')}",
+
+                "dimension": "arrival_hour",
+                "dimension_value": int(row["arrival_hour"]),
+                "dimension_value_label": hour_label,
+
+                "secondary_dimension": None,
+                "secondary_dimension_value": None,
+
+                "metric": "arrivals",
+                "metric_type": "count",
+                "value": int(row["total"]),
+
+                "start_date": start_date,
+                "end_date": end_date,
+
+                "report_title":
+                    "Hourly Arrivals Distribution by ESI"
+            })
+
+        for _, row in grouped.iterrows():
+
+            hour_label = f"{int(row['arrival_hour']):02d}:00"
+
+            rdb_rows.append({
+                "run_id": params.get("run_id"),
+                "visual_id": "vis_01",
+                "client_name": params.get("client_name"),
+
+                "domain": params.get("domain"),
+                "cohort_id": params.get("cohort_id"),
+
+                "domain_cohort":
+                    f"{params.get('domain')}.{params.get('cohort_id')}",
+
+                "dimension": "arrival_hour",
+                "dimension_value": int(row["arrival_hour"]),
+                "dimension_value_label": hour_label,
+
+                "secondary_dimension": "esi_category",
+                "secondary_dimension_value": row["esi_category"],
+
+                "metric": "arrivals",
+                "metric_type": "count",
+                "value": int(row["count"]),
+
+                "start_date": start_date,
+                "end_date": end_date,
+
+                "report_title":
+                    "Hourly Arrivals Distribution by ESI"
+            })
+
+    return {
+    "output_path": output_file,
+    "rdb": rdb_rows
+    }
+
+
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\code\visuals\vis_02.py =====
+import os
+import logging
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from utils.vis_helpers import format_date_range, apply_yaxis_format
+
+
+def run(df, params, start_date, end_date, output_dir, generate_output_name):
+    """
+    Visualization 02: Length of Stay Distribution (Hours)
+
+    Generates a histogram-style bar chart showing the distribution of
+    ED Length of Stay (LOS) in hourly buckets as percentages.
+    """
+
+    logging.info("Starting vis_02: Length of Stay Distribution")
+
+    try:
+        # --------------------------------------------------
+        # DEFAULT PARAMETERS
+        # --------------------------------------------------
+        defaults = {
+            "fig_width": 12,
+            "fig_height": 6,
+            "dpi": 100,
+            "title_fontsize": 14,
+            "axis_fontsize": 11,
+            "label_fontsize": 9,
+            "label_decimals": 1,
+            "label_threshold": 0.0,  # show all by default
+            "max_bucket": None  # optional cap (e.g., 24)
+        }
+
+        y_axis_mode = params.get("y_axis_mode", "percent")
+        y_axis_decimals = params.get("y_axis_decimals", 1)
+        y_axis_multiplier = params.get("y_axis_multiplier", 100)
+        y_axis_suffix = params.get("y_axis_suffix", "%")
+
+        # Merge params (override defaults)
+        p = {**defaults, **(params or {})}
+
+        # Cast numeric params safely
+        for key in ["fig_width", "fig_height", "dpi",
+                    "title_fontsize", "axis_fontsize",
+                    "label_fontsize", "label_decimals",
+                    "label_threshold"]:
+            try:
+                p[key] = float(p[key])
+            except Exception:
+                logging.warning(f"Invalid param for {key}, using default")
+                p[key] = defaults[key]
+
+        if p["max_bucket"] not in (None, ""):
+            try:
+                p["max_bucket"] = int(p["max_bucket"])
+            except Exception:
+                logging.warning("Invalid max_bucket, ignoring")
+                p["max_bucket"] = None
+
+        # --------------------------------------------------
+        # REQUIRED COLUMNS CHECK
+        # --------------------------------------------------
+        required_cols = ["ed_start_dtm", "ed_stop_dtm"]
+        for col in required_cols:
+            if col not in df.columns:
+                logging.error(f"Missing required column: {col}")
+                return
+
+        # --------------------------------------------------
+        # DATETIME HANDLING
+        # --------------------------------------------------
+        df["ed_start_dtm"] = pd.to_datetime(df["ed_start_dtm"], errors="coerce")
+        df["ed_stop_dtm"] = pd.to_datetime(df["ed_stop_dtm"], errors="coerce")
+
+        # Drop null timestamps
+        df = df.dropna(subset=["ed_start_dtm", "ed_stop_dtm"])
+
+        # --------------------------------------------------
+        # DATE FILTERING
+        # --------------------------------------------------
+        try:
+            start_dt = pd.to_datetime(start_date)
+            end_dt = pd.to_datetime(end_date)
+        except Exception:
+            logging.error("Invalid start_date or end_date")
+            return
+
+        df = df[(df["ed_start_dtm"] >= start_dt) & (df["ed_start_dtm"] <= end_dt)]
+
+        if df.empty:
+            logging.warning("vis_02: No data after filtering")
+            return
+
+        # --------------------------------------------------
+        # LOS CALCULATION (HOURS)
+        # --------------------------------------------------
+        df["los_hours"] = (
+            (df["ed_stop_dtm"] - df["ed_start_dtm"])
+            .dt.total_seconds() / 3600.0
+        )
+
+        # Remove invalid LOS
+        df = df[(df["los_hours"].notna()) & (df["los_hours"] >= 0)]
+
+        if df.empty:
+            logging.warning("vis_02: No valid LOS values")
+            return
+
+        # --------------------------------------------------
+        # BUCKETING
+        # --------------------------------------------------
+        df["los_bucket"] = np.floor(df["los_hours"]).astype(int)
+
+        # Optional max bucket cap
+        if p["max_bucket"] is not None:
+            df["los_bucket"] = np.where(
+                df["los_bucket"] >= p["max_bucket"],
+                p["max_bucket"],
+                df["los_bucket"]
+            )
+
+        # --------------------------------------------------
+        # AGGREGATION
+        # --------------------------------------------------
+        grouped = df.groupby("los_bucket").size().reset_index(name="count")
+
+        total = grouped["count"].sum()
+        grouped["percent"] = grouped["count"] / total
+
+        # Ensure continuity of buckets
+        min_bucket = int(grouped["los_bucket"].min())
+        max_bucket = int(grouped["los_bucket"].max())
+
+        all_buckets = pd.DataFrame({
+            "los_bucket": range(min_bucket, max_bucket + 1)
+        })
+
+        grouped = all_buckets.merge(grouped, on="los_bucket", how="left").fillna(0)
+
+        # --------------------------------------------------
+        # RDB METRICS
+        # --------------------------------------------------
+        write_rdb = int(params.get("write_rdb", 0))
+        rdb_rows = []
+
+        total_encounters = int(total)
+
+        if write_rdb == 1:
+
+            for _, row in grouped.iterrows():
+
+                bucket = int(row["los_bucket"])
+
+                # Denominator
+                rdb_rows.append({
+                    "run_id": params.get("run_id"),
+                    "visual_id": "vis_02",
+                    "client_name": params.get("client_name"),
+
+                    "domain": params.get("domain"),
+                    "cohort_id": params.get("cohort_id"),
+
+                    "domain_cohort":
+                        f"{params.get('domain')}.{params.get('cohort_id')}",
+
+                    "dimension": "los_bucket",
+                    "dimension_value": bucket,
+                    "dimension_value_label": f"{bucket} Hours",
+
+                    "secondary_dimension": None,
+                    "secondary_dimension_value": None,
+
+                    "metric": "encounters",
+                    "metric_type": "denominator",
+                    "value": total_encounters,
+
+                    "start_date": start_date,
+                    "end_date": end_date,
+
+                    "report_title":
+                        "Length of Stay Distribution (Hours)"
+                })
+
+                # Numerator
+                rdb_rows.append({
+                    "run_id": params.get("run_id"),
+                    "visual_id": "vis_02",
+                    "client_name": params.get("client_name"),
+
+                    "domain": params.get("domain"),
+                    "cohort_id": params.get("cohort_id"),
+
+                    "domain_cohort":
+                        f"{params.get('domain')}.{params.get('cohort_id')}",
+
+                    "dimension": "los_bucket",
+                    "dimension_value": bucket,
+                    "dimension_value_label": f"{bucket} Hours",
+
+                    "secondary_dimension": None,
+                    "secondary_dimension_value": None,
+
+                    "metric": "encounters",
+                    "metric_type": "numerator",
+                    "value": int(row["count"]),
+
+                    "start_date": start_date,
+                    "end_date": end_date,
+
+                    "report_title":
+                        "Length of Stay Distribution (Hours)"
+                })
+
+        # --------------------------------------------------
+        # PLOTTING
+        # --------------------------------------------------
+        fig, ax = plt.subplots(figsize=(p["fig_width"], p["fig_height"]))
+
+        ax.bar(
+            grouped["los_bucket"],
+            grouped["percent"],
+            width=0.8
+        )
+
+        # Labels above bars
+        for _, row in grouped.iterrows():
+            if row["percent"] >= p["label_threshold"]:
+                ax.text(
+                    row["los_bucket"],
+                    row["percent"] + 0.001,
+                    f"{row['percent'] * 100:.{int(p['label_decimals'])}f}%",
+                    ha="center",
+                    fontsize=p["label_fontsize"]
+                )
+        
+        date_range = format_date_range(start_date, end_date)
+        ax.set_title(
+            f"Length of Stay Distribution (Hours)\n{date_range}",
+            fontsize=p["title_fontsize"]
+        )
+        ax.set_xlabel("Length of Stay (Hours)", fontsize=p["axis_fontsize"])
+        ax.set_ylabel("Percent of Encounters", fontsize=p["axis_fontsize"])
+
+        # Improve layout
+        ax.set_xticks(grouped["los_bucket"])
+        plt.xticks(rotation=45)
+        
+        apply_yaxis_format(
+            ax,
+            mode=y_axis_mode,
+            decimals=y_axis_decimals,
+            multiplier=y_axis_multiplier,
+            suffix=y_axis_suffix
+        )
+        
+        plt.tight_layout()
+
+        # --------------------------------------------------
+        # SAVE OUTPUT
+        # --------------------------------------------------
+        output_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id="vis_02",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
+        )
+
+        output_path = os.path.join(output_dir, output_file)
+
+        plt.savefig(output_path, dpi=int(p["dpi"]))
+        plt.close()
+
+        logging.info(f"vis_02 saved to {output_path}")
+
+        return {
+            "output_path": output_path,
+            "rdb": rdb_rows
+        }
+
+    except Exception as e:
+        logging.error(f"vis_02 failed: {str(e)}")
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\code\visuals\vis_03.py =====
+import os
+import logging
+import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib.ticker as mtick
+from utils.vis_helpers import format_date_range
+
+VISUAL_ID = "vis_03"
+
+def run(df, params, start_date, end_date, output_dir, generate_output_name):
+    """
+    Visualization 03: ED Visits by Year
+    """
+
+    logging.info(f"[{VISUAL_ID}] Starting visualization")
+
+    # =========================
+    # DEFAULT PARAMETERS
+    # =========================
+    default_params = {
+        # Figure
+        "fig_width": 12,
+        "fig_height": 6,
+        "dpi": 100,
+
+        # Fonts
+        "title_fontsize": 14,
+        "axis_fontsize": 11,
+        "label_fontsize": 9,
+
+        # Labels
+        "label_decimals": 0,
+        "label_color": "black",
+        "label_threshold": 0,
+
+        # Axis
+        "y_axis_use_commas": True,
+        "y_axis_decimals": 0,
+
+        # Colors
+        "bar_color": "#1f77b4",
+
+        # Title
+        "title": "ED Visits by Year",
+    }
+
+    # Merge params (override defaults)
+    try:
+        if params:
+            default_params.update(params)
+    except Exception as e:
+        logging.warning(f"[{VISUAL_ID}] Failed to parse params: {e}")
+
+    p = default_params
+
+    # =========================
+    # VALIDATION
+    # =========================
+    required_columns = ["visit_dtm"]
+
+    for col in required_columns:
+        if col not in df.columns:
+            logging.error(f"[{VISUAL_ID}] Missing required column: {col}")
+            return
+
+    df = df.copy()
+
+    # =========================
+    # DATA PREP
+    # =========================
+    try:
+        df["visit_dtm"] = pd.to_datetime(df["visit_dtm"], errors="coerce")
+        df = df.dropna(subset=["visit_dtm"])
+    except Exception as e:
+        logging.error(f"[{VISUAL_ID}] Failed to process visit_dtm: {e}")
+        return
+
+    # =========================
+    # DATE FILTERING
+    # =========================
+    try:
+        if start_date:
+            start_dt = pd.to_datetime(start_date, errors="coerce")
+        else:
+            start_dt = df["visit_dtm"].min()
+
+        if end_date:
+            end_dt = pd.to_datetime(end_date, errors="coerce")
+        else:
+            end_dt = df["visit_dtm"].max()
+
+        df = df[
+            (df["visit_dtm"] >= start_dt) &
+            (df["visit_dtm"] <= end_dt)
+        ]
+    except Exception as e:
+        logging.warning(f"[{VISUAL_ID}] Date filtering failed: {e}")
+
+    if df.empty:
+        logging.warning(f"[{VISUAL_ID}] No data after filtering")
+        return
+
+    # =========================
+    # FEATURE ENGINEERING
+    # =========================
+    try:
+        df["arrival_year"] = df["visit_dtm"].dt.year
+    except Exception as e:
+        logging.error(f"[{VISUAL_ID}] Failed to derive year: {e}")
+        return
+
+    # =========================
+    # AGGREGATION
+    # =========================
+    try:
+        yearly = (
+            df.groupby("arrival_year")
+            .size()
+            .reset_index(name="visits")
+            .sort_values("arrival_year")
+        )
+    except Exception as e:
+        logging.error(f"[{VISUAL_ID}] Aggregation failed: {e}")
+        return
+
+    if yearly.empty:
+        logging.warning(f"[{VISUAL_ID}] No aggregated data available")
+        return
+
+    # =========================
+    # FIGURE SETUP
+    # =========================
+    try:
+        fig, ax = plt.subplots(
+            figsize=(float(p["fig_width"]), float(p["fig_height"])),
+            dpi=int(p["dpi"])
+        )
+    except Exception as e:
+        logging.error(f"[{VISUAL_ID}] Failed to create figure: {e}")
+        return
+
+    # =========================
+    # PLOT
+    # =========================
+    try:
+        bars = ax.bar(
+            yearly["arrival_year"].astype(str),
+            yearly["visits"],
+            color=p["bar_color"]
+        )
+    except Exception as e:
+        logging.error(f"[{VISUAL_ID}] Plotting failed: {e}")
+        return
+
+    # =========================
+    # LABELS ON BARS
+    # =========================
+    try:
+        threshold = float(p["label_threshold"])
+        decimals = int(p["label_decimals"])
+
+        for bar, value in zip(bars, yearly["visits"]):
+            if value >= threshold:
+                label = f"{value:,.{decimals}f}"
+                ax.text(
+                    bar.get_x() + bar.get_width() / 2,
+                    bar.get_height(),
+                    label,
+                    ha="center",
+                    va="bottom",
+                    fontsize=p["label_fontsize"],
+                    color=p["label_color"]
+                )
+    except Exception as e:
+        logging.warning(f"[{VISUAL_ID}] Labeling failed: {e}")
+
+    # =========================
+    # TITLES & AXES
+    # =========================
+    try:
+        date_range_str = format_date_range(start_date, end_date)
+
+        ax.set_title(
+            f"{p['title']} {date_range_str}",
+            fontsize=p["title_fontsize"]
+        )
+
+        ax.set_xlabel("Year", fontsize=p["axis_fontsize"])
+        ax.set_ylabel("Number of Visits", fontsize=p["axis_fontsize"])
+    except Exception as e:
+        logging.warning(f"[{VISUAL_ID}] Axis labeling failed: {e}")
+
+    # =========================
+    # CLEANUP
+    # =========================
+    try:
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+        ax.grid(axis="y", linestyle="--", alpha=0.3)
+    except Exception:
+        pass
+
+    # =========================
+    # Y-AXIS FORMATTING
+    # =========================
+    try:
+        if str(p.get("y_axis_use_commas", True)).lower() == "true":
+            decimals = int(p.get("y_axis_decimals", 0))
+            format_str = f'{{x:,.{decimals}f}}'
+            ax.yaxis.set_major_formatter(
+                mtick.StrMethodFormatter(format_str)
+            )
+    except Exception as e:
+        logging.warning(f"[{VISUAL_ID}] Y-axis formatting failed: {e}")
+
+    # =========================
+    # SAVE OUTPUT
+    # =========================
+    try:
+        filename = generate_output_name(VISUAL_ID, start_date, end_date)
+        output_path = os.path.join(output_dir, filename)
+
+        plt.tight_layout()
+        plt.savefig(output_path)
+        plt.close()
+
+        logging.info(f"[{VISUAL_ID}] Output saved: {output_path}")
+    except Exception as e:
+        logging.error(f"[{VISUAL_ID}] Failed to save output: {e}")
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\code\visuals\vis_04.py =====
+import os
+import logging
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+from utils.vis_helpers import format_date_range, apply_yaxis_format
+
+VISUAL_ID = "vis_04"
+
+
+def run(df, params, start_date, end_date, output_dir, generate_output_name):
+    """
+    Visualization 04: ESI Level Distribution
+    """
+
+    logging.info(f"[{VISUAL_ID}] Starting visualization")
+
+    # ======================================================
+    # DEFAULT PARAMETERS
+    # ======================================================
+    defaults = {
+        # figure
+        "fig_width": 12,
+        "fig_height": 6,
+        "dpi": 100,
+
+        # fonts
+        "title_fontsize": 14,
+        "axis_fontsize": 11,
+        "label_fontsize": 9,
+
+        # labels
+        "label_decimals": 1,
+        "label_threshold": 0.0,
+        "label_color": "black",
+
+        # axis
+        "y_axis_mode": "percent",
+        "y_axis_decimals": 1,
+        "y_axis_multiplier": 100,
+        "y_axis_suffix": "%",
+
+        # colors
+        "0 - Unknown": "#7f7f7f",
+        "1 - Immediate": "#ff7f0e",
+        "2 - Emergent": "#17becf",
+        "3 - Urgent": "#1f77b4",
+        "4 - Less Urgent": "#2ca02c",
+        "5 - Non-Urgent": "#ffd966",
+    }
+
+    # merge params
+    cfg = defaults.copy()
+    if params:
+        cfg.update({k: v for k, v in params.items() if v is not None})
+
+    required_columns = ["ed_start_dtm", "esi"]
+    params = params or {}
+
+    # ======================================================
+    # VALIDATION
+    # ======================================================
+    for col in required_columns:
+        if col not in df.columns:
+            logging.error(f"[{VISUAL_ID}] Missing required column: {col}")
+            return
+
+    df = df.copy()
+
+    # ======================================================
+    # DATE HANDLING
+    # ======================================================
+    try:
+        df["ed_start_dtm"] = pd.to_datetime(df["ed_start_dtm"], errors="coerce")
+        mask = (df["ed_start_dtm"] >= pd.to_datetime(start_date)) & \
+               (df["ed_start_dtm"] <= pd.to_datetime(end_date))
+        df = df.loc[mask]
+    except Exception as e:
+        logging.error(f"[{VISUAL_ID}] Date filtering failed: {str(e)}")
+        return
+
+    if df.empty:
+        logging.warning(f"[{VISUAL_ID}] No data after filtering")
+        return
+
+    # ======================================================
+    # ESI CLEANING + MAPPING
+    # ======================================================
+    def map_esi(val):
+        try:
+            if pd.isna(val):
+                return "0 - Unknown"
+            val = int(val)
+            if val == 1:
+                return "1 - Immediate"
+            elif val == 2:
+                return "2 - Emergent"
+            elif val == 3:
+                return "3 - Urgent"
+            elif val == 4:
+                return "4 - Less Urgent"
+            elif val == 5:
+                return "5 - Non-Urgent"
+            else:
+                return "0 - Unknown"
+        except Exception:
+            return "0 - Unknown"
+
+    df["esi_category"] = df["esi"].apply(map_esi)
+
+    # ======================================================
+    # AGGREGATION
+    # ======================================================
+    category_order = [
+        "0 - Unknown",
+        "1 - Immediate",
+        "2 - Emergent",
+        "3 - Urgent",
+        "4 - Less Urgent",
+        "5 - Non-Urgent",
+    ]
+
+    counts = df["esi_category"].value_counts().reindex(category_order, fill_value=0)
+
+    total = counts.sum()
+    if total == 0:
+        logging.warning(f"[{VISUAL_ID}] Total encounter count is zero")
+        return
+
+    percents = counts / total
+
+    # ======================================================
+    # PLOTTING
+    # ======================================================
+    fig, ax = plt.subplots(
+        figsize=(float(cfg["fig_width"]), float(cfg["fig_height"])),
+        dpi=int(cfg["dpi"])
+    )
+
+    colors = [cfg.get(cat, "#333333") for cat in category_order]
+
+    bars = ax.bar(category_order, percents.values, color=colors)
+
+    # ======================================================
+    # LABELS
+    # ======================================================
+    for bar, val in zip(bars, percents.values):
+        if val < float(cfg["label_threshold"]):
+            continue
+
+        mult = float(cfg.get("y_axis_multiplier", 100))
+        dec = int(cfg["label_decimals"])
+        suffix = cfg.get("y_axis_suffix", "%")
+
+        label = f"{val * mult:.{dec}f}{suffix}"
+        ax.text(
+            bar.get_x() + bar.get_width() / 2,
+            bar.get_height(),
+            label,
+            ha='center',
+            va='bottom',
+            fontsize=float(cfg["label_fontsize"]),
+            color=cfg["label_color"]
+        )
+
+    # ======================================================
+    # TITLES AND AXES
+    # ======================================================
+    date_range_str = format_date_range(start_date, end_date)
+
+    ax.set_title(
+        f"ESI Level Distribution\n{date_range_str}",
+        fontsize=float(cfg["title_fontsize"])
+    )
+
+    ax.set_xlabel("ESI Level", fontsize=float(cfg["axis_fontsize"]))
+    ax.set_ylabel("Percent of Encounters", fontsize=float(cfg["axis_fontsize"]))
+
+    ax.tick_params(axis='x', rotation=30)
+
+    # apply y-axis formatting helper
+    apply_yaxis_format(
+    ax,
+    mode=cfg.get("y_axis_mode", "percent"),
+    decimals=cfg.get("y_axis_decimals", 1),
+    multiplier=cfg.get("y_axis_multiplier", 100),
+    suffix=cfg.get("y_axis_suffix", "%")
+    )
+
+    ax.set_ylim(0, max(percents.values) * 1.15)
+
+    plt.tight_layout()
+
+    # ======================================================
+    # OUTPUT
+    # ======================================================
+    try:
+        output_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id="vis_04",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
+        )
+
+        plt.savefig(output_file)
+        plt.close()
+
+        logging.info(f"[{VISUAL_ID}] Saved output to {output_file}")
+
+    except Exception as e:
+        logging.error(f"[{VISUAL_ID}] Failed to save output: {str(e)}")
+        return
+
+    # ======================================================
+    # RDB METRICS
+    # ======================================================
+    write_rdb = int(params.get("write_rdb", 0))
+    rdb_rows = []
+
+    if write_rdb == 1:
+
+        # denominator
+        rdb_rows.append({
+            "run_id": params.get("run_id"),
+            "visual_id": "vis_04",
+            "client_name": params.get("client_name"),
+
+            "domain": params.get("domain"),
+            "cohort_id": params.get("cohort_id"),
+
+            "domain_cohort":
+                f"{params.get('domain')}.{params.get('cohort_id')}",
+
+            "dimension": "esi_distribution",
+            "dimension_value": "all",
+            "dimension_value_label": "All Encounters",
+
+            "secondary_dimension": None,
+            "secondary_dimension_value": None,
+
+            "metric": "encounters",
+            "metric_type": "count",
+            "value": int(total),
+
+            "start_date": start_date,
+            "end_date": end_date,
+
+            "report_title":
+                "ESI Level Distribution"
+        })
+
+        # numerators
+        for category, count in counts.items():
+
+            rdb_rows.append({
+                "run_id": params.get("run_id"),
+                "visual_id": "vis_04",
+                "client_name": params.get("client_name"),
+
+                "domain": params.get("domain"),
+                "cohort_id": params.get("cohort_id"),
+
+                "domain_cohort":
+                    f"{params.get('domain')}.{params.get('cohort_id')}",
+
+                "dimension": "esi_distribution",
+                "dimension_value": category,
+                "dimension_value_label": category,
+
+                "secondary_dimension": None,
+                "secondary_dimension_value": None,
+
+                "metric": "encounters",
+                "metric_type": "count",
+                "value": int(count),
+
+                "start_date": start_date,
+                "end_date": end_date,
+
+                "report_title":
+                    "ESI Level Distribution"
+            })
+
+    return {
+        "output_path": output_file,
+        "rdb": rdb_rows
+    }
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\code\visuals\vis_05.py =====
+import os
+import logging
+import pandas as pd
+import matplotlib.pyplot as plt
+
+from utils.vis_helpers import format_date_range, apply_axis_range
+
+VISUAL_ID = "vis_05"
+
+
+def run(df, params, start_date, end_date, output_dir, generate_output_name):
+    """
+    Visualization 05: Monthly ED Arrivals Trend
+    """
+
+    logging.info(f"Starting {VISUAL_ID}")
+
+    # =========================
+    # DEFAULT PARAMETERS
+    # =========================
+    defaults = {
+        # Figure
+        "fig_width": 12,
+        "fig_height": 6,
+        "dpi": 100,
+
+        # Fonts
+        "title_fontsize": 14,
+        "axis_fontsize": 11,
+        "label_fontsize": 9,
+
+        # Line styling
+        "line_color": "#1f77b4",
+        "marker": "o",
+        "marker_size": 4,
+
+        # Labels
+        "show_labels": True,
+        "label_first_last_only": True,
+        "label_decimals": 0,
+
+        # Axis
+        "y_axis_separator": True,
+
+        # Axis range
+        "y_min": None,
+        "y_max": None,
+
+        # Title
+        "title": "Monthly ED Arrivals",
+    }
+
+    # Merge params
+    try:
+        cfg = {k: params.get(k, v) for k, v in defaults.items()}
+    except Exception:
+        cfg = defaults
+
+    # =========================
+    # VALIDATION
+    # =========================
+    required_cols = ["ed_start_dtm"]
+    for col in required_cols:
+        if col not in df.columns:
+            logging.error(f"{VISUAL_ID}: Missing required column '{col}'")
+            return
+
+    # =========================
+    # DATA PREPARATION
+    # =========================
+    try:
+        df = df.copy()
+
+        # Convert datetime
+        df["ed_start_dtm"] = pd.to_datetime(df["ed_start_dtm"], errors="coerce")
+
+        # Drop invalid
+        df = df.dropna(subset=["ed_start_dtm"])
+
+        if df.empty:
+            logging.warning(f"{VISUAL_ID}: No valid ed_start_dtm values")
+            return
+
+        # Filter by date range
+        start_dt = pd.to_datetime(start_date, errors="coerce")
+        end_dt = pd.to_datetime(end_date, errors="coerce")
+
+        if pd.notna(start_dt):
+            df = df[df["ed_start_dtm"] >= start_dt]
+        if pd.notna(end_dt):
+            df = df[df["ed_start_dtm"] <= end_dt]
+
+        if df.empty:
+            logging.warning(f"{VISUAL_ID}: No data after date filtering")
+            return
+
+    except Exception as e:
+        logging.error(f"{VISUAL_ID}: Data preparation failed - {str(e)}")
+        return
+
+    # =========================
+    # FEATURE ENGINEERING
+    # =========================
+    try:
+        df["year_month"] = df["ed_start_dtm"].dt.to_period("M").dt.to_timestamp()
+
+    except Exception as e:
+        logging.error(f"{VISUAL_ID}: Feature engineering failed - {str(e)}")
+        return
+
+    # =========================
+    # AGGREGATION
+    # =========================
+    try:
+        monthly_counts = (
+            df.groupby("year_month")
+            .size()
+            .rename("arrival_count")
+            .reset_index()
+        )
+
+        write_rdb = int(params.get("write_rdb", 0))
+        rdb_rows = []
+
+        if write_rdb == 1:
+
+            for _, row in monthly_counts.iterrows():
+
+                month_dt = pd.to_datetime(row["year_month"])
+
+                rdb_rows.append({
+                    "run_id": params.get("run_id"),
+                    "visual_id": VISUAL_ID,
+                    "client_name": params.get("client_name"),
+
+                    "domain": params.get("domain"),
+                    "cohort_id": params.get("cohort_id"),
+
+                    "domain_cohort":
+                        f"{params.get('domain')}.{params.get('cohort_id')}",
+
+                    "dimension": "year_month",
+                    "dimension_value": month_dt.strftime("%Y-%m"),
+                    "dimension_value_label": month_dt.strftime("%b %Y"),
+
+                    "secondary_dimension": None,
+                    "secondary_dimension_value": None,
+
+                    "metric": "arrivals",
+                    "metric_type": "count",
+                    "value": int(row["arrival_count"]),
+
+                    "start_date": start_date,
+                    "end_date": end_date,
+
+                    "report_title": "Monthly ED Arrivals"
+                })
+
+        if monthly_counts.empty:
+            logging.warning(f"{VISUAL_ID}: Aggregation resulted in empty dataset")
+            return
+
+        # Create full continuous monthly index
+        full_range = pd.date_range(
+            start=monthly_counts["year_month"].min(),
+            end=monthly_counts["year_month"].max(),
+            freq="MS"
+        )
+
+        monthly_counts = monthly_counts.set_index("year_month").reindex(full_range, fill_value=0)
+        monthly_counts.index.name = "year_month"
+        monthly_counts = monthly_counts.reset_index()
+
+    except Exception as e:
+        logging.error(f"{VISUAL_ID}: Aggregation failed - {str(e)}")
+        return
+
+    # =========================
+    # LABEL FORMATTING HELPERS
+    # =========================
+    def format_number(x):
+        try:
+            return f"{int(round(x, 0)):,}"
+        except Exception:
+            return str(x)
+
+    # =========================
+    # PLOTTING
+    # =========================
+    try:
+        fig, ax = plt.subplots(
+            figsize=(float(cfg["fig_width"]), float(cfg["fig_height"])),
+            dpi=int(cfg["dpi"])
+        )
+
+        x = monthly_counts["year_month"]
+        y = monthly_counts["arrival_count"]
+
+        ax.plot(
+            x,
+            y,
+            color=cfg["line_color"],
+            marker=cfg["marker"],
+            markersize=float(cfg["marker_size"])
+        )
+
+        # X-axis labels
+        if len(x) > 24:
+            labels = x.dt.strftime("%Y-%m")
+        else:
+            labels = x.dt.strftime("%b %Y")
+
+        ax.set_xticks(x)
+        ax.set_xticklabels(labels, rotation=45, ha="right")
+
+        # Titles
+        date_range_str = format_date_range(start_date, end_date)
+        ax.set_title(
+            f"{cfg['title']} {date_range_str}",
+            fontsize=int(cfg["title_fontsize"])
+        )
+
+        ax.set_xlabel("Month", fontsize=int(cfg["axis_fontsize"]))
+        ax.set_ylabel("Number of Arrivals", fontsize=int(cfg["axis_fontsize"]))
+
+        # Y-axis formatting
+        if cfg["y_axis_separator"]:
+            ax.get_yaxis().set_major_formatter(
+                plt.FuncFormatter(lambda val, pos: f"{int(val):,}")
+            )
+
+        # Apply axis range (after plotting)
+        apply_axis_range(
+            ax,
+            axis="y",
+            min_val=cfg.get("y_min"),
+            max_val=cfg.get("y_max")
+        )
+
+        # =========================
+        # DATA LABELS
+        # =========================
+        if cfg["show_labels"]:
+            try:
+                indices = range(len(y))
+
+                if cfg["label_first_last_only"]:
+                    indices = [0, len(y) - 1]
+
+                for i in indices:
+                    ax.text(
+                        x.iloc[i],
+                        y.iloc[i],
+                        format_number(y.iloc[i]),
+                        fontsize=int(cfg["label_fontsize"]),
+                        ha="center",
+                        va="bottom"
+                    )
+            except Exception as e:
+                logging.warning(f"{VISUAL_ID}: Label rendering failed - {str(e)}")
+
+        plt.tight_layout()
+
+        # =========================
+        # SAVE OUTPUT
+        # =========================
+        filepath = os.path.join(
+                    output_dir,
+                    generate_output_name(
+                        visual_id=VISUAL_ID,
+                        start_date=start_date,
+                        end_date=end_date,
+                        cohort_id=params.get("cohort_id"),
+                        ext="png"
+                    )
+                )
+
+        plt.savefig(filepath)
+        plt.close()
+
+        logging.info(f"{VISUAL_ID}: Saved output to {filepath}")
+
+        return {
+            "output_path": filepath,
+            "rdb": rdb_rows
+        }
+
+    except Exception as e:
+        logging.error(f"{VISUAL_ID}: Plotting failed - {str(e)}")
+        return
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\code\visuals\vis_06.py =====
+import os
+import logging
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+from utils.vis_helpers import format_date_range, apply_yaxis_format
+
+VISUAL_ID = "vis_06"
+
+def run(df, params, start_date, end_date, output_dir, generate_output_name):
+    """
+    Visualization 06: Weekday Arrival Distribution
+    """
+
+    logging.info(f"Starting {VISUAL_ID}")
+
+    try:
+        # =============================
+        # DEFAULT PARAMETERS
+        # =============================
+        defaults = {
+            # Figure
+            "fig_width": 12,
+            "fig_height": 6,
+            "dpi": 100,
+
+            # Fonts
+            "title_fontsize": 14,
+            "axis_fontsize": 11,
+            "label_fontsize": 9,
+
+            # Labels
+            "label_decimals": 1,
+            "label_threshold": 0.0,
+            "label_color": "black",
+
+            # Axis
+            "y_axis_mode": "percent",
+            "y_axis_decimals": 1,
+            "y_axis_multiplier": 100,
+            "y_axis_suffix": "%",
+
+            # Color
+            "bar_color": "#1f77b4",
+        }
+
+        cfg = {**defaults, **(params or {})}
+
+        # =============================
+        # VALIDATION
+        # =============================
+        required_cols = ["ed_start_dtm"]
+        missing_cols = [col for col in required_cols if col not in df.columns]
+
+        if missing_cols:
+            logging.error(f"{VISUAL_ID} missing required columns: {missing_cols}")
+            return
+
+        df = df.copy()
+
+        # =============================
+        # DATETIME HANDLING
+        # =============================
+        df["ed_start_dtm"] = pd.to_datetime(df["ed_start_dtm"], errors="coerce")
+
+        df = df.dropna(subset=["ed_start_dtm"])
+
+        if df.empty:
+            logging.warning(f"{VISUAL_ID}: No valid ed_start_dtm after conversion")
+            return
+
+        # =============================
+        # DATE FILTER
+        # =============================
+        try:
+            start_dt = pd.to_datetime(start_date)
+            end_dt = pd.to_datetime(end_date)
+
+            df = df[
+                (df["ed_start_dtm"] >= start_dt) &
+                (df["ed_start_dtm"] <= end_dt)
+            ]
+
+        except Exception as e:
+            logging.warning(
+                f"{VISUAL_ID}: Date filtering failed: {str(e)}"
+            )
+
+        if df.empty:
+            logging.warning(f"{VISUAL_ID}: No data after date filtering")
+            return
+
+        # =============================
+        # DERIVE WEEKDAY
+        # =============================
+        df["weekday_num"] = df["ed_start_dtm"].dt.dayofweek
+
+        weekday_map = {
+            0: "Mon",
+            1: "Tue",
+            2: "Wed",
+            3: "Thu",
+            4: "Fri",
+            5: "Sat",
+            6: "Sun",
+        }
+
+        df["weekday"] = df["weekday_num"].map(weekday_map)
+
+        ordered_days = [
+            "Sun",
+            "Mon",
+            "Tue",
+            "Wed",
+            "Thu",
+            "Fri",
+            "Sat"
+        ]
+
+        # =============================
+        # AGGREGATION
+        # =============================
+        counts = (
+            df["weekday"]
+            .value_counts()
+            .reindex(ordered_days, fill_value=0)
+        )
+
+        total = counts.sum()
+
+        if total == 0:
+            logging.warning(f"{VISUAL_ID}: Total encounters = 0")
+            return
+
+        percents = counts / total
+
+        write_rdb = int(params.get("write_rdb", 0))
+        rdb_rows = []
+
+        # =============================
+        # PLOT
+        # =============================
+        fig, ax = plt.subplots(
+            figsize=(float(cfg["fig_width"]), float(cfg["fig_height"])),
+            dpi=int(cfg["dpi"])
+        )
+
+        bars = ax.bar(
+            ordered_days,
+            percents.values,
+            color=cfg["bar_color"]
+        )
+
+        # =============================
+        # LABELS
+        # =============================
+        for bar, val in zip(bars, percents.values):
+
+            if val < float(cfg["label_threshold"]):
+                continue
+
+            label = (
+                f"{val * 100:.{int(cfg['label_decimals'])}f}%"
+            )
+
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                bar.get_height(),
+                label,
+                ha="center",
+                va="bottom",
+                fontsize=int(cfg["label_fontsize"]),
+                color=cfg["label_color"]
+            )
+
+        # =============================
+        # TITLES / AXES
+        # =============================
+        date_range_str = format_date_range(start_date, end_date)
+
+        report_title = "Weekday Arrival Distribution"
+
+        ax.set_title(
+            f"{report_title}\n{date_range_str}",
+            fontsize=int(cfg["title_fontsize"])
+        )
+
+        ax.set_xlabel(
+            "Day of Week",
+            fontsize=int(cfg["axis_fontsize"])
+        )
+
+        ax.set_ylabel(
+            "Percent of Arrivals",
+            fontsize=int(cfg["axis_fontsize"])
+        )
+
+        # =============================
+        # AXIS FORMATTING
+        # =============================
+        apply_yaxis_format(
+            ax,
+            mode=cfg["y_axis_mode"],
+            decimals=cfg["y_axis_decimals"],
+            multiplier=cfg["y_axis_multiplier"],
+            suffix=cfg["y_axis_suffix"]
+        )
+
+        # =============================
+        # OUTPUT
+        # =============================
+        output_path = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=VISUAL_ID,
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
+        )
+
+        plt.tight_layout()
+        plt.savefig(output_path)
+        plt.close()
+
+        logging.info(f"{VISUAL_ID} saved to {output_path}")
+
+        # =============================
+        # RDB OUTPUT
+        # =============================
+
+        # Denominator rows
+        if write_rdb == 1:
+
+            for day in ordered_days:
+
+                rdb_rows.append({
+                    "run_id": params.get("run_id"),
+                    "visual_id": VISUAL_ID,
+                    "client_name": params.get("client_name"),
+
+                    "domain": params.get("domain"),
+                    "cohort_id": params.get("cohort_id"),
+
+                    "domain_cohort":
+                        f"{params.get('domain')}.{params.get('cohort_id')}",
+
+                    "dimension": "weekday",
+                    "dimension_value": day,
+                    "dimension_value_label": day,
+
+                    "secondary_dimension": None,
+                    "secondary_dimension_value": None,
+
+                    "metric": "arrivals",
+                    "metric_type": "denominator",
+                    "value": int(total),
+
+                    "start_date": start_date,
+                    "end_date": end_date,
+
+                    "report_title": report_title
+                })
+
+            # Numerator rows
+            for day in ordered_days:
+
+                rdb_rows.append({
+                    "run_id": params.get("run_id"),
+                    "visual_id": VISUAL_ID,
+                    "client_name": params.get("client_name"),
+
+                    "domain": params.get("domain"),
+                    "cohort_id": params.get("cohort_id"),
+
+                    "domain_cohort":
+                        f"{params.get('domain')}.{params.get('cohort_id')}",
+
+                    "dimension": "weekday",
+                    "dimension_value": day,
+                    "dimension_value_label": day,
+
+                    "secondary_dimension": None,
+                    "secondary_dimension_value": None,
+
+                    "metric": "arrivals",
+                    "metric_type": "count",
+                    "value": int(counts.loc[day]),
+
+                    "start_date": start_date,
+                    "end_date": end_date,
+
+                    "report_title": report_title
+                })
+
+        return {
+            "output_path": output_path,
+            "rdb": rdb_rows
+        }
+
+    except Exception as e:
+        logging.error(
+            f"{VISUAL_ID} failed: {str(e)}",
+            exc_info=True
+        )
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\code\visuals\vis_07.py =====
+import os
+import logging
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+from utils.vis_helpers import format_date_range
+
+VISUAL_ID = "vis_07"
+
+def run(df, params, start_date, end_date, output_dir, generate_output_name):
+    """
+    Visualization 07: Encounters by Arrival Type (Pie Chart)
+    """
+
+    logging.info(f"Starting {VISUAL_ID}")
+
+    # =========================
+    # DEFAULT PARAMETERS
+    # =========================
+    defaults = {
+        # behavior
+        "include_other_category": True,
+        "show_counts": True,
+        "show_percent": True,
+        "label_decimals": 1,
+
+        # figure
+        "fig_width": 8,
+        "fig_height": 8,
+        "dpi": 100,
+
+        # colors
+        "color_ambulance": "#1f77b4",
+        "color_car": "#ff7f0e",
+        "color_wheelchair": "#d62728",
+        "color_other": "#7f7f7f",
+    }
+
+    # merge params safely
+    p = defaults.copy()
+    if params:
+        for k, v in params.items():
+            p[k] = v
+
+    # =========================
+    # PARAM HELPERS
+    # =========================
+    def to_bool(val):
+        return str(val).lower() in ["true", "1", "yes"]
+
+    def safe_float(val, default):
+        try:
+            return float(val)
+        except Exception:
+            return default
+
+    # =========================
+    # THRESHOLDS
+    # =========================
+    label_threshold = safe_float(p.get("label_threshold", 0.0), 0.0)
+    group_other_threshold = safe_float(p.get("group_other_threshold", 0.0), 0.0)
+
+    # =========================
+    # LABEL PARAMS
+    # =========================
+    include_other = to_bool(p.get("include_other_category", True))
+    show_counts = to_bool(p.get("show_counts", True))
+    show_percent = to_bool(p.get("show_percent", True))
+
+    try:
+        label_decimals = int(p.get("label_decimals", 1))
+    except Exception:
+        label_decimals = 1
+
+    # =========================
+    # VALIDATION
+    # =========================
+    required_cols = ["arrival_method"]
+
+    for col in required_cols:
+        if col not in df.columns:
+            logging.error(f"{VISUAL_ID}: Missing required column '{col}'")
+            return
+
+    # optional visit_dtm for filtering
+    if "visit_dtm" not in df.columns:
+        logging.warning(f"{VISUAL_ID}: 'visit_dtm' not found - skipping date filter")
+
+    df = df.copy()
+
+    # =========================
+    # DATETIME FILTERING
+    # =========================
+    if "visit_dtm" in df.columns:
+        try:
+            df["visit_dtm"] = pd.to_datetime(df["visit_dtm"], errors="coerce")
+            start = pd.to_datetime(start_date)
+            end = pd.to_datetime(end_date)
+
+            df = df[
+                (df["visit_dtm"] >= start) &
+                (df["visit_dtm"] <= end)
+            ]
+        except Exception as e:
+            logging.warning(f"{VISUAL_ID}: Date filtering failed: {str(e)}")
+
+    if df.empty:
+        logging.warning(f"{VISUAL_ID}: No data after filtering")
+        return
+
+    # =========================
+    # DATA CLEANING
+    # =========================
+    df = df[~df["arrival_method"].isna()]
+    df["arrival_method"] = df["arrival_method"].astype(str).str.strip().str.lower()
+
+    if df.empty:
+        logging.warning(f"{VISUAL_ID}: No valid arrival_method values")
+        return
+
+    # =========================
+    # MAPPING LOGIC
+    # =========================
+    def map_arrival(val):
+        if "ambulance" in val or "ems" in val:
+            return "Ambulance"
+        elif any(x in val for x in ["walk", "self", "car", "vehicle", "private"]):
+            return "Car"
+        elif "wheelchair" in val:
+            return "Wheelchair"
+        else:
+            return "Other"
+
+    df["arrival_type"] = df["arrival_method"].apply(map_arrival)
+
+    # =========================
+    # AGGREGATION
+    # =========================
+    counts = (
+        df.groupby("arrival_type")
+        .size()
+        .reset_index(name="count")
+    )
+
+    total = counts["count"].sum()
+
+    if total <= 0:
+        logging.warning(f"{VISUAL_ID}: Total encounters is zero")
+        return
+
+    counts["percent"] = counts["count"] / total
+
+    counts = (
+        df.groupby("arrival_type")
+        .size()
+        .reset_index(name="count")
+    )
+
+    total = counts["count"].sum()
+
+    write_rdb = int(params.get("write_rdb", 0))
+    rdb_rows = []
+
+    if total <= 0:
+        logging.warning(f"{VISUAL_ID}: Total encounters is zero")
+        return
+
+    # =========================
+    # GROUP SMALL CATEGORIES INTO "OTHER"
+    # =========================
+    if group_other_threshold > 0:
+        small_mask = (
+            (counts["percent"] < group_other_threshold) &
+            (counts["arrival_type"] != "Other")
+        )
+
+        if small_mask.any():
+            other_sum = counts.loc[small_mask, "count"].sum()
+
+            counts = counts.loc[~small_mask].copy()
+
+            if other_sum > 0:
+                # if Other already exists, add to it
+                if "Other" in counts["arrival_type"].values:
+                    counts.loc[counts["arrival_type"] == "Other", "count"] += other_sum
+                else:
+                    counts = pd.concat([
+                        counts,
+                        pd.DataFrame([{
+                            "arrival_type": "Other",
+                            "count": other_sum
+                        }])
+                    ], ignore_index=True)
+
+            counts["percent"] = counts["count"] / counts["count"].sum()
+ 
+    # =========================
+    # ENSURE CATEGORY COMPLETENESS
+    # =========================
+    base_categories = ["Ambulance", "Car", "Wheelchair"]
+    if include_other:
+        base_categories.append("Other")
+
+    counts = counts.set_index("arrival_type").reindex(base_categories).fillna(0)
+    counts = counts.reset_index()
+
+    # avoid divide-by-zero
+    total = counts["count"].sum()
+    if total > 0:
+        counts["percent"] = counts["count"] / total
+    else:
+        logging.warning(f"{VISUAL_ID}: No data after category alignment")
+        return
+
+    # =========================
+    # COLORS
+    # =========================
+    color_map = {
+        "Ambulance": p["color_ambulance"],
+        "Car": p["color_car"],
+        "Wheelchair": p["color_wheelchair"],
+        "Other": p["color_other"],
+    }
+
+    colors = [color_map.get(cat, "#cccccc") for cat in counts["arrival_type"]]
+
+    # =========================
+    # LABEL FUNCTION WITH SUPPRESSION
+    # =========================
+    def make_label(row):
+        count = row["count"]
+        percent = row["percent"]
+
+        if percent < label_threshold:
+            return ""
+
+        parts = [row["arrival_type"]]
+
+        if show_counts:
+            parts.append(f"{int(count):,}")
+
+        if show_percent:
+            parts.append(f"{percent * 100:.{label_decimals}f}%")
+
+        return "\n".join(parts)
+
+    # remove zero-count categories 
+    counts = counts[counts["count"] > 0].reset_index(drop=True)
+
+    # rebuild labels 
+    labels = [make_label(row) for _, row in counts.iterrows()]
+    
+    # =========================
+    # PLOT
+    # =========================
+    try:
+        fig, ax = plt.subplots(
+            figsize=(float(p["fig_width"]), float(p["fig_height"])),
+            dpi=int(p["dpi"])
+        )
+
+        ax.pie(
+            counts["percent"],
+            labels=labels,
+            colors=colors,
+            startangle=90,
+        )
+
+        ax.axis("equal")
+
+        # title
+        date_str = format_date_range(start_date, end_date)
+        ax.set_title(f"Encounters by Arrival Type {date_str}")
+
+        # =========================
+        # SAVE OUTPUT
+        # =========================
+        os.makedirs(output_dir, exist_ok=True)
+
+        output_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=VISUAL_ID,
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
+        )
+
+        plt.tight_layout()
+        plt.savefig(output_file)
+        plt.close()
+
+        logging.info(f"{VISUAL_ID}: Saved to {output_file}")
+
+    except Exception as e:
+        logging.error(f"{VISUAL_ID}: Plotting failed - {str(e)}")
+
+    # =========================
+    # RDB OUTPUT
+    # =========================
+
+    total_encounters = int(counts["count"].sum())
+
+    if write_rdb == 1:
+    
+        rdb_rows.append({
+            "run_id": params.get("run_id"),
+            "visual_id": VISUAL_ID,
+            "client_name": params.get("client_name"),
+
+            "domain": params.get("domain"),
+            "cohort_id": params.get("cohort_id"),
+
+            "domain_cohort":
+                f"{params.get('domain')}.{params.get('cohort_id')}",
+
+            "dimension": "arrival_type",
+            "dimension_value": "all",
+            "dimension_value_label": "All Arrival Types",
+
+            "secondary_dimension": None,
+            "secondary_dimension_value": None,
+
+            "metric": "encounters",
+            "metric_type": "count",
+            "value": total_encounters,
+
+            "start_date": start_date,
+            "end_date": end_date,
+
+            "report_title":
+                "Encounters by Arrival Type"
+        })
+
+        for _, row in counts.iterrows():
+
+            rdb_rows.append({
+                "run_id": params.get("run_id"),
+                "visual_id": VISUAL_ID,
+                "client_name": params.get("client_name"),
+
+                "domain": params.get("domain"),
+                "cohort_id": params.get("cohort_id"),
+
+                "domain_cohort":
+                    f"{params.get('domain')}.{params.get('cohort_id')}",
+
+                "dimension": "arrival_type",
+                "dimension_value": row["arrival_type"],
+                "dimension_value_label": row["arrival_type"],
+
+                "secondary_dimension": None,
+                "secondary_dimension_value": None,
+
+                "metric": "encounters",
+                "metric_type": "count",
+                "value": int(row["count"]),
+
+                "start_date": start_date,
+                "end_date": end_date,
+
+                "report_title":
+                    "Encounters by Arrival Type"
+            })
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\code\visuals\vis_08.py =====
+import os
+import logging
+import pandas as pd
+import matplotlib.pyplot as plt
+
+VISUAL_ID = "vis_08"
+
+
+def run(df, params, start_date, end_date, output_dir, generate_output_name):
+    logging.info(f"[{VISUAL_ID}] Starting census generation")
+
+    try:
+        # =========================================================
+        # VALIDATION
+        # =========================================================
+        if not all(col in df.columns for col in ["ed_start_dtm", "ed_stop_dtm"]):
+            logging.error(f"[{VISUAL_ID}] Missing required columns")
+            return
+
+        # =========================================================
+        # DATETIME PREP
+        # =========================================================
+        df["ed_start_dtm"] = pd.to_datetime(df["ed_start_dtm"], errors="coerce")
+        df["ed_stop_dtm"] = pd.to_datetime(df["ed_stop_dtm"], errors="coerce")
+
+        df = df.dropna(subset=["ed_start_dtm", "ed_stop_dtm"])
+
+        invalid_mask = df["ed_stop_dtm"] < df["ed_start_dtm"]
+        zero_mask = df["ed_stop_dtm"] == df["ed_start_dtm"]
+
+        df.loc[invalid_mask, "ed_stop_dtm"] = (
+            df.loc[invalid_mask, "ed_start_dtm"] + pd.Timedelta(minutes=1)
+        )
+        df.loc[zero_mask, "ed_stop_dtm"] = (
+            df.loc[zero_mask, "ed_start_dtm"] + pd.Timedelta(minutes=1)
+        )
+
+        if "row_id" in df.columns:
+            df = df.drop_duplicates(subset=["row_id"])
+
+        # =========================================================
+        # DATE RANGE
+        # =========================================================
+        start_date = pd.to_datetime(start_date)
+        end_date = pd.to_datetime(end_date)
+
+        if end_date.hour == 0 and end_date.minute == 0 and end_date.second == 0:
+            end_date = end_date + pd.Timedelta(days=1) - pd.Timedelta(minutes=1)
+
+        # =========================================================
+        # FILTER
+        # =========================================================
+        df = df[
+            (df["ed_start_dtm"] <= end_date) &
+            (df["ed_stop_dtm"] >= start_date)
+        ].copy()
+
+        if df.empty:
+            logging.warning(f"[{VISUAL_ID}] No data after filtering")
+            return
+
+        # =========================================================
+        # VISIT WINDOWS
+        # =========================================================
+        df["start"] = df["ed_start_dtm"]
+        df["end"] = df["ed_stop_dtm"]
+
+        df["end"] = df["end"].clip(lower=start_date, upper=end_date)
+        df["end"] = df["end"] + pd.Timedelta(minutes=1)
+
+        # =========================================================
+        # TIME GRID
+        # =========================================================
+        intervals = pd.date_range(start=start_date, end=end_date, freq="min")
+        base = pd.DataFrame({"interval": intervals})
+
+        # =========================================================
+        # EVENTS
+        # =========================================================
+        start_events = df[["start"]].rename(columns={"start": "interval"})
+        start_events["delta"] = 1
+
+        end_events = df[["end"]].rename(columns={"end": "interval"})
+        end_events["delta"] = -1
+
+        events = pd.concat([start_events, end_events])
+
+        events = events[
+            (events["interval"] >= start_date) &
+            (events["interval"] <= end_date)
+        ]
+
+        events = (
+            events.groupby("interval", as_index=False)["delta"]
+            .sum()
+            .sort_values("interval")
+        )
+
+        # =========================================================
+        # MERGE + CENSUS
+        # =========================================================
+        ts = base.merge(events, on="interval", how="left")
+        ts["delta"] = ts["delta"].fillna(0)
+
+        initial_count = df[
+            (df["ed_start_dtm"] < start_date) &
+            (df["ed_stop_dtm"] >= start_date)
+        ].shape[0]
+
+        ts["census"] = ts["delta"].cumsum()
+        ts["census"] += initial_count
+
+        ts["census"] = (
+            pd.to_numeric(ts["census"], errors="coerce")
+            .round()
+            .astype("Int64")
+        )
+
+        enable_rdb = int(params.get("rdb_write", 0))
+        rdb_rows = []
+
+        # =========================================================
+        # OUTPUT CSV
+        # =========================================================
+        filename = generate_output_name(
+            visual_id=VISUAL_ID,
+            start_date=start_date,
+            end_date=end_date,
+            cohort_id=params.get("cohort_id"),
+            ext="csv"
+        )
+        output_path = os.path.join(output_dir, filename)
+
+        ts[["interval", "census"]].to_csv(output_path, index=False)
+
+        # =========================================================
+        # VISUALIZATION
+        # =========================================================
+        def _get_float(params, key, default=None):
+            try:
+                val = params.get(key, default)
+                return float(val) if val not in [None, "", "None"] else None
+            except:
+                return default
+
+
+        def _get_bool(params, key, default=False):
+            val = str(params.get(key, default)).strip().lower()
+            if val in ["true", "1", "yes"]:
+                return True
+            if val in ["false", "0", "no"]:
+                return False
+            return default
+
+
+        def _get_str(params, key, default=""):
+            val = params.get(key, default)
+            return str(val) if val is not None else default
+
+
+        capacity_value = _get_float(params, "capacity_value", None)
+        include_avg_line = _get_bool(params, "include_avg_line", True)
+        chart_title = _get_str(params, "chart_title", "ED Census Trend")
+        capacity_threshold_pct = _get_float(params, "capacity_threshold_pct", 0.8)
+        below_color = params.get("below_color", "black")
+        above_color = params.get("above_color", "red")
+
+        plt.figure(figsize=(14, 6))
+
+        # -----------------------------------------------------
+        # THRESHOLD LOGIC 
+        # -----------------------------------------------------
+        if capacity_value is not None:
+            threshold = capacity_value * capacity_threshold_pct
+
+            below = ts["census"] <= threshold
+            above = ts["census"] > threshold
+        else:
+            below = pd.Series(True, index=ts.index)
+            above = pd.Series(False, index=ts.index)
+
+        # -----------------------------------------------------
+        # MAIN LINE 
+        # -----------------------------------------------------
+        plt.plot(
+            ts["interval"],
+            ts["census"].where(below),
+            color=below_color,
+            linewidth=0.8,
+            label=f"Census (â‰¤{int(capacity_threshold_pct*100)}%)"
+        )
+
+        plt.plot(
+            ts["interval"],
+            ts["census"].where(above),
+            color=above_color,
+            linewidth=0.8,
+            label=f"Census (>{int(capacity_threshold_pct*100)}%)"
+        )
+
+        # -----------------------------------------------------
+        # CAPACITY LINE
+        # -----------------------------------------------------
+        if capacity_value is not None:
+            plt.axhline(
+                y=capacity_value,
+                linestyle="--",
+                linewidth=1.5,
+                label=f"Capacity ({capacity_value})"
+            )
+
+        # -----------------------------------------------------
+        # AVERAGE LINE
+        # -----------------------------------------------------
+        if include_avg_line:
+            avg_census = ts["census"].mean()
+            plt.axhline(
+                y=avg_census,
+                linestyle=":",
+                linewidth=1.5,
+                label=f"Average ({round(avg_census,1)})"
+            )
+
+        # Labels
+        plt.title(chart_title)
+        plt.xlabel("Time")
+        plt.ylabel("ED Census")
+
+        # Improve x-axis readability
+        plt.gcf().autofmt_xdate()
+
+        plt.legend()
+        plt.tight_layout()
+
+        # Save PNG
+        png_filename = generate_output_name(
+            visual_id=VISUAL_ID,
+            start_date=start_date,
+            end_date=end_date,
+            cohort_id=params.get("cohort_id"),
+            ext="png"
+        )
+        png_path = os.path.join(output_dir, png_filename)
+
+        plt.savefig(png_path, dpi=150)
+        plt.close()
+
+        if write_rdb == 1:
+            for _, row in ts.iterrows():
+
+                census_value = row["census"]
+
+                if pd.isna(census_value):
+                    continue
+
+                rdb_rows.append({
+                    "run_id": params.get("run_id"),
+                    "visual_id": VISUAL_ID,
+                    "client_name": params.get("client_name"),
+
+                    "domain": params.get("domain"),
+                    "cohort_id": params.get("cohort_id"),
+
+                    "domain_cohort":
+                        f"{params.get('domain')}.{params.get('cohort_id')}",
+
+                    "dimension": "interval",
+                    "dimension_value": row["interval"],
+                    "dimension_value_label":
+                        row["interval"].strftime("%Y-%m-%d %H:%M"),
+
+                    "secondary_dimension": None,
+                    "secondary_dimension_value": None,
+
+                    "metric": "ed_census",
+                    "metric_type": "count",
+                    "value": int(census_value),
+
+                    "start_date": start_date,
+                    "end_date": end_date,
+
+                    "report_title": chart_title
+                })        
+
+        logging.info(f"[{VISUAL_ID}] Outputs saved: CSV and PNG")
+
+        return {
+            "output_path": png_path,
+            "rdb": rdb_rows
+        }
+
+    except Exception as e:
+        logging.error(f"[{VISUAL_ID}] Failed: {str(e)}")
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\code\visuals\vis_09.py =====
+import os
+import logging
+import pandas as pd
+import numpy as np
+
+import plotly.graph_objects as go
+from utils.vis_helpers import format_date_range
+
+logger = logging.getLogger(__name__)
+
+
+def run(df, params, start_date, end_date, output_dir, generate_output_name):
+    visual_id = "vis_09"
+    logger.info(f"[{visual_id}] Starting execution")
+
+    # -----------------------------
+    # DEFAULT PARAMETERS
+    # -----------------------------
+    default_params = {
+        "fig_width": 1200,
+        "fig_height": 900,
+        "title": "ED Patient Flow Sankey",
+        "font_family": "Arial",
+        "node_font_size": 16,
+        "title_font_size": 24,
+        "title_x": 0.01,
+        "top_anchor_y": 0.02,
+        "cascade_start_offset": 0.12,
+        "cascade_step": 0.08
+    }
+
+    p = {**default_params, **(params or {})}
+
+    required_cols = {
+        "visit_dtm",
+        "triage_start_dtm",
+        "ed_start_dtm",
+        "disch_disp_desc"
+    }
+
+    if df is None:
+        logger.warning(f"[{visual_id}] Input dataframe is None. Skipping.")
+        return
+
+    missing = required_cols - set(df.columns)
+
+    if missing:
+        logger.warning(
+            f"[{visual_id}] Missing required columns: {sorted(missing)}. Skipping."
+        )
+        return
+
+    if df.empty:
+        logger.warning(f"[{visual_id}] Input dataframe is empty. Skipping.")
+        return
+
+    # -----------------------------
+    # BASIC PREP
+    # -----------------------------
+    df = df.copy()
+    df["visit_dtm"] = pd.to_datetime(df["visit_dtm"], errors="coerce")
+    df["triage_start_dtm"] = pd.to_datetime(df["triage_start_dtm"], errors="coerce")
+    df["ed_start_dtm"] = pd.to_datetime(df["ed_start_dtm"], errors="coerce")
+
+    df = df.dropna(subset=["visit_dtm"])
+
+    df = df[
+        (df["visit_dtm"] >= pd.to_datetime(start_date)) &
+        (df["visit_dtm"] <= pd.to_datetime(end_date))
+    ]
+
+    total_arrivals = len(df)
+
+    df["has_triage"] = df["triage_start_dtm"].notna()
+    df["has_ed"] = df["ed_start_dtm"].notna()
+
+    triage_count = df["has_triage"].sum()
+    no_triage_count = total_arrivals - triage_count
+
+    triage_df = df[df["has_triage"]]
+    ed_from_triage = triage_df["has_ed"].sum()
+    left_before_ed = len(triage_df) - ed_from_triage
+
+    # -----------------------------
+    # DISPOSITION
+    # -----------------------------
+    def map_disposition(val):
+        if pd.isna(val):
+            return "Exit Without Care"
+        val = str(val).lower()
+        if "discharge" in val:
+            return "Discharge"
+        elif "admit" in val:
+            return "Inpatient"
+        elif "observation" in val:
+            return "Observation"
+        elif "transfer" in val:
+            return "Transfer"
+        elif "expired" in val:
+            return "Expired"
+        else:
+            return "Exit Without Care"
+
+    ed_df = df[df["has_ed"]].copy()
+    ed_df["disposition"] = ed_df["disch_disp_desc"].apply(map_disposition)
+
+    disp_counts = ed_df["disposition"].value_counts().to_dict()
+
+    categories = [
+        "Discharge",
+        "Inpatient",
+        "Observation",
+        "Transfer",
+        "Exit Without Care",
+        "Expired"
+    ]
+
+    for c in categories:
+        disp_counts.setdefault(c, 0)
+
+    categories = sorted(categories, key=lambda x: -disp_counts[x])
+
+    # -----------------------------
+    # LABELS
+    # -----------------------------
+    def label(name, count):
+        pct = count / total_arrivals if total_arrivals > 0 else 0
+
+        if pct < float(p.get("label_min_pct", 0.0)):
+            return f"<b>{name}</b>"
+
+        return (
+            f"<b>{name}</b><br>"
+            f"<span style='color:#333'>"
+            f"{count:,} (<b>{pct:.1%}</b>)"
+            f"</span>"
+        )
+
+    nodes = [
+        label("Arrival", total_arrivals),
+        label("Triage", triage_count),
+        label("No Triage", no_triage_count),
+        label("ED Treatment", ed_from_triage),
+        label("Left Before ED", left_before_ed),
+    ]
+
+    for c in categories:
+        nodes.append(label(c, disp_counts[c]))
+
+    idx = {name: i for i, name in enumerate([
+        "Arrival", "Triage", "No Triage",
+        "ED Treatment", "Left Before ED",
+        *categories
+    ])}
+
+    # -----------------------------
+    # COLOR SCALE (FIXED ORDERED FLOW)
+    # -----------------------------
+
+    blue_scale = [
+        "#0B3C5D",  
+        "#0E4E73",
+        "#145DA0",
+        "#1B6FAF",
+        "#1E81B0",
+        "#2E8BC0",
+        "#4BA3C7",
+        "#76B5C5",
+        "#9DCBE0",
+        "#C3DDF0",
+        "#E3F2FA"   
+    ]
+
+    # Define logical flow order (NOT tied to rendering order)
+    ordered_flow = [
+        "Arrival",
+        "Triage",
+        "ED Treatment",
+        "Discharge",
+        "Inpatient",
+        "Observation",
+        "Transfer",
+        "Exit Without Care",
+        "Expired",
+        "Left Before ED",
+        "No Triage"
+    ]
+
+    # Assign scale progressively
+    color_map = {}
+    for i, name in enumerate(ordered_flow):
+        color_map = {
+            name: blue_scale[i]
+            for i, name in enumerate(ordered_flow)
+        }
+
+    # Apply colors in ACTUAL node order (preserves layout)
+    node_colors = [
+        color_map.get(name, blue_scale[-1])
+        for name in idx.keys()
+    ]
+
+    # -----------------------------
+    # LINKS
+    # -----------------------------
+    sources, targets, values = [], [], []
+
+    sources += [idx["Arrival"], idx["Arrival"]]
+    targets += [idx["Triage"], idx["No Triage"]]
+    values += [triage_count, no_triage_count]
+
+    sources += [idx["Triage"], idx["Triage"]]
+    targets += [idx["ED Treatment"], idx["Left Before ED"]]
+    values += [ed_from_triage, left_before_ed]
+
+    for c in categories:
+        sources.append(idx["ED Treatment"])
+        targets.append(idx[c])
+        values.append(disp_counts[c])
+
+    # -----------------------------
+    # FIXED X POSITIONS
+    # -----------------------------
+    node_x_map = {
+        "Arrival": 0.05,
+        "Triage": 0.30,
+        "No Triage": 0.30,
+        "ED Treatment": 0.55,
+        "Left Before ED": 0.45,
+        "Discharge": 0.85,
+        "Inpatient": 0.85,
+        "Observation": 0.85,
+        "Transfer": 0.85,
+        "Exit Without Care": 0.85,
+        "Expired": 0.85
+    }
+
+    node_x = [node_x_map.get(n, 0.5) for n in idx.keys()]
+
+    # -----------------------------
+    # Y POSITIONS (SIMPLIFIED)
+    # -----------------------------
+    TOP_Y = float(p["top_anchor_y"])
+
+    n_nodes = len(nodes)
+    node_y = [0.5] * n_nodes
+
+    # Top spine (HARD LOCK)
+    for node in ["Arrival", "Triage", "ED Treatment", categories[0]]:
+        node_y[idx[node]] = TOP_Y
+
+    # Middle nodes
+    node_y[idx["No Triage"]] = TOP_Y + 0.45
+    node_y[idx["Left Before ED"]] = TOP_Y + 0.40
+
+    # ---------------------------------
+    # RIGHT-SIDE CASCADE (EVEN SPACING)
+    # ---------------------------------
+
+    remaining = categories[1:]
+
+    if remaining:
+        start_y = TOP_Y + float(p["cascade_start_offset"])
+        end_y = 0.90  # leave bottom margin for title
+
+        positions = np.linspace(start_y, end_y, len(remaining))
+
+        for c, y in zip(remaining, positions):
+            node_y[idx[c]] = y
+
+    # -----------------------------
+    # BUILD FIGURE
+    # -----------------------------
+    fig = go.Figure(data=[go.Sankey(
+        arrangement="fixed",
+        node=dict(
+            pad=25,
+            thickness=28,
+            label=nodes,
+            color=node_colors,   
+            y=node_y,
+            x=node_x
+        ),
+        link=dict(
+            source=sources,
+            target=targets,
+            value=values,
+            color=["rgba(160,160,160,0.3)"] * len(values)
+        )
+    )])
+
+    fig.update_layout(
+        title=dict(
+            text=f"{p['title']} {format_date_range(start_date, end_date)}",
+            font=dict(
+                size=int(p["node_font_size"]) + 2,   # slight boost for readability
+                family=p["font_family"],
+                color=p.get("node_font_color", "#1a1a1a")
+            ),
+            x=float(p["title_x"]),
+            y=0.02,          # âœ… push to bottom
+            xanchor="left",
+            yanchor="bottom"
+        ),
+        width=int(p["fig_width"]),
+        height=int(p["fig_height"]),
+        font=dict(
+            size=int(p["node_font_size"]),
+            family=p["font_family"]
+        )
+    )
+
+    # -----------------------------
+    # SAVE
+    # -----------------------------
+    output_file = os.path.join(
+        output_dir,
+        generate_output_name(
+            visual_id=visual_id,
+            start_date=start_date,
+            end_date=end_date,
+            cohort_id=params.get("cohort_id"),
+            ext="png"
+        )
+    )
+
+    fig.write_image(output_file)
+
+    logger.info(f"[{visual_id}] Output saved to {output_file}")
+
+    # -----------------------------
+    # RDB OUTPUT
+    # -----------------------------
+    write_rdb = int(params.get("write_rdb", 0))
+    rdb_rows = []
+
+    if write_rdb == 1:
+
+        report_title = p["title"]
+
+        flow_rows = [
+            ("Arrival", "Triage", triage_count),
+            ("Arrival", "No Triage", no_triage_count),
+            ("Triage", "ED Treatment", ed_from_triage),
+            ("Triage", "Left Before ED", left_before_ed)
+        ]
+
+        for source_node, target_node, value in flow_rows:
+
+            rdb_rows.append({
+                "run_id": params.get("run_id"),
+                "visual_id": visual_id,
+                "client_name": params.get("client_name"),
+
+                "domain": params.get("domain"),
+                "cohort_id": params.get("cohort_id"),
+
+                "domain_cohort":
+                    f"{params.get('domain')}.{params.get('cohort_id')}",
+
+                "dimension": "flow_stage",
+                "dimension_value": source_node,
+                "dimension_value_label": source_node,
+
+                "secondary_dimension": "next_stage",
+                "secondary_dimension_value": target_node,
+
+                "metric": "patients",
+                "metric_type": "count",
+                "value": int(value),
+
+                "start_date": start_date,
+                "end_date": end_date,
+
+                "report_title": report_title
+            })
+
+        for disposition, count in disp_counts.items():
+
+            rdb_rows.append({
+                "run_id": params.get("run_id"),
+                "visual_id": visual_id,
+                "client_name": params.get("client_name"),
+
+                "domain": params.get("domain"),
+                "cohort_id": params.get("cohort_id"),
+
+                "domain_cohort":
+                    f"{params.get('domain')}.{params.get('cohort_id')}",
+
+                "dimension": "flow_stage",
+                "dimension_value": "ED Treatment",
+                "dimension_value_label": "ED Treatment",
+
+                "secondary_dimension": "disposition",
+                "secondary_dimension_value": disposition,
+
+                "metric": "patients",
+                "metric_type": "count",
+                "value": int(count),
+
+                "start_date": start_date,
+                "end_date": end_date,
+
+                "report_title": report_title
+            })
+
+    return {
+        "output_path": output_file,
+        "rdb": rdb_rows
+    }
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\code\visuals\vis_10.py =====
+import os
+import logging
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+from utils.vis_helpers import format_date_range
+
+VISUAL_ID = "vis_10"
+logger = logging.getLogger(__name__)
+
+
+def _safe_param(params, key, default, cast_type=None):
+    try:
+        val = params.get(key, default)
+        return cast_type(val) if cast_type else val
+    except Exception:
+        logger.warning(f"Invalid param for {key}; using default {default}")
+        return default
+
+
+def _generate_census(df, start_date, end_date):
+    """
+    Minimal vis_08-equivalent census generation.
+    Builds hourly time-series census from encounter windows.
+    """
+    try:
+        df = df.copy()
+
+        # =========================================================
+        # VALIDATION
+        # =========================================================
+        if not all(col in df.columns for col in ["ed_start_dtm", "ed_stop_dtm"]):
+            logging.error(f"[{VISUAL_ID}] Missing required columns")
+            return
+
+        # =========================================================
+        # DATETIME PREP
+        # =========================================================
+        df["ed_start_dtm"] = pd.to_datetime(df["ed_start_dtm"], errors="coerce")
+        df["ed_stop_dtm"] = pd.to_datetime(df["ed_stop_dtm"], errors="coerce")
+
+        df = df.dropna(subset=["ed_start_dtm", "ed_stop_dtm"])
+
+        invalid_mask = df["ed_stop_dtm"] < df["ed_start_dtm"]
+        zero_mask = df["ed_stop_dtm"] == df["ed_start_dtm"]
+
+        df.loc[invalid_mask, "ed_stop_dtm"] = (
+            df.loc[invalid_mask, "ed_start_dtm"] + pd.Timedelta(minutes=1)
+        )
+        df.loc[zero_mask, "ed_stop_dtm"] = (
+            df.loc[zero_mask, "ed_start_dtm"] + pd.Timedelta(minutes=1)
+        )
+
+        if "encounter_id" in df.columns:
+            df = df.drop_duplicates(subset=["encounter_id"])
+
+        # =========================================================
+        # DATE RANGE
+        # =========================================================
+        start_date = pd.to_datetime(start_date)
+        end_date = pd.to_datetime(end_date)
+
+        if end_date.hour == 0 and end_date.minute == 0 and end_date.second == 0:
+            end_date = end_date + pd.Timedelta(days=1) - pd.Timedelta(minutes=1)
+
+        # =========================================================
+        # FILTER
+        # =========================================================
+        df = df[
+            (df["ed_start_dtm"] <= end_date) &
+            (df["ed_stop_dtm"] >= start_date)
+        ].copy()
+
+        if df.empty:
+            logging.warning(f"[{VISUAL_ID}] No data after filtering")
+            return
+
+        # =========================================================
+        # VISIT WINDOWS
+        # =========================================================
+        df["start"] = df["ed_start_dtm"]
+        df["end"] = df["ed_stop_dtm"]
+
+        df["end"] = df["end"].clip(lower=start_date, upper=end_date)
+        df["end"] = df["end"] + pd.Timedelta(minutes=1)
+
+        # =========================================================
+        # TIME GRID
+        # =========================================================
+        intervals = pd.date_range(start=start_date, end=end_date, freq="min")
+        base = pd.DataFrame({"interval": intervals})
+
+        # =========================================================
+        # EVENTS
+        # =========================================================
+        start_events = df[["start"]].rename(columns={"start": "interval"})
+        start_events["delta"] = 1
+
+        end_events = df[["end"]].rename(columns={"end": "interval"})
+        end_events["delta"] = -1
+
+        events = pd.concat([start_events, end_events])
+
+        events = events[
+            (events["interval"] >= start_date) &
+            (events["interval"] <= end_date)
+        ]
+
+        events = (
+            events.groupby("interval", as_index=False)["delta"]
+            .sum()
+            .sort_values("interval")
+        )
+
+        # =========================================================
+        # MERGE + CENSUS
+        # =========================================================
+        ts = base.merge(events, on="interval", how="left")
+        ts["delta"] = ts["delta"].fillna(0)
+
+        initial_count = df[
+            (df["ed_start_dtm"] < start_date) &
+            (df["ed_stop_dtm"] >= start_date)
+        ].shape[0]
+
+        ts["census"] = ts["delta"].cumsum()
+        ts["census"] += initial_count
+
+        ts["census"] = (
+            pd.to_numeric(ts["census"], errors="coerce")
+            .round()
+            .astype("Int64")
+        )
+
+        return ts
+
+    except Exception as e:
+        logger.error(f"Census generation failed: {e}")
+        return pd.DataFrame()
+
+
+def run(df, params, start_date, end_date, output_dir, generate_output_name):
+    logger.info(f"[{VISUAL_ID}] Starting run")
+
+    try:
+        if df is None or df.empty:
+            logger.warning("Input dataframe is empty")
+            return
+
+        # =========================
+        # PARAMETERS
+        # =========================
+        growth = _safe_param(params, "variable_10_year_growth", 0.0, float)
+        peak_start = _safe_param(params, "peak_period_start", 15, int)
+        peak_len = _safe_param(params, "peak_period_length_hours", 8, int)
+        utilization = _safe_param(params, "utilization", 0.85, float)
+
+        fig_width = _safe_param(params, "fig_width", 14, float)
+        fig_height = _safe_param(params, "fig_height", 7, float)
+        dpi = _safe_param(params, "dpi", 100, int)
+
+        colors = {
+            "peak": params.get("peak_bar_color", "teal"),
+            "offpeak": params.get("offpeak_bar_color", "gray"),
+            "p70": params.get("p70_color", "green"),
+            "p80": params.get("p80_color", "yellow"),
+            "p90": params.get("p90_color", "orange"),
+            "peak_line": params.get("peak_line_color", "darkblue"),
+            "room_need": params.get("room_need_color", "magenta"),
+        }
+
+        # =========================
+        # STEP 1: Census 
+        # =========================
+        ts = _generate_census(df, start_date, end_date)
+
+        if ts.empty:
+            logger.warning("Census dataset empty after generation")
+            return
+
+        # =========================
+        # STEP 2: ADS Construction
+        # =========================
+        ts["interval"] = pd.to_datetime(ts["interval"], errors="coerce")
+        ts = ts.dropna(subset=["interval", "census"])
+        ts = ts[ts["census"] >= 0]
+
+        start_date = pd.to_datetime(start_date)
+        end_date = pd.to_datetime(end_date)
+
+        ts = ts[(ts["interval"] >= start_date) & (ts["interval"] <= end_date)]
+
+        if ts.empty:
+            logger.warning("Dataset empty after date filtering")
+            return
+
+        # Growth adjustment
+        ts["adj_census"] = ts["census"] * (1 + growth)
+
+        # Hour extraction
+        ts["hour"] = ts["interval"].dt.hour
+
+        # Hourly aggregation
+        hourly = (
+            ts.groupby("hour")["adj_census"]
+            .mean()
+            .reindex(range(24), fill_value=0)
+            .reset_index()
+        )
+
+        hourly.columns = ["hour", "hourly_census"]
+
+        # Validate 24 hours
+        if len(hourly) != 24:
+            logger.warning("Hourly completeness issue; enforced 24 hours")
+
+        # =========================
+        # Peak classification
+        # =========================
+        def is_peak(hour):
+            end = peak_start + peak_len
+            if end <= 24:
+                return peak_start <= hour < end
+            else:
+                return (hour >= peak_start) or (hour < (end - 24))
+
+        hourly["peak_flag"] = hourly["hour"].apply(
+            lambda h: "Peak" if is_peak(h) else "Off-Peak"
+        )
+
+        # =========================
+        # Percentiles
+        # =========================
+        percentiles = (
+            ts.groupby("hour")["adj_census"]
+            .agg(
+                p70=lambda x: np.percentile(x, 70),
+                p80=lambda x: np.percentile(x, 80),
+                p90=lambda x: np.percentile(x, 90),
+            )
+            .reindex(range(24))
+            .reset_index()
+        )
+
+        hourly = hourly.merge(percentiles, on="hour", how="left")
+
+        # =========================
+        # Capacity metrics
+        # =========================
+        peak_values = hourly.loc[hourly["peak_flag"] == "Peak", "hourly_census"]
+        peak_census = peak_values.max()
+
+        room_need = peak_census / utilization if utilization > 0 else peak_census
+
+        if utilization < 1:
+            room_need = max(room_need, peak_census)
+
+        logger.info(
+            f"[{VISUAL_ID}] Capacity Metrics | "
+            f"Peak Census: {round(peak_census, 2)} | "
+            f"Room Need: {round(room_need, 2)} | "
+            f"Utilization: {utilization}"
+        )
+
+        # =========================
+        # Plot
+        # =========================
+        fig, ax = plt.subplots(figsize=(fig_width, fig_height), dpi=dpi)
+
+        # Bars
+        peak_mask = hourly["peak_flag"] == "Peak"
+
+        ax.bar(
+            hourly.loc[~peak_mask, "hour"],
+            hourly.loc[~peak_mask, "hourly_census"],
+            color=colors["offpeak"],
+            label="Off-Peak",
+        )
+
+        ax.bar(
+            hourly.loc[peak_mask, "hour"],
+            hourly.loc[peak_mask, "hourly_census"],
+            color=colors["peak"],
+            label="Peak",
+        )
+
+        # Percentiles
+        ax.plot(hourly["hour"], hourly["p70"], linestyle="--", color=colors["p70"], label="P70")
+        ax.plot(hourly["hour"], hourly["p80"], linestyle="--", color=colors["p80"], label="P80")
+        ax.plot(hourly["hour"], hourly["p90"], linestyle="--", color=colors["p90"], label="P90")
+
+        # Capacity lines
+        peak_hours = hourly[hourly["peak_flag"] == "Peak"]["hour"]
+
+        ax.plot(
+            peak_hours,
+            [peak_census] * len(peak_hours),
+            color=colors["peak_line"],
+            linewidth=2,
+            label="Peak Census",
+        )
+
+        ax.plot(
+            peak_hours,
+            [room_need] * len(peak_hours),
+            color=colors["room_need"],
+            linestyle="-.",
+            linewidth=2,
+            label="Room Need",
+        )
+
+        # Labels
+        date_range_str = format_date_range(start_date, end_date)
+
+        ax.set_title(
+            f"ED Hourly Census with Peak Period and Capacity Benchmarks {date_range_str}"
+        )
+        ax.set_xlabel("Hour of Day")
+        ax.set_ylabel("ED Census")
+
+        ax.set_xticks(range(24))
+
+        ax.legend()
+
+        plt.tight_layout()
+
+        # =========================
+        # Save output
+        # =========================
+        output_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=VISUAL_ID,
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
+        )
+
+        plt.savefig(output_file)
+        plt.close()
+
+        logger.info(f"[{VISUAL_ID}] Output saved to {output_file}")
+
+        # =========================
+        # RDB OUTPUT
+        # =========================
+        write_rdb = int(params.get("write_rdb", 0))
+        rdb_rows = []
+
+        if write_rdb == 1:
+
+            report_title = (
+                "ED Hourly Census with Peak Period and Capacity Benchmarks"
+            )
+
+            # ----------------------------------
+            # Hourly census values
+            # ----------------------------------
+            for _, row in hourly.iterrows():
+
+                hour_label = f"{int(row['hour']):02d}:00"
+
+                rdb_rows.append({
+                    "run_id": params.get("run_id"),
+                    "visual_id": VISUAL_ID,
+                    "client_name": params.get("client_name"),
+
+                    "domain": params.get("domain"),
+                    "cohort_id": params.get("cohort_id"),
+
+                    "domain_cohort":
+                        f"{params.get('domain')}.{params.get('cohort_id')}",
+
+                    "dimension": "hour",
+                    "dimension_value": int(row["hour"]),
+                    "dimension_value_label": hour_label,
+
+                    "secondary_dimension": "period_type",
+                    "secondary_dimension_value": row["peak_flag"],
+
+                    "metric": "hourly_census",
+                    "metric_type": "average",
+                    "value": float(row["hourly_census"]),
+
+                    "start_date": start_date,
+                    "end_date": end_date,
+
+                    "report_title": report_title
+                })
+
+            # ----------------------------------
+            # Percentiles
+            # ----------------------------------
+            for _, row in hourly.iterrows():
+
+                hour_label = f"{int(row['hour']):02d}:00"
+
+                for metric_name in ["p70", "p80", "p90"]:
+
+                    metric_value = row[metric_name]
+
+                    if pd.isna(metric_value):
+                        continue
+
+                    rdb_rows.append({
+                        "run_id": params.get("run_id"),
+                        "visual_id": VISUAL_ID,
+                        "client_name": params.get("client_name"),
+
+                        "domain": params.get("domain"),
+                        "cohort_id": params.get("cohort_id"),
+
+                        "domain_cohort":
+                            f"{params.get('domain')}.{params.get('cohort_id')}",
+
+                        "dimension": "hour",
+                        "dimension_value": int(row["hour"]),
+                        "dimension_value_label": hour_label,
+
+                        "secondary_dimension": "percentile",
+                        "secondary_dimension_value": metric_name.upper(),
+
+                        "metric": "hourly_census",
+                        "metric_type": metric_name,
+                        "value": float(metric_value),
+
+                        "start_date": start_date,
+                        "end_date": end_date,
+
+                        "report_title": report_title
+                    })
+
+            # ----------------------------------
+            # Peak Census Benchmark by Hour
+            # ----------------------------------
+            peak_hours_set = set(
+                hourly.loc[
+                    hourly["peak_flag"] == "Peak",
+                    "hour"
+                ]
+            )            
+            
+            for _, row in hourly.iterrows():
+
+                if row["hour"] not in peak_hours_set:
+                    continue
+
+                hour_label = f"{int(row['hour']):02d}:00"
+
+                rdb_rows.append({
+                    "run_id": params.get("run_id"),
+                    "visual_id": VISUAL_ID,
+                    "client_name": params.get("client_name"),
+
+                    "domain": params.get("domain"),
+                    "cohort_id": params.get("cohort_id"),
+
+                    "domain_cohort":
+                        f"{params.get('domain')}.{params.get('cohort_id')}",
+
+                    "dimension": "hour",
+                    "dimension_value": int(row["hour"]),
+                    "dimension_value_label": hour_label,
+
+                    "secondary_dimension": "benchmark",
+                    "secondary_dimension_value": "Peak Census",
+
+                    "metric": "capacity",
+                    "metric_type": "peak_census",
+                    "value": float(peak_census),
+
+                    "start_date": start_date,
+                    "end_date": end_date,
+
+                    "report_title": report_title
+                })
+
+            # ----------------------------------
+            # Room Need Benchmark by Hour
+            # ----------------------------------
+            for _, row in hourly.iterrows():
+
+                hour_label = f"{int(row['hour']):02d}:00"
+
+                rdb_rows.append({
+                    "run_id": params.get("run_id"),
+                    "visual_id": VISUAL_ID,
+                    "client_name": params.get("client_name"),
+
+                    "domain": params.get("domain"),
+                    "cohort_id": params.get("cohort_id"),
+
+                    "domain_cohort":
+                        f"{params.get('domain')}.{params.get('cohort_id')}",
+
+                    "dimension": "hour",
+                    "dimension_value": int(row["hour"]),
+                    "dimension_value_label": hour_label,
+
+                    "secondary_dimension": "benchmark",
+                    "secondary_dimension_value": "Room Need",
+
+                    "metric": "capacity",
+                    "metric_type": "room_need",
+                    "value": float(room_need),
+
+                    "start_date": start_date,
+                    "end_date": end_date,
+
+                    "report_title": report_title
+                })            
+
+        return {
+            "output_path": output_file,
+            "rdb": rdb_rows
+        }
+
+    except Exception as e:
+        logger.error(f"[{VISUAL_ID}] Execution failed: {e}")
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\code\visuals\__init__.py =====
+===== FILE END =====
+

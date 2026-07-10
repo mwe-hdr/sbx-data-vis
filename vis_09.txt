@@ -1,0 +1,109 @@
+Graph Title:
+ED Patient Flow Sankey (Arrival to Discharge Outcomes)
+
+GPT Paragraph Prompt:
+Generate a Sankey diagram visualizing patient flow through key emergency department stages for a defined time period. Use encounter-level timestamps and outcomes to construct a staged flow from Arrival to Triage, to ED Treatment, and finally to disposition categories such as Discharge, Inpatient, Observation, Transfer, Exit Without Care, and Expired. Compute counts and percentages at each transition step, ensuring that flows are conserved between stages. Represent each stage as a node and each transition as a weighted link proportional to encounter counts. Include node labels with counts and percentages of total arrivals, and render the Sankey diagram with left-to-right flow. Ensure the implementation is fully parameterized for any time period and save the output as a PNG file.
+
+Detailed Breakdown:
+
+1. Data Preparation
+- Use encounter-level data.
+- Optionally filter dataset for a defined time period using visit_dtm.
+
+2. Define Core Stages
+Construct the following sequential stages:
+- Arrival (all encounters)
+- Triage
+- ED Treatment
+- Disposition outcomes
+
+3. Stage Inclusion Logic
+- Arrival: all encounters (base population)
+
+- Triage:
+  Include encounters with non-null triage_start_dtm
+  Create a complementary group:
+    'No Triage' = encounters without triage_start_dtm
+
+- ED Treatment:
+  Include encounters with non-null ed_start_dtm
+
+  Create a complementary group:
+    'Left Before ED' = encounters without ed_start_dtm but with arrival
+
+4. Disposition Mapping
+Use disch_disp_desc to map encounters into final categories (parameterizable mapping):
+
+- 'Discharged' or similar → 'Discharge'
+- 'Admitted' → 'Inpatient'
+- 'Observation' → 'Observation'
+- 'Transfer' → 'Transfer'
+- 'Left Without Being Seen', 'Against Medical Advice', etc. → 'Exit Without Care'
+- 'Expired' → 'Expired'
+
+Ensure all encounters reaching ED Treatment are assigned to one and only one final category.
+
+5. Flow Construction
+Build flows between nodes as counts:
+
+- Arrival → Triage: count of encounters with triage
+- Arrival → No Triage: count of encounters without triage
+
+- Triage → ED Treatment: count of encounters entering ED room
+- Triage → Left Before ED: count not entering ED room
+
+- ED Treatment → each disposition category: counts per mapped outcome
+
+6. Percent Calculations
+- Compute total encounters (Arrival base)
+- For each node:
+  percent = node_count / total_arrivals
+- Include both count and percent in labels
+
+7. Node Definitions
+Nodes should include:
+- 'Arrival'
+- 'Triage'
+- 'No Triage'
+- 'ED Treatment'
+- 'Left Before ED'
+- Final disposition categories
+
+8. Link Definitions
+Each link includes:
+- Source node
+- Target node
+- Value = encounter count
+
+Ensure conservation of flow (sum of outgoing = incoming for intermediate nodes)
+
+9. Label Formatting
+- Node labels should include:
+  Name + count + percentage
+  Example: 'Arrival
+75,975 (100.0%)'
+
+10. Visualization Construction
+- Use a Sankey diagram (Plotly recommended for native support)
+- Orientation: left-to-right
+- Node widths proportional visually but determined by library
+- Link thickness proportional to counts
+
+11. Color Logic (Optional)
+- Use consistent base color for main flow
+- Lighter shades for branches or outcomes
+- Allow parameterization of colors
+
+12. Title
+- Title should be parameterized, e.g.:
+  'ED Patient Flow Sankey'
+
+13. Output
+- Save as PNG file (e.g., using plotly image export):
+  'ed_patient_flow_sankey.png'
+
+14. Validation Checks
+- Total flow leaving Arrival equals total encounters
+- Flow balances at each stage
+- Percentages align with counts
+- No duplicate or missing encounter assignments in transitions

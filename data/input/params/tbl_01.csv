@@ -1,0 +1,8 @@
+param,value
+title,Inpatient Encounter Summary by Year
+format.discharge_fiscal_year,int
+format.patients,comma
+format.patient_days,comma
+colwidth.discharge_fiscal_year,15
+colwidth.patients,15
+colwidth.patient_days,15

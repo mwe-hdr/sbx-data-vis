@@ -1,0 +1,30 @@
+project_root/
+│
+├── code/main.py 
+│
+├── code/visuals/
+│   ├── __init__.py
+│   ├── vis_01.py
+│   ├── vis_02.py...
+│
+├── code/utils/
+│   ├── __init__.py
+│   ├── io_helpers.py
+│   ├── vis_helpers.py  
+│
+├── data/
+│   └── input/
+│       ├── [input datafiles...].csv
+│       └── params/
+│           ├── vis_driver.csv
+│           ├── vis_01.csv
+│           ├── vis_02.csv...
+│       	  └── cohorts/
+│        	       └── emergency/
+│                     └── [cohort name].csv...
+│       	       └── surgery/
+│                     └── [cohort name].csv...
+│       	       └── inpatient/
+│                     └── [cohort name].csv...
+│
+└── data/runs/
