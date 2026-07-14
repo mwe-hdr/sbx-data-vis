@@ -1,3 +1,70 @@
+# =============================================================================
+# Domain      : ED (Emergency Department)
+# Report Name : ED Peak Census and Room Need by Acuity
+#
+# Description :
+# Calculates Emergency Department peak census levels and estimated room
+# requirements by Emergency Severity Index (ESI) acuity category.
+# Patient census is derived from ED arrival and departure timestamps and
+# grouped according to ESI classification levels to evaluate capacity
+# requirements for distinct patient acuity populations.
+#
+# Census profiles are generated independently for each acuity category
+# using a minute-level occupancy model. Average census by hour is calculated
+# for each group and the highest hourly census value is identified as the
+# peak operating census. Optional growth assumptions may be applied to
+# projected demand volumes before capacity calculations are performed.
+#
+# Estimated room requirements are calculated by adjusting peak census
+# values according to a user-defined target utilization rate, providing
+# a planning benchmark for treatment space allocation across acuity levels.
+#
+# Key planning metrics include:
+#   - Peak census by acuity
+#   - Growth-adjusted peak census
+#   - Estimated room need by acuity
+#   - Total ED peak census
+#   - Total ED room requirement
+#
+# This report supports:
+#   - ED capacity planning
+#   - Treatment room allocation analysis
+#   - Acuity-specific demand assessment
+#   - Space programming and facility planning
+#   - Operational capacity benchmarking
+#   - Growth forecasting and scenario planning
+#
+# Inputs :
+#   - ed_start_dtm            : ED arrival/start datetime
+#   - ed_stop_dtm             : ED departure/stop datetime
+#   - esi                     : Emergency Severity Index acuity level
+#   - start_date              : Reporting period start date/time
+#   - end_date                : Reporting period end date/time
+#   - variable_10_year_growth : Projected growth adjustment factor
+#   - utilization             : Target operational utilization rate
+#
+# Outputs :
+#   - PNG table displaying:
+#       * Acuity category
+#       * Peak census by acuity
+#       * Estimated room need by acuity
+#       * Grand total peak census
+#       * Grand total room need
+#
+#   - RDB records containing:
+#       * Peak census values by acuity
+#       * Room need values by acuity
+#       * Total ED benchmarks
+#
+# Key Metrics :
+#   - Peak census by ESI level
+#   - Growth-adjusted peak census
+#   - Room need by acuity
+#   - Total ED peak census
+#   - Total ED room requirement
+#   - Capacity utilization benchmark
+# =============================================================================
+
 import os
 import logging
 import pandas as pd

@@ -1,24 +1,67 @@
 # =============================================================================
 # Domain      : ED (Emergency Department)
-# Report Name : Geographic Catchment Analysis
+# Report Name : ED Geographic Catchment
 #
 # Description :
-# Initial shell for ED geographic reporting.
+# Visualizes the geographic distribution of Emergency Department utilization
+# by mapping patient residence ZIP codes to corresponding ZIP Code Tabulation
+# Areas (ZCTAs). Patient encounter volumes are aggregated by ZIP code and
+# displayed as a thematic catchment map to illustrate the geographic service
+# area and demand concentration across the market region.
 #
-# Future enhancements:
-#   - ZIP volume choropleth
-#   - Primary service area
-#   - Secondary service area
-#   - Distance analysis
-#   - Drive-time analysis
-#   - Market share overlays
+# Encounter volumes are summarized at the ZIP code level and joined to
+# geographic boundary files to generate a choropleth visualization. Areas
+# with higher patient volumes are displayed using graduated color intensity,
+# allowing users to identify primary service regions, referral patterns,
+# and areas of concentrated utilization.
+#
+# Optional county overlays may be applied to highlight focus markets,
+# service territories, planning regions, or study areas. County labels
+# and boundaries provide additional geographic context for market analysis
+# and strategic planning discussions.
+#
+# Key planning metrics include:
+#   - Patient volume by ZIP code
+#   - Geographic distribution of ED utilization
+#   - Primary service area identification
+#   - Secondary service area identification
+#   - Regional demand concentration patterns
+#
+# This report supports:
+#   - Market share analysis
+#   - Service area planning
+#   - Geographic demand assessment
+#   - Community access evaluation
+#   - Strategic growth planning
+#   - Outreach and referral planning
+#   - Network and facility planning
 #
 # Inputs :
-#   - patient_zipcode
+#   - patient_zipcode         : Patient residential ZIP code
+#   - start_date              : Reporting period start date/time
+#   - end_date                : Reporting period end date/time
+#   - zcta_file               : ZIP Code Tabulation Area boundary file
+#   - county_file             : County boundary file (optional)
+#   - focus_county_geoids     : Counties to highlight on the map
 #
 # Outputs :
-#   - PNG map
-#   - Optional RDB records
+#   - PNG map displaying:
+#       * ED patient volume by ZIP code geography
+#       * Graduated utilization intensity by ZIP code
+#       * Geographic service area distribution
+#       * Optional county boundaries and labels
+#       * Focus market visualization
+#
+#   - RDB records containing:
+#       * None currently generated
+#
+# Key Metrics :
+#   - ED visits by ZIP code
+#   - Geographic catchment distribution
+#   - Service area concentration
+#   - Primary market utilization
+#   - Secondary market utilization
+#   - Regional patient origin patterns
 # =============================================================================
 
 import os

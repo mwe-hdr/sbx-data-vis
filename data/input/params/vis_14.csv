@@ -1,0 +1,19 @@
+param,value,description
+
+# ===== FIGURE =====
+fig_width,12,Figure width
+fig_height,7,Figure height
+dpi,300,Image resolution
+
+# ===== MODEL =====
+esi1_multiplier,1.00,Scenario multiplier for ESI 1
+esi2_multiplier,1.00,Scenario multiplier for ESI 2
+esi3_multiplier,1.00,Scenario multiplier for ESI 3
+esi4_multiplier,1.00,Scenario multiplier for ESI 4
+esi5_multiplier,1.00,Scenario multiplier for ESI 5
+
+utilization,0.85,Target utilization rate
+
+# ===== COLORS =====
+baseline_color,#4E79A7,Baseline series color
+scenario_color,#F28E2B,Scenario series color

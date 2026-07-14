@@ -6,7 +6,7 @@ from PIL import Image
 # -----------------------
 
 X = 260
-Y = 180
+Y = 165
 WIDTH = 1600
 HEIGHT = 720
 

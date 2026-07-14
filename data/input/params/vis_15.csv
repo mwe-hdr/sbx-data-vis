@@ -1,0 +1,26 @@
+param,value,description
+
+## ===== FIGURE =====
+fig_width,12,Figure width
+fig_height,8,Figure height
+dpi,300,Image resolution
+
+## ===== VISUAL =====
+positive_color,#4E79A7,Contribution bar color
+total_color,#E15759,Total census bar color
+
+label_fontsize,8,Bar annotation font size
+table_fontsize,8,Summary table font size
+
+## ===== LEGEND =====
+legend_enabled,1,Generate legend image
+
+## ===== OUTPUT =====
+write_rdb,1,Generate RDB output
+
+## ===== NUMBER FORMATTING =====
+volume_decimals,0,Volume decimal places
+occupancy_decimals,0,Occupancy contribution decimal places
+
+volume_thousands_separator,1,Display volume with commas
+occupancy_thousands_separator,1,Display occupancy with commas

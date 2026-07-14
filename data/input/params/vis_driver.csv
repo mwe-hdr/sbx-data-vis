@@ -10,7 +10,10 @@ vis_08,ed,ED Census Trend,0,1/1/2025,12/31/2025,cohort,Riverside RMC,calendar,0
 vis_09,ed,ED Patient Flow Sankey,0,1/1/2025,12/31/2025,cohort,Riverside RMC,calendar,1
 vis_10,ed,ED Hourly Census with Peak Period and Capacity Benchmarks,0,1/1/2025,12/31/2025,cohort,Riverside RMC,calendar,1
 vis_11,ed,ED Peak Census and Room Need by Acuity,0,1/1/2025,12/31/2025,cohort,Riverside RMC,calendar,1
-vis_12,ed,ED Geographic Catchment Analysis,1,1/1/2025,12/31/2025,cohort,Riverside RMC,calendar,1
+vis_12,ed,ED Geographic Catchment Analysis,0,1/1/2025,12/31/2025,cohort,Riverside RMC,calendar,1
+vis_13,ed,ED Arrival Method vs ESI Heatmap,0,1/1/2025,12/31/2025,cohort,Riverside RMC,calendar,1
+vis_14,ed,ED ESI Mix Scenario Simulator,0,1/1/2025,12/31/2025,cohort,Riverside RMC,calendar,1
+vis_15,ed,ED Census Waterfall by Acuity,1,1/1/2025,12/31/2025,cohort,Riverside RMC,calendar,1
 tbl_01,inpatient,Annual Patients and Patient Days Summary,0,1/1/2025,12/31/2025,cohort,Riverside RMC,calendar,1
 tbl_02,surgery,Surgical Encounter Duration Summary,0,1/1/2025,12/31/2025,cohort,Riverside RMC,calendar,1
 tbl_03,ed,Emergency Department Encounter Duration Summary,0,1/1/2025,12/31/2025,cohort,Riverside RMC,calendar,1
