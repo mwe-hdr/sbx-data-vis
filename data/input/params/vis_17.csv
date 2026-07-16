@@ -1,0 +1,21 @@
+param,value,description
+
+## ===== FIGURE =====
+fig_width,14,Figure width
+fig_height,7,Figure height
+dpi,300,Image resolution
+
+## ===== HEATMAP =====
+heatmap_mode,count,Display mode (count|percent_total|percent_day)
+cmap,YlOrRd,Heatmap color palette
+
+show_cell_labels,1,Display values within cells
+cell_label_mode,both,count|percent|both|none
+cell_fontsize,7,Cell text size
+
+## ===== BUSINESS HOURS =====
+clinic_open_hour,8,Clinic opens
+clinic_close_hour,17,Clinic closes
+
+## ===== FILTERS =====
+low_acuity_esi_values,4;5,Included ESI levels

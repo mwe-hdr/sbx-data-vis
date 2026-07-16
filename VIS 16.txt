@@ -1,0 +1,1563 @@
+VIS 16
+
+I am attaching:
+
+    main.py.txt
+    processing_helpers.py.txt
+    vis_12.csv         (example parameter file)
+
+and pasting, below: 
+    vis_12.py, vis_13.py          (example reports)
+
+vis_12:
+# =============================================================================
+# Domain      : ED (Emergency Department)
+# Report Name : ED Geographic Catchment
+#
+# Description :
+# Visualizes the geographic distribution of Emergency Department utilization
+# by mapping patient residence ZIP codes to corresponding ZIP Code Tabulation
+# Areas (ZCTAs). Patient encounter volumes are aggregated by ZIP code and
+# displayed as a thematic catchment map to illustrate the geographic service
+# area and demand concentration across the market region.
+#
+# Encounter volumes are summarized at the ZIP code level and joined to
+# geographic boundary files to generate a choropleth visualization. Areas
+# with higher patient volumes are displayed using graduated color intensity,
+# allowing users to identify primary service regions, referral patterns,
+# and areas of concentrated utilization.
+#
+# Optional county overlays may be applied to highlight focus markets,
+# service territories, planning regions, or study areas. County labels
+# and boundaries provide additional geographic context for market analysis
+# and strategic planning discussions.
+#
+# Key planning metrics include:
+#   - Patient volume by ZIP code
+#   - Geographic distribution of ED utilization
+#   - Primary service area identification
+#   - Secondary service area identification
+#   - Regional demand concentration patterns
+#
+# This report supports:
+#   - Market share analysis
+#   - Service area planning
+#   - Geographic demand assessment
+#   - Community access evaluation
+#   - Strategic growth planning
+#   - Outreach and referral planning
+#   - Network and facility planning
+#
+# Inputs :
+#   - patient_zipcode         : Patient residential ZIP code
+#   - start_date              : Reporting period start date/time
+#   - end_date                : Reporting period end date/time
+#   - zcta_file               : ZIP Code Tabulation Area boundary file
+#   - county_file             : County boundary file (optional)
+#   - focus_county_geoids     : Counties to highlight on the map
+#
+# Outputs :
+#   - PNG map displaying:
+#       * ED patient volume by ZIP code geography
+#       * Graduated utilization intensity by ZIP code
+#       * Geographic service area distribution
+#       * Optional county boundaries and labels
+#       * Focus market visualization
+#
+#   - RDB records containing:
+#       * None currently generated
+#
+# Key Metrics :
+#   - ED visits by ZIP code
+#   - Geographic catchment distribution
+#   - Service area concentration
+#   - Primary market utilization
+#   - Secondary market utilization
+#   - Regional patient origin patterns
+# =============================================================================
+
+import os
+import logging
+import mapclassify
+import pandas as pd
+import geopandas as gpd
+import matplotlib.pyplot as plt
+import contextily as cx
+
+from utils.vis_helpers import (
+    normalize_params,
+    format_date_range,
+    apply_axis_range,
+    apply_yaxis_format,
+    save_legend_png,
+    format_display_value,
+    get_display_parameters,
+    save_parameter_table_png
+)
+
+def run(
+    df,
+    params,
+    start_date,
+    end_date,
+    output_dir,
+    generate_output_name
+):
+
+    logging.info("Running vis_12_ed_geo_catchment")
+
+    # ============================================================
+    # REQUIRED COLUMNS
+    # ============================================================
+
+    required_cols = [
+        "patient_zipcode"
+    ]
+
+    for col in required_cols:
+
+        if col not in df.columns:
+
+            logging.error(
+                f"vis_12: missing required column '{col}'"
+            )
+
+            return
+
+    # ============================================================
+    # PARAMS
+    # ============================================================
+
+    params = params or {}
+
+    params = {
+        k: (None if pd.isna(v) else v)
+        for k, v in params.items()
+    }
+
+    zcta_file = params.get("zcta_file")
+
+    if not os.path.isabs(zcta_file):
+
+        zcta_file = os.path.join(
+            os.getcwd(),
+            zcta_file
+        )
+
+    if not zcta_file:
+
+        logging.error(
+            "vis_12: zcta_file parameter required"
+        )
+
+        return
+
+    fig_width = float(
+        params.get("fig_width", 12) or 12
+    )
+
+    fig_height = float(
+        params.get("fig_height", 8) or 8
+    )
+
+    dpi = int(
+        params.get("dpi", 100) or 100
+    )
+
+    title_fs = int(
+        params.get("title_fontsize", 14) or 14
+    )
+
+    county_file = params.get("county_file")
+
+    focus_county_geoids = (
+        params.get("focus_county_geoids")
+    )
+
+    if focus_county_geoids:
+
+        focus_county_geoids = [
+            x.strip()
+            for x in str(focus_county_geoids).split(";")
+            if x.strip()
+        ]
+
+    else:
+
+        focus_county_geoids = []
+
+    county_label_fontsize = int(
+        params.get("county_label_fontsize", 8) or 8
+    )
+
+    county_label_color = (
+        params.get("county_label_color", "#444444")
+        or "#444444"
+    )
+
+    county_label_weight = (
+        params.get("county_label_weight", "bold")
+        or "bold"
+    )
+
+    # ============================================================
+    # FILTER
+    # ============================================================
+
+    subset = df.copy()
+
+    subset["patient_zipcode"] = (
+        subset["patient_zipcode"]
+        .astype(str)
+        .str.strip()
+        .str.zfill(5)
+    )
+
+    subset = subset[
+        subset["patient_zipcode"].notna()
+    ]
+
+    if subset.empty:
+
+        logging.warning(
+            "vis_12: no zipcode data available"
+        )
+
+        return
+
+    # ============================================================
+    # GEO LOAD
+    # ============================================================
+
+    try:
+
+        zcta = gpd.read_file(
+            zcta_file
+        )
+
+    except Exception as ex:
+
+        logging.error(
+            f"vis_12: unable to read zcta file: {ex}"
+        )
+
+        return
+
+    # ============================================================
+    # IDENTIFY ZIP COLUMN
+    # ============================================================
+
+    candidate_cols = [
+        "ZCTA5CE20",
+        "ZCTA5CE10",
+        "GEOID20",
+        "GEOID10"
+    ]
+
+    zip_col = None
+
+    for col in candidate_cols:
+
+        if col in zcta.columns:
+
+            zip_col = col
+            break
+
+    if zip_col is None:
+
+        logging.error(
+            "vis_12: unable to identify zip field"
+        )
+
+        return
+
+    # ============================================================
+    # AGGREGATE
+    # ============================================================
+
+    visits = (
+        subset
+        .groupby("patient_zipcode")
+        .size()
+        .reset_index(name="visits")
+    )
+
+    zcta[zip_col] = (
+        zcta[zip_col]
+        .astype(str)
+        .str.zfill(5)
+    )
+
+    geo = zcta.merge(
+        visits,
+        left_on=zip_col,
+        right_on="patient_zipcode",
+        how="left"
+    )
+
+    geo["visits"] = (
+        geo["visits"]
+        .fillna(0)
+    )
+
+    zoom_bounds = None
+
+    if county_file and focus_county_geoids:
+
+        try:
+
+            counties = gpd.read_file(
+                county_file
+            )
+
+            counties["GEOID"] = (
+                counties["GEOID"]
+                .astype(str)
+            )
+
+            focus_counties = counties[
+                counties["GEOID"].isin(
+                    focus_county_geoids
+                )
+            ]
+
+            if not focus_counties.empty:
+
+                zoom_bounds = (
+                    focus_counties.total_bounds
+                )
+
+        except Exception as ex:
+
+            logging.warning(
+                f"County zoom unavailable: {ex}"
+            )
+
+    # ============================================================
+    # PLOT
+    # ============================================================
+
+    fig, ax = plt.subplots(
+        figsize=(fig_width, fig_height),
+        dpi=dpi
+    )
+    
+    geo.plot(
+        color="#EFEFEF",
+        edgecolor="white",
+        linewidth=0.25,
+        ax=ax,
+        zorder=1
+    )
+
+    geo_active = geo[
+        geo["visits"] > 0
+    ].copy()
+
+    geo_active.plot(
+        column="visits",
+        cmap="Blues",
+        scheme="NaturalBreaks",
+        k=5,
+        # legend=True,
+        edgecolor="white",
+        linewidth=0.25,
+        ax=ax,
+        zorder=10
+    )
+
+    if zoom_bounds is not None:
+
+        minx, miny, maxx, maxy = zoom_bounds
+
+        x_pad = (
+            maxx - minx
+        ) * 0.05
+
+        y_pad = (
+            maxy - miny
+        ) * 0.05
+
+        ax.set_xlim(
+            minx - x_pad,
+            maxx + x_pad
+        )
+
+        ax.set_ylim(
+            miny - y_pad,
+            maxy + y_pad
+        )
+
+    date_range = format_date_range(
+        start_date,
+        end_date
+    )
+
+    focus_counties.boundary.plot(
+        ax=ax,
+        color="grey",
+        linewidth=0.25,
+        zorder=50
+    )
+
+    for _, row in focus_counties.iterrows():
+
+        point = row.geometry.representative_point()
+
+        county_name = (
+            row.get("NAME")
+            or row.get("NAMELSAD")
+            or ""
+        )
+
+        ax.text(
+            point.x,
+            point.y,
+            county_name,
+            fontsize=county_label_fontsize,
+            color=county_label_color,
+            fontweight=county_label_weight,
+            ha="center",
+            va="center",
+            zorder=100
+        )
+
+    ax.set_title(
+        f"ED Geographic Catchment\n{date_range}",
+        fontsize=title_fs
+    )
+
+    ax.set_axis_off()
+
+    plt.tight_layout()
+
+    # ============================================================
+    # SAVE
+    # ============================================================
+
+    output_file = os.path.join(
+        output_dir,
+        generate_output_name(
+            visual_id="vis_12",
+            start_date=start_date,
+            end_date=end_date,
+            cohort_id=params.get("cohort_id"),
+            ext="png"
+        )
+    )
+
+    plt.savefig(
+        output_file,
+        bbox_inches="tight"
+    )
+
+    plt.close()
+
+    logging.info(
+        f"vis_12 output written: {output_file}"
+    )
+
+    # ============================================================
+    # RDB
+    # ============================================================
+
+    rdb_rows = []
+
+    return {
+        "output_path": output_file,
+        "rdb": rdb_rows
+    }
+
+vis_13:
+## =============================================================================
+##
+## Domain      : ED (Emergency Department)
+##
+## Report Name : Arrival Method vs ESI Heatmap
+##
+## Description :
+##
+## Generates a heatmap showing Emergency Department encounters by
+## Arrival Method and Emergency Severity Index (ESI).
+##
+## Raw arrival methods are standardized into operational categories:
+##
+## - Ambulance
+## - Car / Walk-in
+## - Wheelchair
+## - Other
+##
+## Encounters are cross-tabulated against ESI levels 1-5.
+##
+## Cell values display the percent distribution within arrival method.
+##
+## Outputs:
+##
+## - PNG heatmap
+## - RDB records containing:
+##   * Total encounters
+##   * Encounter counts by arrival type and ESI
+##   * Percent within arrival type
+##   * Percent of total encounters
+##
+## =============================================================================
+
+import os
+import logging
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+from utils.vis_helpers import (
+    normalize_params,
+    format_date_range,
+    save_legend_png,
+    get_display_parameters,
+    save_parameter_table_png
+)
+
+VISUAL_ID = "vis_13"
+
+logger = logging.getLogger(__name__)
+
+
+def _map_arrival_method(value):
+
+    if pd.isna(value):
+        return "Other"
+
+    txt = str(value).strip().lower()
+
+    ambulance_terms = [
+        "ambulance",
+        "medical flight",
+        "hospital transport",
+        "tc bls stretcher",
+        "tc als stretcher",
+        "tc critical care team",
+        "tc pals stretcher",
+        "tc bariatric"
+    ]
+
+    if any(term in txt for term in ambulance_terms):
+        return "Ambulance"
+
+    if (
+        txt == "police"
+        or "police" in txt
+        or "sheriff" in txt
+    ):
+        return "Police"
+
+    if (
+        "wheelchair" in txt
+        or "wheelchair van" in txt
+    ):
+        return "Wheelchair"
+
+    car_walk_terms = [
+        "car",
+        "walk",
+        "ambulatory",
+        "assist from vehicle",
+        "self",
+        "taxi",
+        "public transportation",
+        "bus",
+        "community assistance"
+    ]
+
+    if any(term in txt for term in car_walk_terms):
+        return "Car / Walk-in"
+
+    return "Other"
+
+
+def run(
+    df,
+    params,
+    start_date,
+    end_date,
+    output_dir,
+    generate_output_name
+):
+
+    logger.info("[vis_13] Starting execution")
+
+    params = normalize_params(params)
+
+    fig_width = float(
+        params.get("fig_width", 10)
+    )
+
+    fig_height = float(
+        params.get("fig_height", 4)
+    )
+
+    dpi = int(
+        float(params.get("dpi", 300))
+    )
+
+    required_cols = ["arrival_method", "esi"]
+
+    missing_cols = [c for c in required_cols if c not in df.columns]
+
+    if missing_cols:
+        raise ValueError(
+            f"{VISUAL_ID}: Missing required columns: {missing_cols}"
+        )
+
+    work_df = df.copy()
+
+    work_df["esi"] = pd.to_numeric(
+        work_df["esi"],
+        errors="coerce"
+    )
+
+    work_df = work_df[
+        work_df["esi"].isin([1, 2, 3, 4, 5])
+    ]
+
+    work_df["arrival_group"] = (
+        work_df["arrival_method"]
+        .apply(_map_arrival_method)
+    )
+
+    arrival_order = [
+        "Ambulance",
+        "Car / Walk-in",
+        "Wheelchair",
+        "Police",
+        "Other"
+    ]
+
+    esi_order = [1, 2, 3, 4, 5]
+
+    counts = pd.crosstab(
+        work_df["arrival_group"],
+        work_df["esi"]
+    )
+
+    counts = counts.reindex(
+        index=arrival_order,
+        columns=esi_order,
+        fill_value=0
+    )
+
+    row_pct = (
+        counts.div(
+            counts.sum(axis=1).replace(0, np.nan),
+            axis=0
+        )
+        .fillna(0)
+        * 100
+    )
+
+    # ------------------------------------------------------------------
+    # Heatmap
+    # ------------------------------------------------------------------
+
+    fig, ax = plt.subplots(
+        figsize=(fig_width, fig_height)
+    )
+
+    img = ax.imshow(
+        row_pct.values,
+        cmap="Blues",
+        aspect="auto"
+    )
+
+    ax.set_xticks(range(len(esi_order)))
+    ax.set_xticklabels([f"ESI {e}" for e in esi_order])
+
+    ax.set_yticks(range(len(arrival_order)))
+    ax.set_yticklabels(arrival_order)
+
+    ax.set_title(
+        "Arrival Method vs ESI Distribution\n"
+        + format_date_range(start_date, end_date)
+    )
+
+    for r in range(len(arrival_order)):
+        for c in range(len(esi_order)):
+
+            pct = row_pct.iloc[r, c]
+            cnt = counts.iloc[r, c]
+
+            ax.text(
+                c,
+                r,
+                f"{pct:.1f}%\n(n={cnt})",
+                ha="center",
+                va="center",
+                fontsize=8
+            )
+
+    cbar = plt.colorbar(
+        img,
+        ax=ax
+    )
+
+    cbar.set_label("% Within Arrival Type")
+
+    plt.tight_layout()
+
+    output_name = generate_output_name(
+        visual_id=VISUAL_ID,
+        start_date=start_date,
+        end_date=end_date,
+        ext="png"
+    )
+
+    png_path = os.path.join(
+        output_dir,
+        output_name
+    )
+
+    plt.savefig(
+        png_path,
+        dpi=dpi,
+        bbox_inches="tight"
+    )
+
+    plt.close()
+
+    # ------------------------------------------------------------------
+    # Parameter image
+    # ------------------------------------------------------------------
+
+    try:
+        display_params = get_display_parameters(params)
+
+        if display_params:
+            save_parameter_table_png(
+                display_params,
+                png_path.replace(".png", "_params.png")
+            )
+    except Exception as ex:
+        logger.warning(
+            f"[vis_13] Parameter export failed: {ex}"
+        )
+
+    # ------------------------------------------------------------------
+    # RDB Output
+    # ------------------------------------------------------------------
+
+    total_encounters = len(work_df)
+
+    write_rdb = int(params.get("write_rdb", 0))
+
+    rdb_rows = []
+
+    if write_rdb == 1:
+
+        rdb_rows.append({
+            "visual_id": VISUAL_ID,
+            "metric": "total_encounters",
+            "value": total_encounters
+        })
+
+        for arrival in arrival_order:
+
+            arrival_total = counts.loc[arrival].sum()
+
+            for esi in esi_order:
+
+                count = int(
+                    counts.loc[arrival, esi]
+                )
+
+                pct_arrival = float(
+                    row_pct.loc[arrival, esi]
+                )
+
+                pct_total = (
+                    count / total_encounters * 100
+                    if total_encounters
+                    else 0
+                )
+
+                rdb_rows.append({
+                    "run_id": params.get("run_id"),
+                    "client_name": params.get("client_name"),
+                    "domain": params.get("domain"),
+                    "cohort_id": params.get("cohort_id"),
+                    "visual_id": VISUAL_ID,
+                    "arrival_type": arrival,
+                    "esi": esi,
+                    "arrival_total": int(arrival_total),
+                    "encounter_count": count,
+                    "pct_within_arrival_type": round(
+                        pct_arrival,
+                        2
+                    ),
+                    "pct_of_total": round(
+                        pct_total,
+                        2
+                    )
+                })
+
+    logger.info("[vis_13] Complete")
+
+    return {
+        "output_path": png_path,
+        "rdb": rdb_rows
+    }
+
+These files represent the current state of our reporting framework.
+
+Please review all attached files before generating any code.
+
+File purposes:
+
+    main.py.txt
+        Core reporting driver and framework execution flow.
+
+    processing_helpers.py.txt
+        Shared utilities, parameter normalization,
+        geographic helpers, RDB helpers,
+        file naming helpers, parameter image generation,
+        legend generation, and common framework logic.
+
+    vis_12.py, vis_13.py
+        Representative production-ready visual reports that
+        demonstrate expected framework integration,
+        coding patterns, mapping techniques,
+        chart generation, output generation,
+        and RDB implementation patterns.
+
+    vis_12.csv
+        Companion parameter file for the example report.
+        Use it to understand:
+
+            - Parameter naming conventions
+            - Grouping conventions
+            - Default value conventions
+            - Description conventions
+            - Configurable setting conventions
+
+IMPORTANT
+
+Do NOT assume framework behavior.
+
+Use the attached files as the source of truth for:
+
+    - Function signatures
+    - Imports
+    - Helper usage
+    - Parameter retrieval patterns
+    - normalize_params() usage
+    - Geographic helper usage
+    - Output file generation
+    - Parameter image generation
+    - Legend generation
+    - RDB output structure
+    - Return structure
+    - Error handling
+    - Logging conventions
+    - Mapping conventions
+    - Styling conventions
+
+The example vis_12.py should be treated as the primary implementation
+reference when generating the new visual.
+
+===============================================================================
+FRAMEWORK CONTEXT
+===============================================================================
+
+The reporting framework operates in two stages.
+
+Stage 1
+
+    PROCESSING_MODE=parameters_only
+
+Produces parameterized report definitions.
+
+Flow:
+
+    vis_driver.csv
+            +
+    visual parameter .csv files
+            +
+    cohort definitions
+
+            ↓
+
+    processing_driver.csv
+
+Stage 2
+
+    PROCESSING_MODE=full_reports
+
+Produces final reports.
+
+Flow:
+
+    processing_driver.csv
+
+            ↓
+
+    main.py
+
+            ↓
+
+    row_to_params()
+
+            ↓
+
+    run(
+        df,
+        params,
+        start_date,
+        end_date,
+        output_dir,
+        generate_output_name
+    )
+
+            ↓
+
+    png outputs
+    parameter outputs
+    legend outputs
+    RDB outputs
+
+===============================================================================
+TASK
+===============================================================================
+
+Generate a new visual report and companion parameter file using the
+requirements provided below.
+
+Before writing code:
+
+1. Review main.py.txt.
+2. Review processing_helpers.py.txt.
+3. Review vis_12.py.
+4. Review vis_12.csv.
+
+Use those files to infer:
+
+    - Required imports
+    - Required helper functions
+    - Existing coding conventions
+    - Existing parameter conventions
+    - Existing mapping conventions
+    - Existing geography conventions
+    - Existing output conventions
+    - Existing RDB conventions
+    - Existing file naming conventions
+
+When uncertainty exists:
+
+    Match the implementation pattern demonstrated by the example
+    vis_12.py rather than creating new framework behavior.
+
+===============================================================================
+GEOGRAPHIC IMPLEMENTATION REQUIREMENTS
+===============================================================================
+
+If this visual contains geographic analysis:
+
+    - Follow geography patterns demonstrated in the example visual
+    - Use existing framework geography helpers when available
+    - Follow the framework approach for:
+        * Shapefile loading
+        * Geographic joins
+        * CRS handling
+        * ZIP/ZCTA matching
+        * County overlays
+        * Label placement
+        * Choropleth classification
+        * Map legends
+
+If multiple possible implementations exist:
+
+    Prefer the implementation style already demonstrated in
+    the example visual and framework helpers.
+
+===============================================================================
+IMPLEMENTATION REQUIREMENTS
+===============================================================================
+
+The generated visual must:
+
+    - Integrate into the existing framework exactly
+    - Immediately normalize parameters using:
+
+          params = normalize_params(params)
+
+    - Use a safe parameter helper pattern consistent with
+      the example implementation
+
+    - Use generate_output_name() for filenames
+
+    - Source all configurable settings from params
+
+    - Support write_rdb
+
+    - Generate parameter images using framework helpers
+
+    - Generate legend images using framework helpers when applicable
+
+    - Follow existing parameter naming conventions
+
+    - Follow existing RDB conventions
+
+    - Follow existing return conventions
+
+    - Follow existing chart, map, and styling conventions
+
+All user-configurable settings must originate from params.
+
+Do not hardcode configurable values.
+
+Ensure the implementation is production-ready.
+
+Do not provide pseudocode.
+
+===============================================================================
+OUTPUT REQUIREMENTS
+===============================================================================
+
+Generate all outputs expected by the framework:
+
+    - Main report PNG
+    - Parameter PNG
+    - Companion table PNG (if specified)
+    - Legend PNG (if applicable)
+    - RDB rows (when write_rdb = 1)
+
+Use framework helper functions demonstrated in the example visual.
+
+===============================================================================
+RDB REQUIREMENTS
+===============================================================================
+
+Follow the RDB design demonstrated by the example visual and any
+related visuals referenced in the specification.
+
+When generating RDB output:
+
+    - Match framework column naming conventions
+    - Match framework metadata conventions
+    - Match framework dimensional conventions
+    - Match framework aggregation conventions
+
+Use existing RDB patterns whenever available.
+
+Do not invent a new schema when a framework pattern already exists.
+
+===============================================================================
+COMPATIBILITY REQUIREMENTS
+===============================================================================
+
+The implementation must be compatible with:
+
+    PROCESSING_MODE=parameters_only
+
+and
+
+    PROCESSING_MODE=full_reports
+
+The generated parameter file must work correctly within the
+parameter expansion process demonstrated in main.py.txt and
+processing_helpers.py.txt.
+
+===============================================================================
+DELIVERABLES
+===============================================================================
+
+Generate:
+
+1. Full production-ready vis_<ID>.py
+
+2. Full companion vis_<ID>.csv
+
+Before finalizing:
+
+    - Validate parameter names
+    - Validate helper usage
+    - Validate geography helper usage
+    - Validate mapping implementation
+    - Validate output generation
+    - Validate framework integration
+    - Validate return structure
+    - Validate RDB schema alignment
+
+Expected return structure:
+
+    return {
+        "output_path": output_file,
+        "rdb": rdb_rows
+    }
+
+The detailed requirements for the new visual report follow below:
+
+===============================================================================
+NEW VISUAL
+===============================================================================
+
+VISUAL_ID
+
+    vis_16
+
+REPORT NAME
+
+    Low-Acuity Ambulatory Patient Origin Map
+
+===============================================================================
+BUSINESS QUESTION
+===============================================================================
+
+Where do ambulatory low-acuity ED patients live?
+
+Specifically:
+
+    - Which ZIP codes generate the most ambulatory ESI 4–5 visits?
+    - Are these patients concentrated near the hospital?
+    - Are there service area pockets generating large volumes of
+      potentially avoidable ED utilization?
+    - Are there geographic patterns suggesting unmet urgent care access?
+
+This report supports:
+
+    - Market Planning
+    - Access-to-Care Analysis
+    - Urgent Care Planning
+    - Community Health Needs Assessments
+    - Population Health Strategy
+    - ED Demand Reduction Planning
+
+===============================================================================
+POPULATION DEFINITION
+===============================================================================
+
+The report should focus on:
+
+    Arrival Method:
+        Ambulatory
+
+and
+
+    ESI:
+        4
+        5
+
+The arrival method mapping should follow the same arrival categorization
+logic implemented in vis_13.
+
+The intent is to isolate patients who are:
+
+    Ambulatory
+    Low Acuity
+
+and therefore most likely to represent discretionary ED utilization.
+
+===============================================================================
+ANALYTICAL APPROACH
+===============================================================================
+
+Step 1
+
+Create standardized arrival categories consistent with vis_13.
+
+Step 2
+
+Filter encounters to:
+
+    Ambulance
+
+Step 3
+
+Filter encounters to:
+
+    ESI 4
+    ESI 5
+
+Step 4
+
+Aggregate encounters by:
+
+    patient_zipcode
+
+Step 5
+
+Calculate:
+
+    Encounter Count
+
+for each ZIP code.
+
+Step 6
+
+Join encounter volume to the ZIP Code Tabulation Area (ZCTA) shapefile.
+
+Step 7
+
+Generate geographic intensity levels.
+
+Support:
+
+    Quantiles
+    Natural Breaks (Jenks)
+
+through parameters.
+
+Step 8
+
+Identify:
+
+    Top generating ZIP codes
+
+for annotation.
+
+===============================================================================
+VISUAL DESIGN
+===============================================================================
+
+Primary Map
+
+ZIP Code Choropleth
+
+Geography:
+
+    ZCTA
+
+Color Scale:
+
+    Lowest Volume
+            →
+    Highest Volume
+
+Display:
+
+    Geographic intensity of
+    ambulatory low-acuity utilization.
+
+Overlays:
+
+    County boundaries
+
+Optional:
+
+    Focus county boundary emphasis
+
+using logic similar to vis_12.
+
+===============================================================================
+ANNOTATION LAYER
+===============================================================================
+
+Label:
+
+    Top N ZIP codes
+
+based on encounter volume.
+
+Display:
+
+    ZIP
+    Encounter Count
+
+Example:
+
+    23666 (1,245)
+
+    23601 (932)
+
+Controlled through parameters.
+
+===============================================================================
+SECONDARY SUMMARY TABLE
+===============================================================================
+
+Generate a companion summary table image.
+
+Columns:
+
+    ZIP
+    Encounter Count
+    Percent of Total
+
+Rows:
+
+    Top N ZIP codes
+
+sorted descending.
+
+===============================================================================
+INPUTS
+===============================================================================
+
+Required Fields
+
+    patient_zipcode
+    arrival_method
+    esi
+
+Required Geography
+
+    zcta_file
+
+Optional Geography
+
+    county_file
+    focus_county_geoids
+
+===============================================================================
+KEY METRICS
+===============================================================================
+
+Generate:
+
+    Total Low-Acuity Ambulatory Visits
+
+    ZIP-Level Encounter Count
+
+    Percent of Low-Acuity Ambulatory Visits
+
+    Top ZIP Generator
+
+    Top 10 ZIP Contribution %
+
+===============================================================================
+RDB OUTPUT
+===============================================================================
+
+When write_rdb = 1 generate:
+
+Per ZIP
+
+    encounter_count
+
+    pct_of_total
+
+    ranking
+
+Overall
+
+    total_low_acuity_ambulatory_visits
+
+    distinct_zip_count
+
+    top_zip
+
+Follow vis_12 RDB structure.
+
+Include:
+
+    run_id
+    client_name
+    visual_id
+
+    domain
+    cohort_id
+
+    domain_cohort
+
+    start_date
+    end_date
+
+    report_title
+
+Recommended dimensions:
+
+    dimension = "zipcode"
+
+    dimension_value = ZIP
+
+Metric examples:
+
+    encounter_count
+    pct_of_total
+
+===============================================================================
+PARAMETERS
+===============================================================================
+
+Generate companion vis_16.csv.
+
+Include at minimum:
+
+param,value,description
+
+# ===== GEOGRAPHY =====
+zcta_file,data/input/geo/tl_2025_us_zcta520/tl_2025_us_zcta520.shp,ZCTA boundary file
+county_file,data/input/geo/tl_2025_us_county/tl_2025_us_county.shp,County boundary file
+focus_county_geoids,51700;51650;51735;51199;51093;51181,Highlighted counties
+
+# ===== FILTERS =====
+low_acuity_esi_values,4;5,Included ESI levels
+
+# ===== FIGURE =====
+fig_width,16,Figure width
+fig_height,5,Figure height
+dpi,600,Image resolution
+
+# ===== MAP =====
+classification_method,quantiles,Map classification method
+num_classes,5,Number of choropleth classes
+cmap,YlOrRd,Color palette
+
+# ===== LABELS =====
+label_top_n_zips,10,Number of ZIPs to label
+zip_label_fontsize,6,ZIP label font size
+
+# ===== COUNTY LABELS =====
+county_label_fontsize,6,County label font size
+county_label_color,#444444,County label color
+county_label_weight,bold,County label font weight
+
+===============================================================================
+VISUAL OUTPUTS
+===============================================================================
+
+Generate:
+
+    Main geographic choropleth PNG
+
+Generate:
+
+    Parameter image
+
+Generate:
+
+    Top ZIP summary table image
+
+Optional:
+
+    Legend image
+
+===============================================================================
+FRAMEWORK REQUIREMENTS
+===============================================================================
+
+The generated vis_16.py and vis_16.csv must integrate into the existing
+framework exactly as implemented in the attached files.
+
+Assume the reporting process is:
+
+    vis_driver.csv
+            +
+    vis_16.csv
+            +
+    cohort definitions
+
+            ↓
+
+    PROCESSING_MODE=parameters_only
+
+            ↓
+
+    processing_driver.csv
+
+            ↓
+
+    PROCESSING_MODE=full_reports
+
+            ↓
+
+    main.py
+
+            ↓
+
+    row_to_params()
+
+            ↓
+
+    run(
+        df,
+        params,
+        start_date,
+        end_date,
+        output_dir,
+        generate_output_name
+    )
+
+            ↓
+
+    png outputs
+    parameter outputs
+    legend outputs
+    RDB outputs
+
+===============================================================================
+TECHNICAL REQUIREMENTS
+===============================================================================
+
+Use implementation patterns from:
+
+    vis_12
+    vis_13
+
+for:
+
+    ZIP aggregation
+    Mapping
+    County overlays
+    Geographic labels
+
+Immediately normalize parameters:
+
+    params = normalize_params(params)
+
+Use a safe parameter helper.
+
+Generate output filenames using:
+
+    generate_output_name()
+
+All configurable values must originate from params.
+
+Support:
+
+    write_rdb
+
+Generate structured RDB output.
+
+===============================================================================
+RETURN CONTRACT
+===============================================================================
+
+The framework expects:
+
+    return {
+        "output_path": output_file,
+        "rdb": rdb_rows
+    }
+
+Do not return a DataFrame directly.
+
+===============================================================================
+DELIVERABLES
+===============================================================================
+
+Generate:
+
+1. Full production-ready vis_16.py
+
+2. Full companion vis_16.csv
+
+Before finalizing:
+
+- Review attached main.py.txt
+- Review attached visuals.txt
+- Review attached params.txt
+
+Validate all parameter names match.
+
+Ensure output filenames use generate_output_name().
+
+Ensure all report settings are sourced from params.
+
+Ensure compatibility with:
+
+    parameters_only
+
+and
+
+    full_reports
+
+execution modes.
+
+Generate complete executable code, not pseudocode.

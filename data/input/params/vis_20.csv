@@ -1,0 +1,24 @@
+param,value,description
+title,Ambulatory Arrival Funnel,Chart title
+
+### ===== FIGURE =====
+
+fig_width,1400,Width in pixels
+fig_height,1600,Height in pixels
+
+### ===== FONT CONTROL =====
+
+font_family,Arial,Global font family
+node_font_size,14,Node label font size
+title_font_size,22,Title font size
+title_x,0.01,Title horizontal alignment
+
+### ===== STYLE =====
+
+flow_opacity,0.30,Sankey link opacity
+
+esi_focused_min,1,Minimum ESI for companion funnel
+esi_focused_max,5,Maximum ESI for companion funnel
+
+### ===== OUTPUT =====
+

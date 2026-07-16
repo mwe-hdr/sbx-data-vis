@@ -368,8 +368,14 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
         tbl.auto_set_font_size(False)
         tbl.set_fontsize(
-            int(params.get("table_font_size", 10))
+            _safe_param(
+                params,
+                "table_font_size",
+                10,
+                int
+            )
         )
+
         tbl.scale(
             float(params.get("table_scale_x", 1.2)),
             float(params.get("table_scale_y", 1.5))
@@ -387,14 +393,12 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             "table_header_color",
             "#e8e8e8"
         )
-
-        header_font_size = int(
-            params.get(
-                "table_header_font_size",
-                12
-            )
+        header_font_size = _safe_param(
+            params,
+            "table_header_font_size",
+            12,
+            int
         )
-
         for col in range(len(display_df.columns)):
 
             cell = tbl[(0, col)]

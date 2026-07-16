@@ -1,0 +1,25 @@
+param,value,description
+
+## ===== FIGURE =====
+fig_width,14,Figure width
+fig_height,8,Figure height
+dpi,300,Image resolution
+
+## ===== DISPLAY =====
+display_mode,boxplot,boxplot|median_bar
+show_outliers,1,Display outlier points
+show_data_labels,0,Display data labels
+
+## ===== LOS FILTERS =====
+min_los_hours,0,Minimum LOS included
+max_los_hours,240,Maximum LOS included
+
+## ===== COLORS =====
+ambulance_color,#E15759,Ambulance color
+walkin_color,#4E79A7,Car / Walk-in color
+wheelchair_color,#76B7B2,Wheelchair color
+police_color,#F28E2B,Police color
+other_color,#BAB0AC,Other color
+
+## ===== TABLE =====
+table_fontsize,8,Summary table font size

@@ -3,6 +3,7 @@ import logging
 import shutil
 import pandas as pd
 import importlib
+import argparse
 
 from utils.io_helpers import (
     load_data,
@@ -66,15 +67,49 @@ def get_visual_function(visual_id):
 
 
 def mirror_processing_driver_to_params(run_dir):
-    source_file = os.path.join(run_dir, "processing_driver.csv")
-    destination_file = os.path.join(PARAM_DIR, "processing_driver.csv")
+
+    source_file = os.path.join(
+        run_dir,
+        "processing_driver.csv"
+    )
+
+    destination_file = os.path.join(
+        PARAM_DIR,
+        "processing_driver.csv"
+    )
 
     if not os.path.exists(source_file):
-        return None
+        logging.warning(
+            f"Processing driver not found: {source_file}"
+        )
+        return
 
-    shutil.copy2(source_file, destination_file)
-    logging.info(f"Mirrored processing driver to {destination_file}")
-    return destination_file
+    if os.path.exists(destination_file):
+
+        backup_file = (
+            destination_file
+            + "."
+            + run_id
+            + ".bak"
+        )
+
+        shutil.copy2(
+            destination_file,
+            backup_file
+        )
+
+        logging.info(
+            f"Created backup: {backup_file}"
+        )
+
+    shutil.copy2(
+        source_file,
+        destination_file
+    )
+
+    logging.info(
+        f"Copied processing driver to: {destination_file}"
+    )
 
 # =========================
 # PROCESSING DRIVER BUILDER
@@ -204,6 +239,19 @@ def run_visuals(
 # =========================
 # ENTRY POINT
 # =========================
+parser = argparse.ArgumentParser()
+
+parser.add_argument(
+    "--update-processing-driver",
+    action="store_true",
+    help=(
+        "Overwrite input/params/processing_driver.csv "
+        "when rebuilding processing driver"
+    )
+)
+
+args = parser.parse_args()
+
 if __name__ == "__main__":
 
     logging.basicConfig(level=logging.INFO)
@@ -236,11 +284,16 @@ if __name__ == "__main__":
             output_file=processing_driver_file
         )
 
-        mirror_processing_driver_to_params(run_dir)
-
         logging.info(
             "Processing driver generated successfully."
         )
+
+        if args.update_processing_driver:
+            mirror_processing_driver_to_params(run_dir)
+
+            logging.info(
+                "Updated input/params/processing_driver.csv"
+            )
 
         raise SystemExit(0)
 

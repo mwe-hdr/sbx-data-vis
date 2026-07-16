@@ -16,6 +16,7 @@ table_col_width_room,0.25,Room need column width
 table_scale_x,1.5
 table_scale_y,1.8
 table_font_family,Arial,Font family
+table_font_size,10,Table font size
 table_header_font_size,12,Header font size
 table_band_color,#f2f2f2,Banding color
 table_header_color,#d9d9d9,Header color

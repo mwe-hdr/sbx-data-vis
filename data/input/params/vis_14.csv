@@ -1,19 +1,55 @@
-param,value,description
+param,value,description,display,display_format
 
-# ===== FIGURE =====
-fig_width,12,Figure width
-fig_height,7,Figure height
-dpi,300,Image resolution
+### ===== SCENARIO PARAMETERS =====
 
-# ===== MODEL =====
-esi1_multiplier,1.00,Scenario multiplier for ESI 1
-esi2_multiplier,1.00,Scenario multiplier for ESI 2
-esi3_multiplier,1.00,Scenario multiplier for ESI 3
-esi4_multiplier,1.00,Scenario multiplier for ESI 4
-esi5_multiplier,1.00,Scenario multiplier for ESI 5
+variable_10_year_growth,0.0,Growth adjustment factor,1,percent0
+utilization,0.75,Capacity utilization factor,1,percent0
 
-utilization,0.85,Target utilization rate
+esi1_volume_factor,1.00,ESI 1 volume multiplier,1,percent0
+esi2_volume_factor,1.00,ESI 2 volume multiplier,1,percent0
+esi3_volume_factor,0.95,ESI 3 volume multiplier,1,percent0
+esi4_volume_factor,0.85,ESI 4 volume multiplier,1,percent0
+esi5_volume_factor,0.80,ESI 5 volume multiplier,1,percent0
 
-# ===== COLORS =====
-baseline_color,#4E79A7,Baseline series color
-scenario_color,#F28E2B,Scenario series color
+### ===== TABLE FIGURES =====
+
+detail_fig_width,14,Detail table figure width,0,
+detail_fig_height,7,Detail table figure height,0,
+
+parameter_fig_width,10,Parameter table figure width,0,
+parameter_fig_height,5,Parameter table figure height,0,
+
+summary_fig_width,10,Summary table figure width,0,
+summary_fig_height,4,Summary table figure height,0,
+
+dpi,100,Image resolution,0,
+
+### ===== TABLE FORMATTING =====
+
+table_font_size,10,Table font size,0,
+table_header_font_size,12,Header font size,0,
+table_font_family,Arial,Table font family,0,
+
+table_scale_x,1.2,Table horizontal scale,0,
+table_scale_y,1.5,Table vertical scale,0,
+
+table_header_color,#e8e8e8,Header color,0,
+table_band_color,#f2f2f2,Banding color,0,
+table_grand_total_color,#e6e6e6,Grand total color,0,
+
+table_border_color,#cccccc,Border color,0,
+table_border_width,0.4,Border width,0,
+table_grand_total_border_width,1.0,Grand total border width,0,
+
+table_col_width_acuity,0.35,Acuity column width,0,
+table_col_width_current,0.16,Current column width,0,
+table_col_width_scenario,0.16,Scenario column width,0,
+table_col_width_difference,0.16,Difference column width,0,
+table_col_width_percent,0.17,Percent column width,0
+
+parameter_col_width_name,0.70,Parameter name column width,0,
+parameter_col_width_value,0.30,Parameter value column width,0,
+
+summary_col_width_metric,0.50,Summary metric column width,0,
+summary_col_width_current,0.25,Summary current column width,0,
+summary_col_width_scenario,0.25,Summary scenario column width,0,

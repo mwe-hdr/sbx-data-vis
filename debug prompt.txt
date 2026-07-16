@@ -1,0 +1,219 @@
+# Reporting Framework Context (Debugging Mode)
+
+I am attaching one or more files from a custom reporting framework.
+
+These files may include:
+
+- main.py
+- processing_helpers.py
+- visual report files (vis_xx.py)
+- parameter files (vis_xx.csv)
+- user-defined functions (UDFs)
+- supporting utilities
+
+## Purpose
+
+The attached files represent the current production state of the reporting framework.  If needed, I will also paste additional code or files inline below:
+
+Before providing debugging assistance, review all attached files and use them as the primary source of truth.
+
+Do not assume framework behavior when the implementation can be inferred from the attached files.
+
+-------------------------------------------------------------------------------
+FRAMEWORK OVERVIEW
+-------------------------------------------------------------------------------
+
+The reporting framework operates in two stages.
+
+Stage 1
+
+PROCESSING_MODE = parameters_only
+
+Produces parameterized report definitions.
+
+Typical flow:
+
+vis_driver.csv
+    +
+visual parameter csv files
+    +
+cohort definitions
+
+        ↓
+
+processing_driver.csv
+
+Stage 2
+
+PROCESSING_MODE = full_reports
+
+Produces final reports.
+
+Typical flow:
+
+processing_driver.csv
+
+        ↓
+
+main.py
+
+        ↓
+
+row_to_params()
+
+        ↓
+
+run(
+    df,
+    params,
+    start_date,
+    end_date,
+    output_dir,
+    generate_output_name
+)
+
+        ↓
+
+PNG outputs
+parameter outputs
+legend outputs
+RDB outputs
+
+-------------------------------------------------------------------------------
+REVIEW REQUIREMENTS
+-------------------------------------------------------------------------------
+
+Before troubleshooting, review all attached files.
+
+Use the files to understand:
+
+Framework Integration
+
+- execution flow
+- report lifecycle
+- run() expectations
+- return contracts
+- output generation conventions
+
+Parameters
+
+- normalize_params() behavior
+- parameter naming conventions
+- parameter retrieval conventions
+- safe parameter handling patterns
+
+Outputs
+
+- PNG generation
+- parameter image generation
+- legend generation
+- file naming conventions
+- generate_output_name() usage
+
+RDB
+
+- schema conventions
+- metadata conventions
+- dimension conventions
+- aggregation conventions
+- output structure
+
+Coding Style
+
+- logging patterns
+- error handling patterns
+- helper usage patterns
+- chart construction conventions
+- report organization conventions
+
+-------------------------------------------------------------------------------
+DEBUGGING INSTRUCTIONS
+-------------------------------------------------------------------------------
+
+Assume the attached files are authoritative.
+
+When analyzing bugs:
+
+1. Trace the issue against actual framework behavior.
+2. Reference specific code locations when possible.
+3. Identify root cause(s), not just symptoms.
+4. Explain why the issue occurs.
+5. Propose the smallest production-safe fix first.
+6. Preserve existing framework conventions.
+7. Avoid introducing new architectural patterns unless required.
+
+If multiple issues exist:
+
+- Separate confirmed defects from potential defects.
+- Rank findings by severity.
+- Call out framework-wide implications.
+
+-------------------------------------------------------------------------------
+DESIRED OUTPUT
+-------------------------------------------------------------------------------
+
+For each issue identified provide:
+
+Problem
+
+Describe the issue.
+
+Root Cause
+
+Explain the underlying cause based on the attached implementation.
+
+Recommended Fix
+
+Provide the specific code change.
+
+Impact
+
+Explain:
+
+- correctness impact
+- reporting impact
+- downstream impact
+- RDB impact
+- performance impact (if applicable)
+
+Validation
+
+Describe how the fix should be tested.
+
+-------------------------------------------------------------------------------
+IMPORTANT
+-------------------------------------------------------------------------------
+
+Treat the attached files as the source of truth.
+
+Prefer observed implementation behavior over assumptions.
+
+When framework behavior is unclear:
+
+- state the uncertainty explicitly
+- identify which file or function requires verification
+
+Do not redesign the framework unless explicitly requested.
+
+Focus on maintaining compatibility with the existing production reporting environment.
+
+-------------------------------------------------------------------------------
+DEBUGGING REQUEST
+-------------------------------------------------------------------------------
+
+The primary file I want assistance with is:
+
+[paste report, udf, or function here]
+
+Please analyze the implementation in the context of the attached framework and identify:
+
+- bugs
+- edge cases
+- logic errors
+- parameter issues
+- output issues
+- RDB issues
+- performance concerns
+- maintainability concerns
+
+Then provide production-ready recommendations consistent with the framework conventions demonstrated in the attached files.
