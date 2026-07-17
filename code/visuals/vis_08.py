@@ -224,8 +224,28 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         capacity_threshold_pct = _get_float(params, "capacity_threshold_pct", 0.8)
         below_color = params.get("below_color", "black")
         above_color = params.get("above_color", "red")
+        font_family = _get_str(
+            params,
+            "font_family",
+            "Segoe UI"
+        )
+        plt.rcParams["font.family"] = font_family
 
-        plt.figure(figsize=(14, 6))
+        figure_width = _get_float(
+            params,
+            "figure_width",
+            14
+        )
+
+        figure_height = _get_float(
+            params,
+            "figure_height",
+            6
+        )
+
+        plt.figure(
+            figsize=(figure_width, figure_height)
+        )
 
         # -----------------------------------------------------
         # THRESHOLD LOGIC 
@@ -282,14 +302,76 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             )
 
         # Labels
-        plt.title(chart_title)
-        plt.xlabel("Time")
-        plt.ylabel("ED Census")
+        title_fontsize = _get_float(
+            params,
+            "title_fontsize",
+            16
+        )
+
+        label_fontsize = _get_float(
+            params,
+            "label_fontsize",
+            12
+        )
+
+        plt.title(
+            chart_title,
+            fontsize=title_fontsize,
+            fontfamily=font_family
+        )
+        x_label = _get_str(
+            params,
+            "x_label",
+            "Time"
+        )
+
+        plt.xlabel(
+            x_label,
+            fontsize=label_fontsize,
+            fontfamily=font_family
+        )
+        y_label = _get_str(
+            params,
+            "y_label",
+            "ED Census"
+        )
+
+        plt.ylabel(
+            y_label,
+            fontsize=label_fontsize,
+            fontfamily=font_family
+        )
+
+        tick_fontsize = _get_float(
+            params,
+            "tick_fontsize",
+            10
+        )
+
+        legend_fontsize = _get_float(
+            params,
+            "legend_fontsize",
+            10
+        )
 
         # Improve x-axis readability
         plt.gcf().autofmt_xdate()
 
-        plt.legend()
+        ax = plt.gca()
+
+        for tick in ax.get_xticklabels():
+            tick.set_fontfamily(font_family)
+            tick.set_fontsize(tick_fontsize)
+
+        for tick in ax.get_yticklabels():
+            tick.set_fontfamily(font_family)
+            tick.set_fontsize(tick_fontsize)
+        plt.legend(
+            prop={
+                "family": font_family,
+                "size": legend_fontsize
+            }
+        )
         plt.tight_layout()
 
         # Save PNG

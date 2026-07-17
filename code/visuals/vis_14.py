@@ -237,6 +237,13 @@ def _build_table(
         int
     )
 
+    font_family = params.get(
+        "table_font_family",
+        "Segoe UI"
+    )
+
+    plt.rcParams["font.family"] = font_family
+
     fig, ax = plt.subplots(
         figsize=(fig_width, fig_height),
         dpi=dpi
@@ -276,6 +283,11 @@ def _build_table(
             )
         )
     )
+
+    for cell in tbl.get_celld().values():
+        cell.get_text().set_fontfamily(
+            font_family
+        )
 
     header_color = params.get(
         "table_header_color",

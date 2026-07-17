@@ -91,6 +91,9 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         logging.warning(f"[{VISUAL_ID}] Failed to parse params: {e}")
 
     p = default_params
+    font_family = str(
+        p.get("font_family", "Segoe UI")
+    ).strip()
 
     # =========================
     # VALIDATION
@@ -207,6 +210,8 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     # FIGURE SETUP
     # =========================
     try:
+        plt.rcParams["font.family"] = font_family
+
         fig, ax = plt.subplots(
             figsize=(float(p["fig_width"]), float(p["fig_height"])),
             dpi=int(p["dpi"])
@@ -245,7 +250,8 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                     ha="center",
                     va="bottom",
                     fontsize=p["label_fontsize"],
-                    color=p["label_color"]
+                    color=p["label_color"],
+                    fontfamily=font_family
                 )
     except Exception as e:
         logging.warning(f"[{VISUAL_ID}] Labeling failed: {e}")
@@ -258,11 +264,20 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
         ax.set_title(
             f"{p['title']} {date_range_str}",
-            fontsize=p["title_fontsize"]
+            fontsize=p["title_fontsize"],
+            fontfamily=font_family
         )
 
-        ax.set_xlabel("Year", fontsize=p["axis_fontsize"])
-        ax.set_ylabel("Number of Visits", fontsize=p["axis_fontsize"])
+        ax.set_xlabel(
+            "Year",
+            fontsize=p["axis_fontsize"],
+            fontfamily=font_family
+        )
+        ax.set_ylabel(
+            "Number of Visits",
+            fontsize=p["axis_fontsize"],
+            fontfamily=font_family
+        )
     except Exception as e:
         logging.warning(f"[{VISUAL_ID}] Axis labeling failed: {e}")
 
@@ -307,6 +322,12 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         )
 
         plt.tight_layout()
+        for tick in ax.get_xticklabels():
+            tick.set_fontfamily(font_family)
+
+        for tick in ax.get_yticklabels():
+            tick.set_fontfamily(font_family)
+
         plt.savefig(output_path)
         plt.close()
 

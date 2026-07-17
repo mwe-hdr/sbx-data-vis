@@ -6,6 +6,7 @@ dpi,100,Image resolution,,
 title_fontsize,14,Title font size,,
 axis_fontsize,11,Axis label font size,,
 label_fontsize,9,Bar label font size,,
+font_family,Segoe UI,Global font family
 ,,,,
 label_decimals,1,Decimal places for percent labels,,
 label_threshold,0.01,Minimum percent to display label,,

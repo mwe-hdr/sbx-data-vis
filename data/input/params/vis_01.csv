@@ -15,6 +15,7 @@ title_fontsize,14,Title size,,
 axis_fontsize,11,Axis label size,,
 label_fontsize,7,Bar label size,,
 legend_fontsize,10,Legend font size,,
+font_family,Segoe UI,Font family
 ,,,,
 # ===== LEGEND POSITION =====,,,,
 legend_position,upper left,Legend location,,

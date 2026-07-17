@@ -4,3 +4,4 @@ param,value,description
 fig_width,10,Figure width in inches
 fig_height,4,Figure height in inches
 dpi,300,Image resolution
+font_family,Segoe UI,Global font family

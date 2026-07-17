@@ -238,7 +238,12 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         fig_width = _safe_param(params, "fig_width", 14, float)
         fig_height = _safe_param(params, "fig_height", 7, float)
         dpi = _safe_param(params, "dpi", 100, int)
-
+        font_family = _safe_param(
+            params,
+            "font_family",
+            "Segoe UI",
+            str
+        )
         colors = {
             "peak": params.get("peak_bar_color", "teal"),
             "offpeak": params.get("offpeak_bar_color", "gray"),
@@ -345,7 +350,12 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # =========================
         # Plot
         # =========================
-        fig, ax = plt.subplots(figsize=(fig_width, fig_height), dpi=dpi)
+        plt.rcParams["font.family"] = font_family
+
+        fig, ax = plt.subplots(
+            figsize=(fig_width, fig_height),
+            dpi=dpi
+        )
 
         # Bars
         peak_mask = hourly["peak_flag"] == "Peak"
@@ -393,17 +403,28 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         date_range_str = format_date_range(start_date, end_date)
 
         ax.set_title(
-            f"ED Hourly Census with Peak Period and Capacity Benchmarks {date_range_str}"
+            f"ED Hourly Census with Peak Period and Capacity Benchmarks {date_range_str}",
+            fontfamily=font_family
         )
-        ax.set_xlabel("Hour of Day")
-        ax.set_ylabel("ED Census")
+        ax.set_xlabel(
+            "Hour of Day",
+            fontfamily=font_family
+        )
+        ax.set_ylabel(
+            "ED Census",
+            fontfamily=font_family
+        )
 
         ax.set_xticks(range(24))
 
         handles, labels = ax.get_legend_handles_labels()
 
         plt.tight_layout()
+        for tick in ax.get_xticklabels():
+            tick.set_fontfamily(font_family)
 
+        for tick in ax.get_yticklabels():
+            tick.set_fontfamily(font_family)
         # =========================
         # Save output
         # =========================
@@ -438,7 +459,8 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             handles=handles,
             labels=labels,
             output_file=legend_output_file,
-            ncol=4
+            ncol=4,
+            font_family=font_family
         )
 
         parameter_output_file = os.path.join(
@@ -454,7 +476,8 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
         save_parameter_table_png(
             params=params,
-            output_file=parameter_output_file
+            output_file=parameter_output_file,
+            font_family=font_family
         )
 
         logger.info(

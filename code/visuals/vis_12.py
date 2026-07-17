@@ -155,7 +155,9 @@ def run(
     title_fs = int(
         params.get("title_fontsize", 14) or 14
     )
-
+    font_family = str(
+        params.get("font_family", "Segoe UI")
+    ).strip()
     county_file = params.get("county_file")
 
     focus_county_geoids = (
@@ -325,6 +327,8 @@ def run(
     # PLOT
     # ============================================================
 
+    plt.rcParams["font.family"] = font_family
+
     fig, ax = plt.subplots(
         figsize=(fig_width, fig_height),
         dpi=dpi
@@ -405,6 +409,7 @@ def run(
             fontsize=county_label_fontsize,
             color=county_label_color,
             fontweight=county_label_weight,
+            fontfamily=font_family,
             ha="center",
             va="center",
             zorder=100
@@ -412,7 +417,8 @@ def run(
 
     ax.set_title(
         f"ED Geographic Catchment\n{date_range}",
-        fontsize=title_fs
+        fontsize=title_fs,
+        fontfamily=font_family
     )
 
     ax.set_axis_off()

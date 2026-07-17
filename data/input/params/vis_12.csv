@@ -10,6 +10,7 @@ fig_width,16,Figure width
 fig_height,5,Figure height
 dpi,600,Image resolution
 title_fontsize,10,Title font size
+font_family,Segoe UI,Global font family
 
 county_label_fontsize,6,County label font size
 county_label_color,#444444,County label color

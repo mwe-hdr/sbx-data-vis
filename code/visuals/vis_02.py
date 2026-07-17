@@ -77,7 +77,9 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             "label_threshold": 0.0,  # show all by default
             "max_bucket": None  # optional cap (e.g., 24)
         }
-
+        font_family = str(
+            params.get("font_family", "Segoe UI")
+        ).strip()
         y_axis_mode = params.get("y_axis_mode", "percent")
         y_axis_decimals = params.get("y_axis_decimals", 1)
         y_axis_multiplier = params.get("y_axis_multiplier", 100)
@@ -261,7 +263,11 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # --------------------------------------------------
         # PLOTTING
         # --------------------------------------------------
-        fig, ax = plt.subplots(figsize=(p["fig_width"], p["fig_height"]))
+        plt.rcParams["font.family"] = font_family
+
+        fig, ax = plt.subplots(
+            figsize=(p["fig_width"], p["fig_height"])
+        )
 
         ax.bar(
             grouped["los_bucket"],
@@ -272,21 +278,31 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # Labels above bars
         for _, row in grouped.iterrows():
             if row["percent"] >= p["label_threshold"]:
-                ax.text(
-                    row["los_bucket"],
-                    row["percent"] + 0.001,
-                    f"{row['percent'] * 100:.{int(p['label_decimals'])}f}%",
-                    ha="center",
-                    fontsize=p["label_fontsize"]
-                )
+                    ax.text(
+                        row["los_bucket"],
+                        row["percent"] + 0.001,
+                        f"{row['percent'] * 100:.{int(p['label_decimals'])}f}%",
+                        ha="center",
+                        fontsize=p["label_fontsize"],
+                        fontfamily=font_family
+                    )
         
         date_range = format_date_range(start_date, end_date)
         ax.set_title(
             f"Length of Stay Distribution (Hours)\n{date_range}",
-            fontsize=p["title_fontsize"]
+            fontsize=p["title_fontsize"],
+            fontfamily=font_family
         )
-        ax.set_xlabel("Length of Stay (Hours)", fontsize=p["axis_fontsize"])
-        ax.set_ylabel("Percent of Encounters", fontsize=p["axis_fontsize"])
+        ax.set_xlabel(
+            "Length of Stay (Hours)",
+            fontsize=p["axis_fontsize"],
+            fontfamily=font_family
+        )
+        ax.set_ylabel(
+            "Percent of Encounters",
+            fontsize=p["axis_fontsize"],
+            fontfamily=font_family
+        )
 
         # Improve layout
         ax.set_xticks(grouped["los_bucket"])
@@ -299,7 +315,13 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             multiplier=y_axis_multiplier,
             suffix=y_axis_suffix
         )
-        
+
+        for tick in ax.get_xticklabels():
+            tick.set_fontfamily(font_family)
+
+        for tick in ax.get_yticklabels():
+            tick.set_fontfamily(font_family)
+
         plt.tight_layout()
 
         # --------------------------------------------------

@@ -4,7 +4,7 @@ param,value,description
 fig_width,12,Figure width
 fig_height,8,Figure height
 dpi,300,Image resolution
-
+font_family,Segoe UI,Global font family
 ## ===== VISUAL =====
 positive_color,#4E79A7,Contribution bar color
 total_color,#E15759,Total census bar color

@@ -130,7 +130,9 @@ def run(
     fig_width = float(params.get("fig_width", 14))
     fig_height = float(params.get("fig_height", 7))
     dpi = _safe_int(params.get("dpi", 300), 300)
-
+    font_family = str(
+        params.get("font_family", "Segoe UI")
+    ).strip()
     heatmap_mode = str(
         params.get("heatmap_mode", "count")
     ).strip().lower()
@@ -353,6 +355,8 @@ def run(
         peak_hour = ""
         peak_hour_day = ""
 
+    plt.rcParams["font.family"] = font_family
+
     fig, ax = plt.subplots(
         figsize=(fig_width, fig_height)
     )
@@ -372,15 +376,23 @@ def run(
     ax.set_yticks(range(len(weekday_order)))
     ax.set_yticklabels(weekday_order)
 
-    ax.set_xlabel("Hour of Day")
-    ax.set_ylabel("Day of Week")
+    ax.set_xlabel(
+        "Hour of Day",
+        fontfamily=font_family
+    )
+
+    ax.set_ylabel(
+        "Day of Week",
+        fontfamily=font_family
+    )
 
     ax.set_title(
         "Ambulatory Low-Acuity Arrival Time Heatmap\n"
         + format_date_range(
             start_date,
             end_date
-        )
+        ),
+        fontfamily=font_family
     )
 
     if show_cell_labels == 1:
@@ -418,7 +430,8 @@ def run(
                         label,
                         ha="center",
                         va="center",
-                        fontsize=cell_fontsize
+                        fontsize=cell_fontsize,
+                        fontfamily=font_family
                     )
 
     cbar = plt.colorbar(
@@ -427,11 +440,19 @@ def run(
     )
 
     cbar.set_label(
-        colorbar_label
+        colorbar_label,
+        fontfamily=font_family
     )
 
     plt.tight_layout()
+    for tick in ax.get_xticklabels():
+        tick.set_fontfamily(font_family)
 
+    for tick in ax.get_yticklabels():
+        tick.set_fontfamily(font_family)
+
+    for tick in cbar.ax.get_yticklabels():
+        tick.set_fontfamily(font_family)
     output_name = generate_output_name(
         visual_id=VISUAL_ID,
         start_date=start_date,
@@ -485,7 +506,8 @@ def run(
         table.auto_set_font_size(False)
         table.set_fontsize(8)
         table.scale(1, 1.2)
-
+        for cell in table.get_celld().values():
+            cell.get_text().set_fontfamily(font_family)
         summary_png = output_file.replace(
             ".png",
             "_summary.png"
@@ -522,7 +544,8 @@ def run(
                 output_file.replace(
                     ".png",
                     "_params.png"
-                )
+                ),
+                font_family=font_family
             )
 
     except Exception as ex:

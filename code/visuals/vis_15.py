@@ -3,13 +3,14 @@ import logging
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
 
 from utils.vis_helpers import (
     format_date_range,
-    normalize_params,
-    save_parameter_table_png,
-    save_legend_png
+    normalize_params
 )
+
+
 
 VISUAL_ID = "vis_15"
 
@@ -85,6 +86,13 @@ def run(
             "dpi",
             300,
             int
+        )
+
+        font_family = _safe_param(
+            params,
+            "font_family",
+            "Segoe UI",
+            str
         )
 
         positive_color = _safe_param(
@@ -279,6 +287,8 @@ def run(
         # FIGURE
         # =====================================================
 
+        plt.rcParams["font.family"] = font_family
+
         fig = plt.figure(
             figsize=(fig_width, fig_height),
             dpi=dpi
@@ -330,7 +340,8 @@ def run(
                 ),
                 ha="center",
                 va="bottom",
-                fontsize=label_fontsize
+                fontsize=label_fontsize,
+                fontfamily=font_family
             )
 
         ax.bar(
@@ -352,7 +363,8 @@ def run(
             ha="center",
             va="bottom",
             fontsize=label_fontsize,
-            fontweight="bold"
+            fontweight="bold",
+            fontfamily=font_family
         )
 
         ax.set_xticks(
@@ -369,7 +381,8 @@ def run(
 
         ax.set_title(
             "Occupancy Waterfall by Acuity",
-            pad=25
+            pad=25,
+            fontfamily=font_family
         )
 
         subtitle = (
@@ -384,11 +397,13 @@ def run(
             subtitle,
             transform=ax.transAxes,
             ha="center",
-            fontsize=10
+            fontsize=10,
+            fontfamily=font_family
         )
 
         ax.set_ylabel(
-            "% Occupancy Contribution"
+            "% Occupancy Contribution",
+            fontfamily=font_family
         )
 
         # =====================================================
@@ -486,8 +501,15 @@ def run(
         tbl.auto_set_font_size(False)
         tbl.set_fontsize(table_fontsize)
         tbl.scale(1.0, 1.35)
+        for cell in tbl.get_celld().values():
+            cell.get_text().set_fontfamily(font_family)
 
         plt.tight_layout()
+        for tick in ax.get_xticklabels():
+            tick.set_fontfamily(font_family)
+
+        for tick in ax.get_yticklabels():
+            tick.set_fontfamily(font_family)
 
         output_file = os.path.join(
             output_dir,
@@ -513,52 +535,122 @@ def run(
         # PARAMETER IMAGE
         # =====================================================
 
-        try:
-            save_parameter_table_png(
-                params=params,
-                visual_id=VISUAL_ID,
-                output_dir=output_dir,
+        parameter_df = pd.DataFrame({
+            "Parameter": [
+                "Positive Color",
+                "Total Color",
+                "Volume Decimals",
+                "Occupancy Decimals",
+                "Volume Thousands Separator",
+                "Occupancy Thousands Separator"
+            ],
+            "Value": [
+                positive_color,
+                total_color,
+                volume_decimals,
+                occupancy_decimals,
+                volume_thousands_separator,
+                occupancy_thousands_separator
+            ]
+        })
+
+        parameter_output_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=f"{VISUAL_ID}_parameters",
                 start_date=start_date,
                 end_date=end_date,
                 cohort_id=params.get("cohort_id"),
-                generate_output_name=generate_output_name
+                ext="png"
             )
-        except Exception as e:
-            logger.warning(
-                f"Parameter image generation failed: {e}"
-            )
+        )
+
+        plt.rcParams["font.family"] = font_family
+
+        fig_param, ax_param = plt.subplots(
+            figsize=(8, 3),
+            dpi=dpi
+        )
+
+        ax_param.axis("off")
+
+        tbl_param = ax_param.table(
+            cellText=parameter_df.values,
+            colLabels=parameter_df.columns,
+            loc="center"
+        )
+
+        tbl_param.auto_set_font_size(False)
+        tbl_param.set_fontsize(10)
+        tbl_param.scale(1.2, 1.5)
+        for cell in tbl_param.get_celld().values():
+            cell.get_text().set_fontfamily(font_family)
+        plt.tight_layout()
+
+        plt.savefig(
+            parameter_output_file,
+            bbox_inches="tight"
+        )
+
+        plt.close()
+
+        logger.info(
+            f"[{VISUAL_ID}] Parameter table saved to "
+            f"{parameter_output_file}"
+        )
 
         # =====================================================
         # LEGEND
         # =====================================================
 
-        try:
-
-            legend_items = [
-                (
-                    positive_color,
-                    "ESI Occupancy Contribution"
-                ),
-                (
-                    total_color,
-                    "Total Occupancy"
-                )
-            ]
-
-            save_legend_png(
-                legend_items=legend_items,
-                visual_id=VISUAL_ID,
-                output_dir=output_dir,
+        legend_output_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=f"{VISUAL_ID}_legend",
                 start_date=start_date,
                 end_date=end_date,
                 cohort_id=params.get("cohort_id"),
-                generate_output_name=generate_output_name
+                ext="png"
             )
+        )
 
-        except Exception as e:
-            logger.warning(
-                f"Legend generation failed: {e}"
+        legend_handles = [
+            Patch(
+                facecolor=positive_color,
+                label="ESI Occupancy Contribution"
+            ),
+            Patch(
+                facecolor=total_color,
+                label="Total Occupancy"
             )
+        ]
+
+        fig_leg, ax_leg = plt.subplots(
+            figsize=(4, 1.5),
+            dpi=dpi
+        )
+
+        ax_leg.axis("off")
+
+        ax_leg.legend(
+            handles=legend_handles,
+            loc="center",
+            ncol=1,
+            frameon=False,
+            prop={"family": font_family}
+        )
+
+        plt.savefig(
+            legend_output_file,
+            bbox_inches="tight"
+        )
+
+        plt.close()
+
+        logger.info(
+            f"[{VISUAL_ID}] Legend saved to "
+            f"{legend_output_file}"
+        )
 
         # =====================================================
         # RDB

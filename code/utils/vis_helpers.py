@@ -131,8 +131,10 @@ def save_legend_png(
     output_file,
     ncol=4,
     width=8,
-    height=1.5
-    ):
+    height=1.5,
+    font_family="Segoe UI",
+    font_size=10
+):
     
     legend_fig = plt.figure(
         figsize=(width, height)
@@ -143,7 +145,11 @@ def save_legend_png(
         labels,
         loc="center",
         ncol=ncol,
-        frameon=False
+        frameon=False,
+        prop={
+            "family": font_family,
+            "size": font_size
+        }
     )
 
     legend_fig.savefig(
@@ -281,7 +287,9 @@ def get_display_parameters(params):
 
 def save_parameter_table_png(
     params,
-    output_file
+    output_file,
+    font_family="Segoe UI",
+    font_size=10
 ):
 
     rows = []
@@ -306,6 +314,7 @@ def save_parameter_table_png(
         len(table_df) * 0.40
     )
 
+    plt.rcParams["font.family"] = font_family
     fig, ax = plt.subplots(
         figsize=(3, fig_height)
     )
@@ -319,12 +328,13 @@ def save_parameter_table_png(
     )
 
     table.auto_set_font_size(False)
-    table.set_fontsize(10)
+    table.set_fontsize(font_size)
     table.scale(1.0, 1.5)
 
     for row_idx in range(len(table_df)):
 
         cell = table[(row_idx, 0)]
+        cell.get_text().set_fontfamily(font_family)
 
         if row_idx % 2 == 0:
 

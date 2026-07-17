@@ -10,7 +10,7 @@ cascade_start_offset,0.35,Start of right cascade
 cascade_step,0.08,Spacing between cascade nodes
 
 ## ===== FONT CONTROL =====
-font_family,Arial,Global font family
+font_family,Segoe UI,Global font family
 node_font_size,16,Node label font size
 title_font_size,24,Chart title font size
 title_x,0.01,Title horizontal alignment

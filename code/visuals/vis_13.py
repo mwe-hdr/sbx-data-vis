@@ -119,13 +119,17 @@ def run(
         params.get("fig_width", 10)
     )
 
+    dpi = float(
+        params.get("dpi", 10)
+    )
+
     fig_height = float(
         params.get("fig_height", 4)
     )
 
-    dpi = int(
-        float(params.get("dpi", 300))
-    )
+    font_family = str(
+        params.get("font_family", "Segoe UI")
+    ).strip()
 
     required_cols = ["arrival_method", "esi"]
 
@@ -186,6 +190,8 @@ def run(
     # Heatmap
     # ------------------------------------------------------------------
 
+    plt.rcParams["font.family"] = font_family
+
     fig, ax = plt.subplots(
         figsize=(fig_width, fig_height)
     )
@@ -204,7 +210,8 @@ def run(
 
     ax.set_title(
         "Arrival Method vs ESI Distribution\n"
-        + format_date_range(start_date, end_date)
+        + format_date_range(start_date, end_date),
+        fontfamily=font_family
     )
 
     for r in range(len(arrival_order)):
@@ -219,7 +226,8 @@ def run(
                 f"{pct:.1f}%\n(n={cnt})",
                 ha="center",
                 va="center",
-                fontsize=8
+                fontsize=8,
+                fontfamily=font_family
             )
 
     cbar = plt.colorbar(
@@ -227,10 +235,20 @@ def run(
         ax=ax
     )
 
-    cbar.set_label("% Within Arrival Type")
+    cbar.set_label(
+        "% Within Arrival Type",
+        fontfamily=font_family
+    )
 
     plt.tight_layout()
+    for tick in ax.get_xticklabels():
+        tick.set_fontfamily(font_family)
 
+    for tick in ax.get_yticklabels():
+        tick.set_fontfamily(font_family)
+
+    for tick in cbar.ax.get_yticklabels():
+        tick.set_fontfamily(font_family)
     output_name = generate_output_name(
         visual_id=VISUAL_ID,
         start_date=start_date,
@@ -261,7 +279,8 @@ def run(
         if display_params:
             save_parameter_table_png(
                 display_params,
-                png_path.replace(".png", "_params.png")
+                png_path.replace(".png", "_params.png"),
+                font_family=font_family
             )
     except Exception as ex:
         logger.warning(

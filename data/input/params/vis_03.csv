@@ -14,6 +14,7 @@ dpi,100,Image resolution
 title_fontsize,14,Title size
 axis_fontsize,11,Axis label size
 label_fontsize,9,Bar label size
+font_family,Segoe UI,Global font family
 
 ## ===== COLORS =====
 bar_color,#1f77b4,Bar color

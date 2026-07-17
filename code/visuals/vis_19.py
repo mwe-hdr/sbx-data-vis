@@ -177,7 +177,9 @@ def run(
         300,
         int
     )
-
+    font_family = str(
+        params.get("font_family", "Segoe UI")
+    ).strip()
     display_mode = str(
         params.get(
             "display_mode",
@@ -420,6 +422,8 @@ def run(
     # MAIN FIGURE
     # ==========================================================
 
+    plt.rcParams["font.family"] = font_family
+
     fig, ax = plt.subplots(
         figsize=(fig_width, fig_height),
         dpi=dpi
@@ -470,7 +474,8 @@ def run(
                         bar.get_height(),
                         f"{bar.get_height():.1f}",
                         ha="center",
-                        fontsize=8
+                        fontsize=8,
+                        fontfamily=font_family
                     )
 
     else:
@@ -545,7 +550,8 @@ def run(
     )
 
     ax.set_ylabel(
-        "LOS (Hours)"
+        "LOS (Hours)",
+        fontfamily=font_family
     )
 
     ax.set_title(
@@ -553,7 +559,8 @@ def run(
         + format_date_range(
             start_date,
             end_date
-        )
+        ),
+        fontfamily=font_family
     )
 
     annotation = (
@@ -571,11 +578,16 @@ def run(
         annotation,
         transform=ax.transAxes,
         va="top",
-        fontsize=9
+        fontsize=9,
+        fontfamily=font_family
     )
 
     plt.tight_layout()
+    for tick in ax.get_xticklabels():
+        tick.set_fontfamily(font_family)
 
+    for tick in ax.get_yticklabels():
+        tick.set_fontfamily(font_family)
     output_file = os.path.join(
         output_dir,
         generate_output_name(
@@ -651,7 +663,8 @@ def run(
     table.auto_set_font_size(False)
     table.set_fontsize(table_fontsize)
     table.scale(1.0, 1.3)
-
+    for cell in table.get_celld().values():
+        cell.get_text().set_fontfamily(font_family)
     summary_output = output_file.replace(
         ".png",
         "_summary.png"
@@ -681,7 +694,8 @@ def run(
                 output_file.replace(
                     ".png",
                     "_params.png"
-                )
+                ),
+                font_family=font_family
             )
 
     except Exception as ex:
@@ -716,7 +730,8 @@ def run(
             handles=handles,
             labels=labels,
             output_file=legend_output,
-            ncol=len(arrival_order)
+            ncol=len(arrival_order),
+            font_family=font_family
         )
 
     except Exception as ex:

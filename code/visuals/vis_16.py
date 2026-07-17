@@ -121,7 +121,9 @@ def run(
     fig_width = float(params.get("fig_width", 16))
     fig_height = float(params.get("fig_height", 5))
     dpi = int(float(params.get("dpi", 600)))
-
+    font_family = str(
+        params.get("font_family", "Segoe UI")
+    ).strip()
     zcta_file = params.get("zcta_file")
     county_file = params.get("county_file")
 
@@ -365,6 +367,8 @@ def run(
     # Map
     # ======================================================================
 
+    plt.rcParams["font.family"] = font_family
+
     fig, ax = plt.subplots(
         figsize=(fig_width, fig_height),
         dpi=dpi
@@ -429,6 +433,7 @@ def run(
                 fontsize=county_label_fontsize,
                 color=county_label_color,
                 fontweight=county_label_weight,
+                fontfamily=font_family,
                 ha="center",
                 va="center",
                 zorder=50
@@ -461,6 +466,7 @@ def run(
             point.y,
             f"{zipcode}\n({int(row['encounter_count']):,})",
             fontsize=zip_label_fontsize,
+            fontfamily=font_family,
             ha="center",
             va="center",
             zorder=100
@@ -492,8 +498,10 @@ def run(
         + format_date_range(
             start_date,
             end_date
-        )
+        ),
+        fontfamily=font_family
     )
+
 
     plt.tight_layout()
 
@@ -554,7 +562,8 @@ def run(
     table.auto_set_font_size(False)
     table.set_fontsize(8)
     table.scale(1, 1.2)
-
+    for cell in table.get_celld().values():
+        cell.get_text().set_fontfamily(font_family)
     table_file = output_file.replace(
         ".png",
         "_top_zips.png"
@@ -584,7 +593,8 @@ def run(
                 output_file.replace(
                     ".png",
                     "_params.png"
-                )
+                ),
+                font_family=font_family
             )
 
     except Exception as ex:

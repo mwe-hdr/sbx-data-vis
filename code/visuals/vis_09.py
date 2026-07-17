@@ -365,7 +365,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         title=dict(
             text=f"{p['title']} {format_date_range(start_date, end_date)}",
             font=dict(
-                size=int(p["node_font_size"]) + 2,   # slight boost for readability
+                size=int(p["title_font_size"]),
                 family=p["font_family"],
                 color=p.get("node_font_color", "#1a1a1a")
             ),

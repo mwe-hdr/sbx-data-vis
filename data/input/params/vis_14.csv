@@ -28,7 +28,7 @@ dpi,100,Image resolution,0,
 
 table_font_size,10,Table font size,0,
 table_header_font_size,12,Header font size,0,
-table_font_family,Arial,Table font family,0,
+table_font_family,Segoe UI,Table font family,0
 
 table_scale_x,1.2,Table horizontal scale,0,
 table_scale_y,1.5,Table vertical scale,0,

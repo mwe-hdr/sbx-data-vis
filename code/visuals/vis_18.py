@@ -175,7 +175,9 @@ def run(
     fig_width = float(params.get("fig_width", 12))
     fig_height = float(params.get("fig_height", 7))
     dpi = int(float(params.get("dpi", 300)))
-
+    font_family = str(
+        params.get("font_family", "Segoe UI")
+    ).strip()
     required_cols = [
         "arrival_method",
         "esi",
@@ -294,6 +296,8 @@ def run(
         )
     )
 
+    plt.rcParams["font.family"] = font_family
+
     fig, ax = plt.subplots(
         figsize=(fig_width, fig_height)
     )
@@ -326,7 +330,8 @@ def run(
                         f"{val:.0f}%",
                         ha="center",
                         va="center",
-                        fontsize=7
+                        fontsize=7,
+                        fontfamily=font_family
                     )
 
         bottom += values
@@ -334,7 +339,8 @@ def run(
     ax.set_ylim(0, 100)
 
     ax.set_ylabel(
-        "Percent of Encounters"
+        "Percent of Encounters",
+        fontfamily=font_family
     )
 
     arrival_display = ", ".join(selected_arrivals)
@@ -342,18 +348,24 @@ def run(
     ax.set_title(
         "Ambulatory Arrival Disposition by ESI\n"
         + format_date_range(start_date, end_date)
-        + f"  |  n = {total_encounters:,} encounters"
+        + f"  |  n = {total_encounters:,} encounters",
+        fontfamily=font_family
     )
 
     if show_chart_legend == 1:
 
         ax.legend(
             loc="upper left",
-            bbox_to_anchor=(1.02, 1)
+            bbox_to_anchor=(1.02, 1),
+            fontfamily=font_family
         )
 
     plt.tight_layout()
+    for tick in ax.get_xticklabels():
+        tick.set_fontfamily(font_family)
 
+    for tick in ax.get_yticklabels():
+        tick.set_fontfamily(font_family)
     output_name = generate_output_name(
         visual_id=VISUAL_ID,
         start_date=start_date,
@@ -459,7 +471,8 @@ def run(
 
     save_parameter_table_png(
         summary_df,
-        summary_path
+        summary_path,
+        font_family=font_family
     )
 
 
@@ -481,7 +494,8 @@ def run(
                 ".png",
                 "_legend.png"
             ),
-            ncol=4
+            ncol=4,
+            font_family=font_family
         )
         
     except Exception as ex:
@@ -503,7 +517,8 @@ def run(
                 png_path.replace(
                     ".png",
                     "_params.png"
-                )
+                ),
+                font_family=font_family
             )
 
     except Exception as ex:

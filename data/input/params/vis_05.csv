@@ -8,6 +8,7 @@ dpi,100,Resolution
 title_fontsize,14,Title font size
 axis_fontsize,11,Axis font size
 label_fontsize,12,Label font size
+font_family,Segoe UI,Global font family
 ,,
 # ===== LINE STYLE =====,,
 line_color,#1f77b4,Line color

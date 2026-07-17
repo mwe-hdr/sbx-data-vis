@@ -14,6 +14,7 @@ dpi,100,Resolution
 title_fontsize,14,Title size
 axis_fontsize,11,Axis labels
 label_fontsize,9,Bar label font
+font_family,Segoe UI,Global font family
 ,,
 ## ===== AXIS FORMATTING =====,,
 y_axis_mode,percent,percent count raw

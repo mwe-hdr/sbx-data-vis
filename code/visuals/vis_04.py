@@ -107,7 +107,9 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     cfg = defaults.copy()
     if params:
         cfg.update({k: v for k, v in params.items() if v is not None})
-
+    font_family = str(
+        cfg.get("font_family", "Segoe UI")
+    ).strip()
     required_columns = ["ed_start_dtm", "esi"]
     params = params or {}
 
@@ -186,6 +188,8 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     # ======================================================
     # PLOTTING
     # ======================================================
+    plt.rcParams["font.family"] = font_family
+
     fig, ax = plt.subplots(
         figsize=(float(cfg["fig_width"]), float(cfg["fig_height"])),
         dpi=int(cfg["dpi"])
@@ -214,7 +218,8 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             ha='center',
             va='bottom',
             fontsize=float(cfg["label_fontsize"]),
-            color=cfg["label_color"]
+            color=cfg["label_color"],
+            fontfamily=font_family
         )
 
     # ======================================================
@@ -224,11 +229,19 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
     ax.set_title(
         f"ESI Level Distribution\n{date_range_str}",
-        fontsize=float(cfg["title_fontsize"])
+        fontsize=float(cfg["title_fontsize"]),
+        fontfamily=font_family
     )
-
-    ax.set_xlabel("ESI Level", fontsize=float(cfg["axis_fontsize"]))
-    ax.set_ylabel("Percent of Encounters", fontsize=float(cfg["axis_fontsize"]))
+    ax.set_xlabel(
+        "ESI Level",
+        fontsize=float(cfg["axis_fontsize"]),
+        fontfamily=font_family
+    )
+    ax.set_ylabel(
+        "Percent of Encounters",
+        fontsize=float(cfg["axis_fontsize"]),
+        fontfamily=font_family
+    )
 
     ax.tick_params(axis='x', rotation=30)
 
@@ -244,7 +257,11 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     ax.set_ylim(0, max(percents.values) * 1.15)
 
     plt.tight_layout()
+    for tick in ax.get_xticklabels():
+        tick.set_fontfamily(font_family)
 
+    for tick in ax.get_yticklabels():
+        tick.set_fontfamily(font_family)
     # ======================================================
     # OUTPUT
     # ======================================================

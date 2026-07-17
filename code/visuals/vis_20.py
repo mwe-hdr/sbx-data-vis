@@ -710,7 +710,8 @@ def run(
                 output_file.replace(
                     ".png",
                     "_params.png"
-                )
+                ),
+                font_family=p["font_family"]
             )
 
     except Exception as ex:

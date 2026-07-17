@@ -4,7 +4,7 @@ param,value,description
 fig_width,14,Figure width
 fig_height,8,Figure height
 dpi,300,Image resolution
-
+font_family,Segoe UI,Global font family
 ## ===== DISPLAY =====
 display_mode,boxplot,boxplot|median_bar
 show_outliers,1,Display outlier points

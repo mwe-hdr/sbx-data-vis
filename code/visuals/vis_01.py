@@ -85,6 +85,9 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     axis_fs = int(params.get("axis_fontsize", 11) or 11)
     label_fs = int(params.get("label_fontsize", 8) or 8)
     legend_fs = int(params.get("legend_fontsize", 10) or 10)
+    font_family = str(
+        params.get("font_family", "Segoe UI")
+    ).strip()
 
     # ---- Legend ----
     legend_pos = str(params.get("legend_position", "upper left") or "upper left")
@@ -220,7 +223,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     # =========================
     fig, ax = plt.subplots(figsize=(fig_width, fig_height), dpi=dpi)
 
-    
+    plt.rcParams["font.family"] = font_family    
     if chart_mode == "count":
         pivot_plot = pivot_counts  
         y_label = "Number of Arrivals"
@@ -232,7 +235,11 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
     bottom = np.zeros(len(plot_data))
 
-    ax.set_ylabel(y_label, fontsize=axis_fs)
+    ax.set_ylabel(
+        y_label,
+        fontsize=axis_fs,
+        fontfamily=font_family
+    )
 
     if y_limit:
         ax.set_ylim(0, y_limit)
@@ -273,7 +280,8 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                     ha='center',
                     va='center',
                     color=label_color,
-                    fontsize=label_fs
+                    fontsize=label_fs,
+                    fontfamily=font_family
                 )
 
         bottom += values
@@ -282,16 +290,24 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     # FORMATTING
     # =========================
     ax.set_xticks(range(24))
-    ax.set_xlabel("Hour of Day", fontsize=axis_fs)
-
+    ax.set_xlabel(
+        "Hour of Day",
+        fontsize=axis_fs,
+        fontfamily=font_family
+    )
     date_range = format_date_range(start_date, end_date)
     title = f"Hourly Arrivals Distribution by ESI\n{date_range}"
-    ax.set_title(title, fontsize=title_fs)
+    ax.set_title(
+        title,
+        fontsize=title_fs,
+        fontfamily=font_family
+    )
 
     legend = ax.legend(
         loc=legend_pos,
         bbox_to_anchor=(legend_x, legend_y),
-        fontsize=legend_fs
+        fontsize=legend_fs,
+        prop={"family": font_family}
     )
 
     handles, labels = ax.get_legend_handles_labels()
@@ -322,6 +338,12 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         )
     )
 
+    for tick in ax.get_xticklabels():
+        tick.set_fontfamily(font_family)
+
+    for tick in ax.get_yticklabels():
+        tick.set_fontfamily(font_family)
+
     plt.savefig(output_file)
     legend_output_file = os.path.join(
         output_dir,
@@ -338,7 +360,9 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         handles=handles,
         labels=labels,
         output_file=legend_output_file,
-        ncol=3
+        ncol=3,
+        font_family=font_family,
+        font_size=legend_fs
     )
 
     logging.info(

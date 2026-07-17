@@ -5,6 +5,7 @@ I am attaching:
     main.py.txt
     processing_helpers.py.txt
     vis_10.csv         (example parameter file)
+    save_parameter_table_png (udf)
 
 and pasting, below: 
     vis_10.py, vis_11.py         (example visual reports)
@@ -1222,6 +1223,8 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
     except Exception as e:
             logger.error(f"[{VISUAL_ID}] Execution failed: {e}")
+
+
 
 
 

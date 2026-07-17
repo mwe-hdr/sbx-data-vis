@@ -4,7 +4,7 @@ param,value,description
 fig_width,14,Figure width
 fig_height,7,Figure height
 dpi,300,Image resolution
-
+font_family,Segoe UI,Global font family
 ## ===== HEATMAP =====
 heatmap_mode,count,Display mode (count|percent_total|percent_day)
 cmap,YlOrRd,Heatmap color palette

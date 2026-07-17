@@ -12,6 +12,7 @@ utilization,0.75,Capacity utilization factor,1,percent0
 fig_width,14,Figure width,0,
 fig_height,7,Figure height,0,
 dpi,100,Image resolution,0,
+font_family,Segoe UI,Global font family,0,
 
 ## ===== COLORS =====
 

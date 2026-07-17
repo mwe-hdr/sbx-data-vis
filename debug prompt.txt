@@ -13,7 +13,7 @@ These files may include:
 
 ## Purpose
 
-The attached files represent the current production state of the reporting framework.  If needed, I will also paste additional code or files inline below:
+The attached files represent the current production state of the reporting framework.  
 
 Before providing debugging assistance, review all attached files and use them as the primary source of truth.
 
@@ -202,8 +202,788 @@ DEBUGGING REQUEST
 -------------------------------------------------------------------------------
 
 The primary file I want assistance with is:
+vis 11:
+# =============================================================================
+# Domain      : ED (Emergency Department)
+# Report Name : ED Peak Census and Room Need by Acuity
+#
+# Description :
+# Calculates Emergency Department peak census levels and estimated room
+# requirements by Emergency Severity Index (ESI) acuity category.
+# Patient census is derived from ED arrival and departure timestamps and
+# grouped according to ESI classification levels to evaluate capacity
+# requirements for distinct patient acuity populations.
+#
+# Census profiles are generated independently for each acuity category
+# using a minute-level occupancy model. Average census by hour is calculated
+# for each group and the highest hourly census value is identified as the
+# peak operating census. Optional growth assumptions may be applied to
+# projected demand volumes before capacity calculations are performed.
+#
+# Estimated room requirements are calculated by adjusting peak census
+# values according to a user-defined target utilization rate, providing
+# a planning benchmark for treatment space allocation across acuity levels.
+#
+# Key planning metrics include:
+#   - Peak census by acuity
+#   - Growth-adjusted peak census
+#   - Estimated room need by acuity
+#   - Total ED peak census
+#   - Total ED room requirement
+#
+# This report supports:
+#   - ED capacity planning
+#   - Treatment room allocation analysis
+#   - Acuity-specific demand assessment
+#   - Space programming and facility planning
+#   - Operational capacity benchmarking
+#   - Growth forecasting and scenario planning
+#
+# Inputs :
+#   - ed_start_dtm            : ED arrival/start datetime
+#   - ed_stop_dtm             : ED departure/stop datetime
+#   - esi                     : Emergency Severity Index acuity level
+#   - start_date              : Reporting period start date/time
+#   - end_date                : Reporting period end date/time
+#   - variable_10_year_growth : Projected growth adjustment factor
+#   - utilization             : Target operational utilization rate
+#
+# Outputs :
+#   - PNG table displaying:
+#       * Acuity category
+#       * Peak census by acuity
+#       * Estimated room need by acuity
+#       * Grand total peak census
+#       * Grand total room need
+#
+#   - RDB records containing:
+#       * Peak census values by acuity
+#       * Room need values by acuity
+#       * Total ED benchmarks
+#
+# Key Metrics :
+#   - Peak census by ESI level
+#   - Growth-adjusted peak census
+#   - Room need by acuity
+#   - Total ED peak census
+#   - Total ED room requirement
+#   - Capacity utilization benchmark
+# =============================================================================
 
-[paste report, udf, or function here]
+import os
+import logging
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+from utils.vis_helpers import format_date_range, normalize_params
+
+VISUAL_ID = "vis_11"
+logger = logging.getLogger(__name__)
+
+
+def _safe_param(params, key, default, cast_type=None):
+    try:
+        val = params.get(key, default)
+        return cast_type(val) if cast_type else val
+    except Exception:
+        logger.warning(f"Invalid param for {key}; using default {default}")
+        return default
+
+
+def _generate_census(df, start_date, end_date):
+    """
+    Minimal vis_08-equivalent census generation.
+    Builds hourly time-series census from encounter windows.
+    """
+    try:
+        df = df.copy()
+
+        # =========================================================
+        # VALIDATION
+        # =========================================================
+        if not all(col in df.columns for col in ["ed_start_dtm", "ed_stop_dtm"]):
+            logging.error(f"[{VISUAL_ID}] Missing required columns")
+            return pd.DataFrame()
+
+        # =========================================================
+        # DATETIME PREP
+        # =========================================================
+        df["ed_start_dtm"] = pd.to_datetime(df["ed_start_dtm"], errors="coerce")
+        df["ed_stop_dtm"] = pd.to_datetime(df["ed_stop_dtm"], errors="coerce")
+
+        df = df.dropna(subset=["ed_start_dtm", "ed_stop_dtm"])
+
+        invalid_mask = df["ed_stop_dtm"] < df["ed_start_dtm"]
+        zero_mask = df["ed_stop_dtm"] == df["ed_start_dtm"]
+
+        df.loc[invalid_mask, "ed_stop_dtm"] = (
+            df.loc[invalid_mask, "ed_start_dtm"] + pd.Timedelta(minutes=1)
+        )
+        df.loc[zero_mask, "ed_stop_dtm"] = (
+            df.loc[zero_mask, "ed_start_dtm"] + pd.Timedelta(minutes=1)
+        )
+
+        if "encounter_id" in df.columns:
+            df = df.drop_duplicates(subset=["encounter_id"])
+
+        # =========================================================
+        # DATE RANGE
+        # =========================================================
+        start_date = pd.to_datetime(start_date)
+        end_date = pd.to_datetime(end_date)
+
+        if end_date.hour == 0 and end_date.minute == 0 and end_date.second == 0:
+            end_date = end_date + pd.Timedelta(days=1) - pd.Timedelta(minutes=1)
+
+        # =========================================================
+        # FILTER
+        # =========================================================
+        df = df[
+            (df["ed_start_dtm"] <= end_date) &
+            (df["ed_stop_dtm"] >= start_date)
+        ].copy()
+
+        if df.empty:
+            logging.warning(f"[{VISUAL_ID}] No data after filtering")
+            return
+
+        # =========================================================
+        # VISIT WINDOWS
+        # =========================================================
+        df["start"] = df["ed_start_dtm"]
+        df["end"] = df["ed_stop_dtm"]
+
+        df["end"] = df["end"].clip(lower=start_date, upper=end_date)
+        df["end"] = df["end"] + pd.Timedelta(minutes=1)
+
+        # =========================================================
+        # TIME GRID
+        # =========================================================
+        intervals = pd.date_range(start=start_date, end=end_date, freq="min")
+        base = pd.DataFrame({"interval": intervals})
+
+        # =========================================================
+        # EVENTS
+        # =========================================================
+        start_events = df[["start"]].rename(columns={"start": "interval"})
+        start_events["delta"] = 1
+
+        end_events = df[["end"]].rename(columns={"end": "interval"})
+        end_events["delta"] = -1
+
+        events = pd.concat([start_events, end_events])
+
+        events = events[
+            (events["interval"] >= start_date) &
+            (events["interval"] <= end_date)
+        ]
+
+        events = (
+            events.groupby("interval", as_index=False)["delta"]
+            .sum()
+            .sort_values("interval")
+        )
+
+        # =========================================================
+        # MERGE + CENSUS
+        # =========================================================
+        ts = base.merge(events, on="interval", how="left")
+        ts["delta"] = ts["delta"].fillna(0)
+
+        initial_count = df[
+            (df["ed_start_dtm"] < start_date) &
+            (df["ed_stop_dtm"] >= start_date)
+        ].shape[0]
+
+        ts["census"] = ts["delta"].cumsum()
+        ts["census"] += initial_count
+
+        ts["census"] = (
+            pd.to_numeric(ts["census"], errors="coerce")
+            .round()
+            .astype("Int64")
+        )
+
+        return ts
+
+    except Exception as e:
+        logger.error(f"Census generation failed: {e}")
+        return pd.DataFrame()
+    
+def run(df, params, start_date, end_date, output_dir, generate_output_name):
+    logger.info(f"[{VISUAL_ID}] Starting run")
+    params = normalize_params(params)
+
+    try:
+        if df is None or df.empty:
+            logger.warning("Input dataframe is empty")
+            return
+        
+        ESI_LABELS = {
+            0: "0-Unknown",
+            1: "1-Immediate",
+            2: "2-Emergent",
+            3: "3-Urgent",
+            4: "4-Less Urgent",
+            5: "5-Non-Urgent"
+        }
+
+        # =========================
+        # PARAMETERS
+        # =========================
+        utilization = _safe_param(params, "utilization", 0.85, float)
+        growth = _safe_param(params, "variable_10_year_growth", 0.0, float)
+        fig_width = _safe_param(params, "fig_width", 14, float)
+        fig_height = _safe_param(params, "fig_height", 7, float)
+        dpi = _safe_param(params, "dpi", 100, int)
+
+        if "esi" not in df.columns:
+            logger.error(f"[{VISUAL_ID}] Missing required column: esi")
+            return
+
+        df["esi"] = pd.to_numeric(df["esi"], errors="coerce")
+        df["esi"] = df["esi"].fillna(0).astype(int)
+        df["acuity_name"] = df["esi"].map(ESI_LABELS).fillna("0-Unknown")
+
+        results = []
+
+        for esi_value, group_df in df.groupby("acuity_name"):
+
+            ts = _generate_census(
+                group_df,
+                start_date,
+                end_date
+            )
+
+            if ts is None or ts.empty:
+                continue
+
+            ts["interval"] = pd.to_datetime(ts["interval"])
+
+            ts["adj_census"] = ts["census"] * (1 + growth)
+
+            ts["hour"] = ts["interval"].dt.hour
+
+            hourly = (
+                ts.groupby("hour")["adj_census"]
+                .mean()
+                .reindex(range(24), fill_value=0)
+                .reset_index()
+            )
+
+            peak_census = hourly["adj_census"].max()
+
+            room_need = (
+                peak_census / utilization
+                if utilization > 0
+                else peak_census
+            )
+
+            results.append({
+                "acuity_name": esi_value,
+                "peak_census": peak_census,
+                "room_need": room_need
+            })
+
+        ts_total = _generate_census(
+            df,
+            start_date,
+            end_date
+        )
+
+        ts_total["adj_census"] = (
+            ts_total["census"] * (1 + growth)
+        )
+
+        ts_total["hour"] = ts_total["interval"].dt.hour
+
+        hourly_total = (
+            ts_total.groupby("hour")["adj_census"]
+            .mean()
+            .reset_index()
+        )
+
+        grand_peak = hourly_total["adj_census"].max()
+
+        grand_room_need = (
+            grand_peak / utilization
+            if utilization > 0
+            else grand_peak
+        )
+
+        results.append({
+            "acuity_name": "Grand Total",
+            "peak_census": grand_peak,
+            "room_need": grand_room_need
+        })
+
+        table_df = pd.DataFrame(results)
+
+        sort_order = {
+            "0-Unknown": 0,
+            "1-Immediate": 1,
+            "2-Emergent": 2,
+            "3-Urgent": 3,
+            "4-Less Urgent": 4,
+            "5-Non-Urgent": 5,
+            "Grand Total": 99
+        }
+
+        table_df["sort"] = table_df["acuity_name"].map(sort_order)
+
+        table_df = (
+            table_df
+            .sort_values("sort")
+            .drop(columns="sort")
+        )
+
+        fig, ax = plt.subplots(figsize=(fig_width, fig_height), dpi=dpi)
+
+        ax.axis("off")
+
+        display_df = table_df.copy()
+
+        display_df["peak_census"] = (
+            display_df["peak_census"]
+            .round(1)
+        )
+
+        display_df["room_need"] = (
+            display_df["room_need"]
+            .round(1)
+        )
+
+        col_widths = [
+            float(params.get("table_col_width_acuity", 0.40)),
+            float(params.get("table_col_width_peak", 0.25)),
+            float(params.get("table_col_width_room", 0.25))
+        ]
+
+        tbl = ax.table(
+            cellText=display_df.values,
+            colLabels=[
+                "Acuity Name",
+                "ED Peak Census",
+                "ED Room Need"
+            ],
+            colWidths=col_widths,
+            loc="center"
+        )
+
+        tbl.auto_set_font_size(False)
+        tbl.set_fontsize(
+            int(params.get("table_font_size", 10))
+        )
+        tbl.scale(
+            float(params.get("table_scale_x", 1.2)),
+            float(params.get("table_scale_y", 1.5))
+        )
+
+        font_family = params.get(
+            "table_font_family",
+            "Arial"
+        )
+
+        for cell in tbl.get_celld().values():
+            cell.get_text().set_fontfamily(font_family)
+
+        header_color = params.get(
+            "table_header_color",
+            "#e8e8e8"
+        )
+
+        header_font_size = int(
+            params.get(
+                "table_header_font_size",
+                12
+            )
+        )
+
+        for col in range(len(display_df.columns)):
+
+            cell = tbl[(0, col)]
+
+            cell.set_facecolor(header_color)
+
+            cell.get_text().set_weight("bold")
+
+            cell.get_text().set_fontsize(
+                header_font_size
+            )
+
+        band_color = params.get(
+            "table_band_color",
+            "#f2f2f2"
+        )
+
+        grand_total_row = len(display_df)
+
+        for row in range(1, grand_total_row):
+
+            if row % 2 == 1:
+
+                for col in range(len(display_df.columns)):
+
+                    tbl[(row, col)].set_facecolor(
+                        band_color
+                    )
+
+        grand_total_color = params.get(
+            "table_grand_total_color",
+            "#e6e6e6"
+        )
+
+        grand_total_row = len(display_df)
+
+        for col in range(len(display_df.columns)):
+
+            cell = tbl[(grand_total_row, col)]
+
+            cell.set_facecolor(grand_total_color)
+
+            cell.set_linewidth(1.0)
+
+            cell.get_text().set_weight("bold")
+
+        tbl[(0, 0)].get_text().set_ha("left")
+
+        tbl[(0, 1)].get_text().set_ha("right")
+
+        tbl[(0, 2)].get_text().set_ha("right")
+
+        for row in range(1, len(display_df) + 1):
+
+            tbl[(row, 0)].get_text().set_ha("left")
+
+            tbl[(row, 1)].get_text().set_ha("right")
+
+            tbl[(row, 2)].get_text().set_ha("right")
+
+        border_color = params.get(
+            "table_border_color",
+            "#cccccc"
+        )
+
+        border_width = float(
+            params.get(
+                "table_border_width",
+                0.4
+            )
+        )
+
+        grand_total_border_width = float(
+            params.get(
+                "table_grand_total_border_width",
+                1.0
+            )
+        )
+
+        for cell in tbl.get_celld().values():
+
+            cell.set_edgecolor(border_color)
+
+            cell.set_linewidth(border_width)
+
+        output_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=VISUAL_ID,
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
+        )
+
+        plt.tight_layout(pad=0.25)
+        plt.savefig(output_file, bbox_inches="tight")
+        plt.close()
+
+        # =========================
+        # RDB OUTPUT
+        # =========================
+        write_rdb = int(params.get("write_rdb", 0))
+        rdb_rows = []
+
+        if write_rdb == 1:
+
+            report_title = "ED Peak Census and Room Need by Acuity"
+
+            for _, row in table_df.iterrows():
+
+                # Peak Census
+                rdb_rows.append({
+                    "run_id": params.get("run_id"),
+                    "visual_id": VISUAL_ID,
+                    "client_name": params.get("client_name"),
+
+                    "domain": params.get("domain"),
+                    "cohort_id": params.get("cohort_id"),
+
+                    "domain_cohort":
+                        f"{params.get('domain')}.{params.get('cohort_id')}",
+
+                    "dimension": "acuity",
+                    "dimension_value": row["acuity_name"],
+                    "dimension_value_label": row["acuity_name"],
+
+                    "secondary_dimension": None,
+                    "secondary_dimension_value": None,
+
+                    "metric": "peak_census",
+                    "metric_type": "value",
+                    "value": float(row["peak_census"]),
+
+                    "start_date": start_date,
+                    "end_date": end_date,
+
+                    "report_title": report_title
+                })
+
+                # Room Need
+                rdb_rows.append({
+                    "run_id": params.get("run_id"),
+                    "visual_id": VISUAL_ID,
+                    "client_name": params.get("client_name"),
+
+                    "domain": params.get("domain"),
+                    "cohort_id": params.get("cohort_id"),
+
+                    "domain_cohort":
+                        f"{params.get('domain')}.{params.get('cohort_id')}",
+
+                    "dimension": "acuity",
+                    "dimension_value": row["acuity_name"],
+                    "dimension_value_label": row["acuity_name"],
+
+                    "secondary_dimension": None,
+                    "secondary_dimension_value": None,
+
+                    "metric": "room_need",
+                    "metric_type": "value",
+                    "value": float(row["room_need"]),
+
+                    "start_date": start_date,
+                    "end_date": end_date,
+
+                    "report_title": report_title
+                })
+
+        logger.info(f"[{VISUAL_ID}] Output saved to {output_file}")
+
+        return {
+            "output_path": output_file,
+            "rdb": rdb_rows
+        }
+
+    except Exception as e:
+            logger.error(f"[{VISUAL_ID}] Execution failed: {e}")
+
+
+
+The problem I'm experiencing is:
+See the below terminal output, it does not appear vis 11 respected the contract with main.py, or perhaps another issue:
+& C:\Users\medwards\.conda\sbx-data-vis\python.exe c:/lwf/sbx-data-vis/code/main.py
+INFO:root:Generated processing driver with 21 rows
+INFO:root:Saved processing driver: C:\lwf\sbx-data-vis\data\runs\run_20260715_160028\processing_driver.csv
+INFO:root:Processing driver generated successfully.
+INFO:root:Created backup: C:\lwf\sbx-data-vis\data\input\params\processing_driver.csv.run_20260715_160028.bak
+INFO:root:Copied processing driver to: C:\lwf\sbx-data-vis\data\input\params\processing_driver.csv
+INFO:root:Updated input/params/processing_driver.csv
+(C:\Users\medwards\.conda\sbx-data-vis) PS C:\lwf\sbx-data-vis> 
+(C:\Users\medwards\.conda\sbx-data-vis) PS C:\lwf\sbx-data-vis> $env:PROCESSING_MODE="full_reports"
+(C:\Users\medwards\.conda\sbx-data-vis) PS C:\lwf\sbx-data-vis> & C:\Users\medwards\.conda\sbx-data-vis\python.exe c:/lwf/sbx-data-vis/code/main.py
+INFO:root:Loading visual driver
+INFO:root:Using processing driver: C:\lwf\sbx-data-vis\data\input\params\processing_driver.csv
+INFO:root:Starting domain: inpatient
+INFO:root:No processing requests for domain inpatient; skipping.
+INFO:root:Starting domain: surgery
+INFO:root:No processing requests for domain surgery; skipping.
+INFO:root:Starting domain: emergency
+INFO:root:Loading data
+INFO:root:[loader] FINAL cohort_id: ed.ed.non_psych
+INFO:root:[loader] DATA: {'group': 'ed', 'name': 'ed.non_psych', 'filter': 'psych_patient_flag == "No"', 'description': 'Non-Psych ED encounters', 'domain': 'ed', 'cohort_file': 'ed_cohort_gen.singlefile.psych.nonpsych.ps1'}
+INFO:root:[loader] FINAL cohort_id: ed.save.ed.psych
+INFO:root:[loader] DATA: {'group': 'ed.save', 'name': 'ed.psych', 'filter': 'psych_patient_flag == "Yes"', 'description': 'Psych ED encounters', 'domain': 'ed.save', 'cohort_file': 'ed_cohort_gen.singlefile.psych.nonpsych.ps1'}
+INFO:root:[loader] FINAL cohort_id: ed.save.ed.non_psych
+INFO:root:[loader] DATA: {'group': 'ed.save', 'name': 'ed.non_psych', 'filter': 'psych_patient_flag == "No"', 'description': 'Non-Psych ED encounters', 'domain': 'ed.save', 'cohort_file': 'ed_cohort_gen.singlefile.psych.nonpsych.ps1'}
+INFO:root:Loaded 3 cohorts
+INFO:root:[main] Loaded cohort keys:
+INFO:root:[main] - ed.ed.non_psych
+INFO:root:[main] - ed.save.ed.psych
+INFO:root:[main] - ed.save.ed.non_psych
+INFO:root:apply_filter: rows 233096 → 227477 | filter: psych_patient_flag == "No"
+INFO:root:[main] Injecting cohort_desc: Non-Psych ED encounters
+INFO:root:Running vis_01_ed_hourly_arrivals
+INFO:root:vis_01 legend written: C:\lwf\sbx-data-vis\data\runs\run_20260715_160029\outputs\ed.ed.non_psych\vis_01_legend__ed_ed_non_psych__1-1-2025_to_12-31-2025.png
+INFO:root:vis_01 output written: C:\lwf\sbx-data-vis\data\runs\run_20260715_160029\outputs\ed.ed.non_psych\vis_01__ed_ed_non_psych__1-1-2025_to_12-31-2025.png
+INFO:root:[main] Injecting cohort_desc: Non-Psych ED encounters
+INFO:root:Starting vis_02: Length of Stay Distribution
+INFO:root:vis_02 saved to C:\lwf\sbx-data-vis\data\runs\run_20260715_160029\outputs\ed.ed.non_psych\vis_02__ed_ed_non_psych__1-1-2025_to_12-31-2025.png
+INFO:root:[main] Injecting cohort_desc: Non-Psych ED encounters
+INFO:root:[vis_03] Starting visualization
+INFO:matplotlib.category:Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+INFO:matplotlib.category:Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+INFO:root:[vis_03] Output saved: C:\lwf\sbx-data-vis\data\runs\run_20260715_160029\outputs\ed.ed.non_psych\vis_03__ed_ed_non_psych__1-1-2023_to_12-31-2025.png
+INFO:root:[vis_03] Generated 3 RDB rows
+INFO:root:[main] Injecting cohort_desc: Non-Psych ED encounters
+INFO:root:[vis_04] Starting visualization
+INFO:root:[vis_04] Saved output to C:\lwf\sbx-data-vis\data\runs\run_20260715_160029\outputs\ed.ed.non_psych\vis_04__ed_ed_non_psych__1-1-2025_to_12-31-2025.png
+INFO:root:[main] Injecting cohort_desc: Non-Psych ED encounters
+INFO:root:Starting vis_05
+INFO:root:vis_05: Saved output to C:\lwf\sbx-data-vis\data\runs\run_20260715_160029\outputs\ed.ed.non_psych\vis_05__ed_ed_non_psych__1-1-2025_to_12-31-2025.png
+INFO:root:[main] Injecting cohort_desc: Non-Psych ED encounters
+INFO:root:Starting vis_06
+INFO:matplotlib.category:Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+INFO:matplotlib.category:Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
+INFO:root:vis_06 saved to C:\lwf\sbx-data-vis\data\runs\run_20260715_160029\outputs\ed.ed.non_psych\vis_06__ed_ed_non_psych__1-1-2025_to_12-31-2025.png
+INFO:root:[main] Injecting cohort_desc: Non-Psych ED encounters
+INFO:root:Starting vis_07
+INFO:root:vis_07: Saved to C:\lwf\sbx-data-vis\data\runs\run_20260715_160029\outputs\ed.ed.non_psych\vis_07__ed_ed_non_psych__1-1-2025_to_12-31-2025.png
+INFO:root:[main] Injecting cohort_desc: Non-Psych ED encounters
+INFO:root:[vis_08] Starting census generation
+INFO:root:[vis_08] Outputs saved: CSV and PNG
+INFO:root:[main] Injecting cohort_desc: Non-Psych ED encounters
+INFO:visuals.vis_09:[vis_09] Starting execution
+INFO:choreographer.browsers.chromium:Chromium init'ed with kwargs {}
+INFO:choreographer.browsers.chromium:Found chromium path: C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe
+INFO:choreographer.utils._tmpfile:Temp directory created: C:\Users\medwards\AppData\Local\Temp\tmphz1q74ho.
+INFO:choreographer.browser_async:Opening browser.
+INFO:choreographer.utils._tmpfile:Temp directory created: C:\Users\medwards\AppData\Local\Temp\tmpgbrp39ct.
+INFO:choreographer.browsers.chromium:Temporary directory at: C:\Users\medwards\AppData\Local\Temp\tmpgbrp39ct
+INFO:kaleido.kaleido:Conforming 1 to file:///C:/Users/medwards/AppData/Local/Temp/tmphz1q74ho/index.html
+INFO:kaleido.kaleido:Getting tab from queue (has 1)
+INFO:kaleido.kaleido:Got 78BF
+INFO:kaleido.kaleido:Reloading tab 78BF before return.
+INFO:kaleido.kaleido:Putting tab 78BF back (queue size: 0).
+INFO:kaleido.kaleido:Waiting for all cleanups to finish.
+INFO:kaleido.kaleido:Exiting Kaleido.
+INFO:choreographer.utils._tmpfile:TemporaryDirectory.cleanup() worked.
+INFO:choreographer.utils._tmpfile:shutil.rmtree worked.
+INFO:choreographer.browser_async:Closing browser.
+INFO:choreographer.utils._tmpfile:TemporaryDirectory.cleanup() worked.
+INFO:choreographer.utils._tmpfile:shutil.rmtree worked.
+INFO:choreographer.browser_async:Closing browser.
+INFO:kaleido.kaleido:Cancelling tasks.
+INFO:kaleido.kaleido:Exiting Kaleido/Choreo.
+INFO:choreographer.utils._tmpfile:TemporaryDirectory.cleanup() worked.
+INFO:choreographer.utils._tmpfile:shutil.rmtree worked.
+INFO:kaleido.kaleido:Cancelling tasks.
+INFO:kaleido.kaleido:Exiting Kaleido/Choreo.
+INFO:visuals.vis_09:[vis_09] Output saved to C:\lwf\sbx-data-vis\data\runs\run_20260715_160029\outputs\ed.ed.non_psych\vis_09__ed_ed_non_psych__1-1-2025_to_12-31-2025.png
+INFO:root:[main] Injecting cohort_desc: Non-Psych ED encounters
+INFO:visuals.vis_10:[vis_10] Starting run
+INFO:choreographer.utils._tmpfile:TemporaryDirectory.cleanup() worked.
+INFO:choreographer.utils._tmpfile:shutil.rmtree worked.
+INFO:visuals.vis_10:[vis_10] Capacity Metrics | Peak Census: 51.21 | Room Need: 68.28 | Utilization: 0.75
+INFO:visuals.vis_10:[vis_10] Output saved to C:\lwf\sbx-data-vis\data\runs\run_20260715_160029\outputs\ed.ed.non_psych\vis_10__ed_ed_non_psych__2025-01-01_00-00-00_to_2025-12-31_00-00-00.png
+INFO:visuals.vis_10:[vis_10] Parameter table saved to C:\lwf\sbx-data-vis\data\runs\run_20260715_160029\outputs\ed.ed.non_psych\vis_10_parameters__ed_ed_non_psych__2025-01-01_00-00-00_to_2025-12-31_00-00-00.png
+INFO:root:[main] Injecting cohort_desc: Non-Psych ED encounters
+INFO:visuals.vis_11:[vis_11] Starting run
+ERROR:visuals.vis_11:[vis_11] Execution failed: int() argument must be a string, a bytes-like object or a real number, not 'NoneType'
+INFO:root:[main] Injecting cohort_desc: Non-Psych ED encounters
+INFO:root:Running vis_12_ed_geo_catchment
+INFO:root:vis_12 output written: C:\lwf\sbx-data-vis\data\runs\run_20260715_160029\outputs\ed.ed.non_psych\vis_12__ed_ed_non_psych__1-1-2025_to_12-31-2025.png
+INFO:root:[main] Injecting cohort_desc: Non-Psych ED encounters
+INFO:visuals.vis_13:[vis_13] Starting execution
+INFO:visuals.vis_13:[vis_13] Complete
+INFO:root:[main] Injecting cohort_desc: Non-Psych ED encounters
+INFO:visuals.vis_14:[vis_14] Starting run
+INFO:visuals.vis_14:ESI 1 multiplier=1.00 current_rows=5,299 scenario_rows=5,299
+INFO:visuals.vis_14:ESI 2 multiplier=1.00 current_rows=47,652 scenario_rows=47,652
+INFO:visuals.vis_14:ESI 3 multiplier=0.95 current_rows=130,866 scenario_rows=124,323
+INFO:visuals.vis_14:ESI 4 multiplier=0.85 current_rows=37,565 scenario_rows=31,930
+INFO:visuals.vis_14:ESI 5 multiplier=0.80 current_rows=3,989 scenario_rows=3,191
+INFO:visuals.vis_14:Census Totals | Current=39.35 | Scenario=37.57 | Difference=-1.78
+INFO:visuals.vis_14:Current encounters: 227,477
+INFO:visuals.vis_14:Scenario encounters: 212,395
+INFO:visuals.vis_14:Peak Census | Current=86.00 | Scenario=82.00
+INFO:visuals.vis_14:Room Need | Current=114.67 | Scenario=109.33 | Utilization=75.00%
+INFO:visuals.vis_14:[vis_14] Parameter table saved to C:\lwf\sbx-data-vis\data\runs\run_20260715_160029\outputs\ed.ed.non_psych\vis_14_parameters__ed_ed_non_psych__1-1-2025_to_12-31-2025.png
+INFO:visuals.vis_14:[vis_14] Exec Summary Table saved to C:\lwf\sbx-data-vis\data\runs\run_20260715_160029\outputs\ed.ed.non_psych\vis_14_summary__ed_ed_non_psych__1-1-2025_to_12-31-2025.png
+INFO:visuals.vis_14:[vis_14] Scenario table saved to C:\lwf\sbx-data-vis\data\runs\run_20260715_160029\outputs\ed.ed.non_psych\vis_14__ed_ed_non_psych__1-1-2025_to_12-31-2025.png
+INFO:root:[main] Injecting cohort_desc: Non-Psych ED encounters
+INFO:visuals.vis_15:[vis_15] Starting run
+WARNING:visuals.vis_15:Parameter image generation failed: save_parameter_table_png() got an unexpected keyword argument 'visual_id'
+WARNING:visuals.vis_15:Legend generation failed: save_legend_png() got an unexpected keyword argument 'legend_items'
+INFO:visuals.vis_15:[vis_15] Output saved to C:\lwf\sbx-data-vis\data\runs\run_20260715_160029\outputs\ed.ed.non_psych\vis_15__ed_ed_non_psych__1-1-2025_to_12-31-2025.png
+INFO:root:[main] Injecting cohort_desc: Non-Psych ED encounters
+INFO:visuals.vis_16:[vis_16] Starting execution
+C:\Users\medwards\.conda\sbx-data-vis\Lib\site-packages\mapclassify\classifiers.py:1767: UserWarning: Not enough unique values in array to form 5 classes. Setting k to 4.
+  self.bins = quantile(y, k=k)
+INFO:visuals.vis_16:[vis_16] Complete
+INFO:root:[main] Injecting cohort_desc: Non-Psych ED encounters
+INFO:visuals.vis_17:[vis_17] Starting execution
+INFO:visuals.vis_17:[vis_17] Complete
+INFO:root:[main] Injecting cohort_desc: Non-Psych ED encounters
+INFO:visuals.vis_18:[vis_18] Starting execution
+INFO:visuals.vis_18:[vis_18] Complete
+INFO:root:[main] Injecting cohort_desc: Non-Psych ED encounters
+INFO:visuals.vis_19:[vis_19] Starting execution
+INFO:visuals.vis_19:[vis_19] Complete
+INFO:root:[main] Injecting cohort_desc: Non-Psych ED encounters
+INFO:visuals.vis_20:[vis_20] Starting execution
+INFO:choreographer.browsers.chromium:Chromium init'ed with kwargs {}
+INFO:choreographer.browsers.chromium:Found chromium path: C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe
+INFO:choreographer.utils._tmpfile:Temp directory created: C:\Users\medwards\AppData\Local\Temp\tmp2efjtvf7.
+INFO:choreographer.browser_async:Opening browser.
+INFO:choreographer.utils._tmpfile:Temp directory created: C:\Users\medwards\AppData\Local\Temp\tmpx9ay0rov.
+INFO:choreographer.browsers.chromium:Temporary directory at: C:\Users\medwards\AppData\Local\Temp\tmpx9ay0rov
+INFO:kaleido.kaleido:Conforming 1 to file:///C:/Users/medwards/AppData/Local/Temp/tmp2efjtvf7/index.html
+INFO:kaleido.kaleido:Getting tab from queue (has 1)
+INFO:kaleido.kaleido:Got 7C5F
+INFO:kaleido.kaleido:Reloading tab 7C5F before return.
+INFO:kaleido.kaleido:Putting tab 7C5F back (queue size: 0).
+INFO:kaleido.kaleido:Waiting for all cleanups to finish.
+INFO:kaleido.kaleido:Exiting Kaleido.
+INFO:choreographer.utils._tmpfile:TemporaryDirectory.cleanup() worked.
+INFO:choreographer.utils._tmpfile:shutil.rmtree worked.
+INFO:choreographer.browser_async:Closing browser.
+INFO:choreographer.utils._tmpfile:TemporaryDirectory.cleanup() worked.
+INFO:choreographer.utils._tmpfile:shutil.rmtree worked.
+INFO:choreographer.browser_async:Closing browser.
+INFO:kaleido.kaleido:Cancelling tasks.
+INFO:kaleido.kaleido:Exiting Kaleido/Choreo.
+INFO:choreographer.utils._tmpfile:TemporaryDirectory.cleanup() worked.
+INFO:choreographer.utils._tmpfile:shutil.rmtree worked.
+INFO:kaleido.kaleido:Cancelling tasks.
+INFO:kaleido.kaleido:Exiting Kaleido/Choreo.
+INFO:choreographer.utils._tmpfile:TemporaryDirectory.cleanup() worked.
+INFO:choreographer.utils._tmpfile:shutil.rmtree worked.
+INFO:choreographer.browsers.chromium:Chromium init'ed with kwargs {}
+INFO:choreographer.browsers.chromium:Found chromium path: C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe
+INFO:choreographer.utils._tmpfile:Temp directory created: C:\Users\medwards\AppData\Local\Temp\tmpxror0r62.
+INFO:choreographer.browser_async:Opening browser.
+INFO:choreographer.utils._tmpfile:Temp directory created: C:\Users\medwards\AppData\Local\Temp\tmp0nhrant4.
+INFO:choreographer.browsers.chromium:Temporary directory at: C:\Users\medwards\AppData\Local\Temp\tmp0nhrant4
+INFO:kaleido.kaleido:Conforming 1 to file:///C:/Users/medwards/AppData/Local/Temp/tmpxror0r62/index.html
+INFO:kaleido.kaleido:Getting tab from queue (has 1)
+INFO:kaleido.kaleido:Got 858F
+INFO:kaleido.kaleido:Reloading tab 858F before return.
+INFO:kaleido.kaleido:Putting tab 858F back (queue size: 0).
+INFO:kaleido.kaleido:Waiting for all cleanups to finish.
+INFO:kaleido.kaleido:Exiting Kaleido.
+INFO:choreographer.utils._tmpfile:TemporaryDirectory.cleanup() worked.
+INFO:choreographer.utils._tmpfile:shutil.rmtree worked.
+INFO:choreographer.browser_async:Closing browser.
+INFO:choreographer.utils._tmpfile:TemporaryDirectory.cleanup() worked.
+INFO:choreographer.utils._tmpfile:shutil.rmtree worked.
+INFO:choreographer.browser_async:Closing browser.
+INFO:kaleido.kaleido:Cancelling tasks.
+INFO:kaleido.kaleido:Exiting Kaleido/Choreo.
+INFO:choreographer.utils._tmpfile:TemporaryDirectory.cleanup() worked.
+INFO:choreographer.utils._tmpfile:shutil.rmtree worked.
+INFO:kaleido.kaleido:Cancelling tasks.
+INFO:kaleido.kaleido:Exiting Kaleido/Choreo.
+INFO:visuals.vis_20:[vis_20] Complete
+INFO:choreographer.utils._tmpfile:TemporaryDirectory.cleanup() worked.
+INFO:choreographer.utils._tmpfile:shutil.rmtree worked.
+INFO:root:[main] Injecting cohort_desc: Non-Psych ED encounters
+INFO:visuals.tbl_03:[tbl_03] Starting execution
+INFO:visuals.tbl_03:[tbl_03] Columns:
+INFO:visuals.tbl_03:['patient_id', 'encounter_id', 'visit_dtm', 'triage_start_dtm', 'triage_stop_dtm', 'ed_start_dtm', 'ed_stop_dtm', 'boarding_start_dtm', 'boarding_end_dtm', 'patient_type', 'patient_age', 'patient_gender', 'patient_zipcode', 'fast_track_patient_flag', 'psych_patient_flag', 'isolation_patient_flag', 'trauma_level', 'esi', 'acuity_level', 'arrival_method', 'facility_id', 'facility_name', 'er_room', 'principal_diagnosis', 'principal_procedure', 'secondary_procedure_1', 'secondary_procedure_2', 'secondary_procedure_3', 'secondary_procedure_4', 'secondary_procedure_5', 'disch_disp_code', 'disch_disp_desc', 'acuity_name']
+
 
 Please analyze the implementation in the context of the attached framework and identify:
 

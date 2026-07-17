@@ -6,7 +6,7 @@ param,value
 figure_width,14
 figure_height,6
 dpi,150
-
+font_family,Segoe UI
 # =========================
 # TITLE / LABELS
 # =========================

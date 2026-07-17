@@ -8,7 +8,7 @@ fig_height,1600,Height in pixels
 
 ### ===== FONT CONTROL =====
 
-font_family,Arial,Global font family
+font_family,Segoe UI,Global font family
 node_font_size,14,Node label font size
 title_font_size,22,Title font size
 title_x,0.01,Title horizontal alignment

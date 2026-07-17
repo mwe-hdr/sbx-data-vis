@@ -103,6 +103,9 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     if params:
         for k, v in params.items():
             p[k] = v
+    font_family = str(
+        p.get("font_family", "Segoe UI")
+    ).strip()
 
     # =========================
     # PARAM HELPERS
@@ -304,23 +307,31 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     # PLOT
     # =========================
     try:
+        plt.rcParams["font.family"] = font_family
+
         fig, ax = plt.subplots(
             figsize=(float(p["fig_width"]), float(p["fig_height"])),
             dpi=int(p["dpi"])
         )
 
-        ax.pie(
+        wedges, texts = ax.pie(
             counts["percent"],
             labels=labels,
             colors=colors,
             startangle=90,
         )
 
+        for text in texts:
+            text.set_fontfamily(font_family)
+
         ax.axis("equal")
 
         # title
         date_str = format_date_range(start_date, end_date)
-        ax.set_title(f"Encounters by Arrival Type {date_str}")
+        ax.set_title(
+            f"Encounters by Arrival Type {date_str}",
+            fontfamily=font_family
+        )
 
         # =========================
         # SAVE OUTPUT

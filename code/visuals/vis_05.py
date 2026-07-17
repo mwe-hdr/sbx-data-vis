@@ -110,7 +110,9 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         cfg = {k: params.get(k, v) for k, v in defaults.items()}
     except Exception:
         cfg = defaults
-
+    font_family = str(
+        params.get("font_family", "Segoe UI")
+    ).strip()
     # =========================
     # VALIDATION
     # =========================
@@ -243,6 +245,8 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     # PLOTTING
     # =========================
     try:
+        plt.rcParams["font.family"] = font_family
+
         fig, ax = plt.subplots(
             figsize=(float(cfg["fig_width"]), float(cfg["fig_height"])),
             dpi=int(cfg["dpi"])
@@ -272,11 +276,20 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         date_range_str = format_date_range(start_date, end_date)
         ax.set_title(
             f"{cfg['title']} {date_range_str}",
-            fontsize=int(cfg["title_fontsize"])
+            fontsize=int(cfg["title_fontsize"]),
+            fontfamily=font_family
         )
 
-        ax.set_xlabel("Month", fontsize=int(cfg["axis_fontsize"]))
-        ax.set_ylabel("Number of Arrivals", fontsize=int(cfg["axis_fontsize"]))
+        ax.set_xlabel(
+            "Month",
+            fontsize=int(cfg["axis_fontsize"]),
+            fontfamily=font_family
+        )
+        ax.set_ylabel(
+            "Number of Arrivals",
+            fontsize=int(cfg["axis_fontsize"]),
+            fontfamily=font_family
+        )
 
         # Y-axis formatting
         if cfg["y_axis_separator"]:
@@ -309,13 +322,18 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                         format_number(y.iloc[i]),
                         fontsize=int(cfg["label_fontsize"]),
                         ha="center",
-                        va="bottom"
+                        va="bottom",
+                        fontfamily=font_family
                     )
             except Exception as e:
                 logging.warning(f"{VISUAL_ID}: Label rendering failed - {str(e)}")
 
         plt.tight_layout()
+        for tick in ax.get_xticklabels():
+            tick.set_fontfamily(font_family)
 
+        for tick in ax.get_yticklabels():
+            tick.set_fontfamily(font_family)
         # =========================
         # SAVE OUTPUT
         # =========================

@@ -19,3 +19,5 @@ color_ambulance,#1f77b4,Ambulance
 color_car,#ff7f0e,Car
 color_wheelchair,#d62728,Wheelchair
 color_other,#7f7f7f,Other
+
+font_family,Segoe UI,Global font family
