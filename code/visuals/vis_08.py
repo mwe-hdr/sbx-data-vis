@@ -60,7 +60,8 @@ from utils.vis_helpers import (
     save_legend_png,
     format_display_value,
     get_display_parameters,
-    save_parameter_table_png
+    save_parameter_table_png,
+    save_title_png
 )
 VISUAL_ID = "vis_08"
 
@@ -247,6 +248,124 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             figsize=(figure_width, figure_height)
         )
 
+        title_height = float(
+            params.get("title_height", 0.6) or 0.6
+        )
+
+        title_width = float(
+            params.get("title_width", 6.25) or 6.25
+        )
+
+        subtitle_fontsize = int(
+            params.get("subtitle_fontsize", 12) or 12
+        )
+
+        title_background_color = str(
+            params.get(
+                "title_background_color",
+                "#d9d9d9"
+            )
+        )
+
+        title_weight = str(
+            params.get(
+                "title_weight",
+                "bold"
+            )
+        )
+
+        tick_fontsize = _get_float(
+            params,
+            "tick_fontsize",
+            10
+        )
+
+        legend_fontsize = _get_float(
+            params,
+            "legend_fontsize",
+            10
+        )
+
+        dpi = _get_float(
+            params,
+            "dpi",
+            300
+        )
+
+        legend_width = _get_float(
+            params,
+            "legend_width",
+            10
+        )
+
+        legend_height = _get_float(
+            params,
+            "legend_height",
+            10
+        )
+
+        line_width = _get_float(
+        params,
+        "line_width",
+        0.8
+        )
+
+        capacity_linestyle = _get_str(
+            params,
+            "capacity_linestyle",
+            "--"
+        )
+
+        capacity_linewidth = _get_float(
+            params,
+            "capacity_linewidth",
+            1.5
+        )
+
+        avg_linestyle = _get_str(
+            params,
+            "avg_linestyle",
+            ":"
+        )
+
+        avg_linewidth = _get_float(
+            params,
+            "avg_linewidth",
+            1.5
+        )
+
+        avg_line_color = _get_str(
+            params,
+            "avg_line_color",
+            "black"
+        )
+
+        y_axis_mode = _get_str(
+            params,
+            "y_axis_mode",
+            "count"
+        )
+
+        y_axis_decimals = int(
+            _get_float(
+                params,
+                "y_axis_decimals",
+                0
+            )
+        )
+
+        y_axis_multiplier = _get_float(
+            params,
+            "y_axis_multiplier",
+            1
+        )
+
+        y_axis_suffix = _get_str(
+            params,
+            "y_axis_suffix",
+            ""
+        )
+
         # -----------------------------------------------------
         # THRESHOLD LOGIC 
         # -----------------------------------------------------
@@ -262,42 +381,54 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # -----------------------------------------------------
         # MAIN LINE 
         # -----------------------------------------------------
-        plt.plot(
+        below_line, = plt.plot(
             ts["interval"],
             ts["census"].where(below),
             color=below_color,
-            linewidth=0.8,
+            linewidth=line_width,
             label=f"Census (≤{int(capacity_threshold_pct*100)}%)"
         )
 
-        plt.plot(
-            ts["interval"],
-            ts["census"].where(above),
-            color=above_color,
-            linewidth=0.8,
-            label=f"Census (>{int(capacity_threshold_pct*100)}%)"
-        )
+        above_line = None
+
+        if capacity_value is not None:
+
+            above_line, = plt.plot(
+                ts["interval"],
+                ts["census"].where(above),
+                color=above_color,
+                linewidth=line_width,
+                label=f"Census (>{int(capacity_threshold_pct*100)}%)"
+            )
 
         # -----------------------------------------------------
         # CAPACITY LINE
         # -----------------------------------------------------
         if capacity_value is not None:
-            plt.axhline(
-                y=capacity_value,
-                linestyle="--",
-                linewidth=1.5,
-                label=f"Capacity ({capacity_value})"
-            )
+            capacity_line = None
 
+            if capacity_value is not None:
+
+                capacity_line = plt.axhline(
+                    y=capacity_value,
+                    linestyle=capacity_linestyle,
+                    linewidth=capacity_linewidth,
+                    label=f"Capacity ({capacity_value})"
+                )
         # -----------------------------------------------------
         # AVERAGE LINE
         # -----------------------------------------------------
+        avg_line = None
+
         if include_avg_line:
+
             avg_census = ts["census"].mean()
-            plt.axhline(
+
+            avg_line = plt.axhline(
                 y=avg_census,
-                linestyle=":",
-                linewidth=1.5,
+                color=avg_line_color,
+                linestyle=avg_linestyle,
+                linewidth=avg_linewidth,
                 label=f"Average ({round(avg_census,1)})"
             )
 
@@ -314,11 +445,6 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             12
         )
 
-        plt.title(
-            chart_title,
-            fontsize=title_fontsize,
-            fontfamily=font_family
-        )
         x_label = _get_str(
             params,
             "x_label",
@@ -342,22 +468,18 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             fontfamily=font_family
         )
 
-        tick_fontsize = _get_float(
-            params,
-            "tick_fontsize",
-            10
-        )
-
-        legend_fontsize = _get_float(
-            params,
-            "legend_fontsize",
-            10
-        )
-
         # Improve x-axis readability
         plt.gcf().autofmt_xdate()
 
         ax = plt.gca()
+
+        apply_yaxis_format(
+            ax,
+            mode=y_axis_mode,
+            decimals=y_axis_decimals,
+            multiplier=y_axis_multiplier,
+            suffix=y_axis_suffix
+        )
 
         for tick in ax.get_xticklabels():
             tick.set_fontfamily(font_family)
@@ -366,12 +488,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         for tick in ax.get_yticklabels():
             tick.set_fontfamily(font_family)
             tick.set_fontsize(tick_fontsize)
-        plt.legend(
-            prop={
-                "family": font_family,
-                "size": legend_fontsize
-            }
-        )
+
         plt.tight_layout()
 
         # Save PNG
@@ -384,7 +501,101 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         )
         png_path = os.path.join(output_dir, png_filename)
 
-        plt.savefig(png_path, dpi=150)
+        plt.savefig(
+            png_path,
+            dpi=int(dpi)
+        )
+
+        date_range = format_date_range(
+            start_date,
+            end_date
+        )
+
+        title_output_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=f"{VISUAL_ID}_title",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
+        )
+
+        save_title_png(
+            title=chart_title,
+            subtitle=date_range,
+            output_file=title_output_file,
+            width=title_width,
+            height=title_height,
+            dpi=int(dpi),
+            font_family=font_family,
+            title_fontsize=int(title_fontsize),
+            subtitle_fontsize=subtitle_fontsize,
+            background_color=title_background_color,
+            title_weight=title_weight
+        )
+
+        legend_handles = [
+            below_line
+        ]
+
+        legend_labels = [
+            below_line.get_label()
+        ]
+
+        if above_line is not None:
+
+            legend_handles.append(
+                above_line
+            )
+
+            legend_labels.append(
+                above_line.get_label()
+            )
+
+        if capacity_line is not None:
+
+            legend_handles.append(
+                capacity_line
+            )
+
+            legend_labels.append(
+                capacity_line.get_label()
+            )
+
+        if avg_line is not None:
+
+            legend_handles.append(
+                avg_line
+            )
+
+            legend_labels.append(
+                avg_line.get_label()
+            )
+
+        legend_output_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=f"{VISUAL_ID}_legend",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
+        )
+
+        save_legend_png(
+            handles=legend_handles,
+            labels=legend_labels,
+            output_file=legend_output_file,
+            ncol=1,
+            font_family=font_family,
+            font_size=legend_fontsize,
+            width=legend_width,
+            height=legend_height
+        )
+
         plt.close()
 
         write_rdb = int(params.get("write_rdb", 0))

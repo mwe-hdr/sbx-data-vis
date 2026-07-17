@@ -33,6 +33,7 @@ import logging
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mtick
+from matplotlib.patches import Patch
 from utils.vis_helpers import (
     normalize_params,
     format_date_range,
@@ -41,7 +42,8 @@ from utils.vis_helpers import (
     save_legend_png,
     format_display_value,
     get_display_parameters,
-    save_parameter_table_png
+    save_parameter_table_png,
+    save_title_png
 )
 VISUAL_ID = "vis_03"
 
@@ -94,6 +96,47 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     font_family = str(
         p.get("font_family", "Segoe UI")
     ).strip()
+    # ---- Title Image ----
+
+    title_width = float(
+        p.get("title_width", 6.25) or 6.25
+    )
+
+    title_height = float(
+        p.get("title_height", 0.6) or 0.6
+    )
+
+    subtitle_fontsize = int(
+        p.get("subtitle_fontsize", 12) or 12
+    )
+
+    title_background_color = str(
+        p.get(
+            "title_background_color",
+            "#d9d9d9"
+        )
+    )
+
+    title_weight = str(
+        p.get(
+            "title_weight",
+            "bold"
+        )
+    )
+    legend_width = float(
+        p.get("legend_width", 4) or 4
+    )
+
+    legend_height = float(
+        p.get("legend_height", 1) or 1
+    )
+    tick_fontsize = int(
+        p.get("tick_fontsize", 10) or 10
+    )
+
+    x_tick_rotation = float(
+        p.get("x_tick_rotation", 0) or 0
+    )
 
     # =========================
     # VALIDATION
@@ -233,6 +276,17 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         logging.error(f"[{VISUAL_ID}] Plotting failed: {e}")
         return
 
+    legend_handles = [
+        Patch(
+            facecolor=p["bar_color"],
+            label="ED Visits"
+        )
+    ]
+
+    legend_labels = [
+        "ED Visits"
+    ]
+
     # =========================
     # LABELS ON BARS
     # =========================
@@ -260,13 +314,6 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     # TITLES & AXES
     # =========================
     try:
-        date_range_str = format_date_range(start_date, end_date)
-
-        ax.set_title(
-            f"{p['title']} {date_range_str}",
-            fontsize=p["title_fontsize"],
-            fontfamily=font_family
-        )
 
         ax.set_xlabel(
             "Year",
@@ -280,6 +327,16 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         )
     except Exception as e:
         logging.warning(f"[{VISUAL_ID}] Axis labeling failed: {e}")
+
+    ax.tick_params(
+        axis="both",
+        labelsize=tick_fontsize
+    )
+
+    ax.tick_params(
+        axis="x",
+        labelrotation=x_tick_rotation
+    )
 
     # =========================
     # CLEANUP
@@ -324,11 +381,76 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         plt.tight_layout()
         for tick in ax.get_xticklabels():
             tick.set_fontfamily(font_family)
+            tick.set_fontsize(tick_fontsize)
 
         for tick in ax.get_yticklabels():
             tick.set_fontfamily(font_family)
+            tick.set_fontsize(tick_fontsize)
 
         plt.savefig(output_path)
+
+        legend_output_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id="vis_03_legend",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
+        )
+
+        save_legend_png(
+            handles=legend_handles,
+            labels=legend_labels,
+            output_file=legend_output_file,
+            ncol=1,
+            font_family=font_family,
+            font_size=p["axis_fontsize"],
+            width=legend_width,
+            height=legend_height
+        )
+
+        logging.info(
+            f"[{VISUAL_ID}] Legend saved: "
+            f"{legend_output_file}"
+        )
+
+        date_range_str = format_date_range(
+            start_date,
+            end_date
+        )
+
+        title_output_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id="vis_03_title",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
+        )
+
+        save_title_png(
+            title=p["title"],
+            subtitle=date_range_str,
+            output_file=title_output_file,
+            width=title_width,
+            height=title_height,
+            dpi=int(p["dpi"]),
+            font_family=font_family,
+            title_fontsize=int(p["title_fontsize"]),
+            subtitle_fontsize=subtitle_fontsize,
+            background_color=title_background_color,
+            title_weight=title_weight
+        )
+
+        logging.info(
+            f"[{VISUAL_ID}] Title saved: "
+            f"{title_output_file}"
+        )
+
         plt.close()
 
         logging.info(

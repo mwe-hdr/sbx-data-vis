@@ -1,65 +1,59 @@
 param,value
 
-# =========================
-# FIGURE SETTINGS
-# =========================
+### ===== FIGURE =====
 figure_width,14
 figure_height,6
-dpi,150
+dpi,300
+
+### ===== TITLE IMAGE =====
+title_width,13
+title_height,0.25
+subtitle_fontsize,10
+title_background_color,#d9d9d9
+title_weight,bold
+
+### ===== LEGEND IMAGE =====
+legend_width,4
+legend_height,1
+legend_fontsize,10
+
+### ===== FONTS =====
 font_family,Segoe UI
-# =========================
-# TITLE / LABELS
-# =========================
+title_fontsize,10
+label_fontsize,9
+tick_fontsize,8
+
+### ===== CHART TEXT =====
 chart_title,ED Minute-Level Census Trend with Capacity Reference Line
 x_label,Time
 y_label,ED Census
 
-title_fontsize,16
-label_fontsize,12
-tick_fontsize,10
-
-# =========================
-# LINE STYLING
-# =========================
-line_color,#1f77b4
+### ===== CENSUS LINE =====
 line_width,0.8
-
-# =========================
-# CAPACITY LINE
-# =========================
-capacity_value,39
-capacity_linestyle,--
-capacity_linewidth,1.5
-
-# =========================
-# ABOVE CAPACITY 
-# =========================
-capacity_threshold_pct,0.8
 below_color,#000000
 above_color,#d62728
 
-# =========================
-# AVERAGE LINE
-# =========================
+### ===== CAPACITY =====
+capacity_value,39
+capacity_threshold_pct,0.8
+capacity_linestyle,--
+capacity_linewidth,1.5
+
+### ===== AVERAGE =====
 include_avg_line,True
 avg_line_color,#000000
 avg_linestyle,:
 avg_linewidth,1.5
 
-# =========================
-# AXIS FORMATTING
-# =========================
-auto_format_dates,True
-rotate_x_labels,True
+### ===== Y AXIS =====
+y_axis_mode,count
+y_axis_decimals,0
+y_axis_multiplier,1
+y_axis_suffix,
 
-# =========================
-# LEGEND
-# =========================
+### ===== LEGEND =====
 show_legend,True
-legend_fontsize,10
 
-# =========================
-# OUTPUT CONTROL
-# =========================
+### ===== OUTPUT CONTROL =====
 save_png,True
 save_csv,True

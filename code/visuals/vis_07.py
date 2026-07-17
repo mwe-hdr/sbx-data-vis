@@ -63,7 +63,8 @@ from utils.vis_helpers import (
     save_legend_png,
     format_display_value,
     get_display_parameters,
-    save_parameter_table_png
+    save_parameter_table_png,
+    save_title_png
 )
 
 VISUAL_ID = "vis_07"
@@ -106,6 +107,46 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     font_family = str(
         p.get("font_family", "Segoe UI")
     ).strip()
+
+    # ---- Title Image ----
+
+    title_width = float(
+        p.get("title_width", 6.25) or 6.25
+    )
+
+    title_height = float(
+        p.get("title_height", 0.6) or 0.6
+    )
+
+    subtitle_fontsize = int(
+        p.get("subtitle_fontsize", 12) or 12
+    )
+
+    title_background_color = str(
+        p.get(
+            "title_background_color",
+            "#d9d9d9"
+        )
+    )
+
+    title_weight = str(
+        p.get(
+            "title_weight",
+            "bold"
+        )
+    )
+
+    legend_width = float(
+        p.get("legend_width", 4) or 4
+    )
+
+    legend_height = float(
+        p.get("legend_height", 2) or 2
+    )
+
+    legend_fontsize = int(
+        p.get("legend_fontsize", 10) or 10
+    )
 
     # =========================
     # PARAM HELPERS
@@ -314,6 +355,8 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             dpi=int(p["dpi"])
         )
 
+        legend_labels = counts["arrival_type"].tolist()
+
         wedges, texts = ax.pie(
             counts["percent"],
             labels=labels,
@@ -321,17 +364,14 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             startangle=90,
         )
 
+        legend_handles = wedges
+
         for text in texts:
             text.set_fontfamily(font_family)
 
         ax.axis("equal")
 
         # title
-        date_str = format_date_range(start_date, end_date)
-        ax.set_title(
-            f"Encounters by Arrival Type {date_str}",
-            fontfamily=font_family
-        )
 
         # =========================
         # SAVE OUTPUT
@@ -351,6 +391,67 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
         plt.tight_layout()
         plt.savefig(output_file)
+        legend_output_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id="vis_07_legend",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
+        )
+
+        save_legend_png(
+            handles=legend_handles,
+            labels=legend_labels,
+            output_file=legend_output_file,
+            ncol=1,
+            font_family=font_family,
+            font_size=legend_fontsize,
+            width=legend_width,
+            height=legend_height
+        )
+
+        logging.info(
+            f"{VISUAL_ID}: Legend saved: "
+            f"{legend_output_file}"
+        )
+        date_str = format_date_range(
+            start_date,
+            end_date
+        )
+
+        title_output_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id="vis_07_title",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
+        )
+
+        save_title_png(
+            title="Encounters by Arrival Type",
+            subtitle=date_str,
+            output_file=title_output_file,
+            width=title_width,
+            height=title_height,
+            dpi=int(p["dpi"]),
+            font_family=font_family,
+            title_fontsize=14,
+            subtitle_fontsize=subtitle_fontsize,
+            background_color=title_background_color,
+            title_weight=title_weight
+        )
+
+        logging.info(
+            f"{VISUAL_ID}: Title saved: "
+            f"{title_output_file}"
+        )
+
         plt.close()
 
         logging.info(f"{VISUAL_ID}: Saved to {output_file}")
@@ -425,3 +526,9 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                 "report_title":
                     "Encounters by Arrival Type"
             })
+
+        
+        return {
+            "output_path": output_file,
+            "rdb": rdb_rows
+        }

@@ -29,7 +29,7 @@ def save_title_png(
     output_file,
     width=12,
     height=0.8,
-    dpi=100,
+    dpi=300,
     font_family="Segoe UI",
     title_fontsize=16,
     subtitle_fontsize=12,
@@ -198,6 +198,7 @@ def save_legend_png(
     output_file,
     ncol=4,
     width=8,
+    dpi=300,
     height=1,
     font_family="Segoe UI",
     font_size=10
@@ -222,7 +223,8 @@ def save_legend_png(
     legend_fig.savefig(
         output_file,
         transparent=True,
-        bbox_inches="tight"
+        bbox_inches="tight",
+        dpi=dpi
     )
 
     plt.close(legend_fig)

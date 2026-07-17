@@ -103,6 +103,9 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     y_axis_decimals = int(params.get("y_axis_decimals", 1) or 1)
     y_axis_multiplier = float(params.get("y_axis_multiplier", 100) or 100)
     y_axis_suffix = str(params.get("y_axis_suffix", "%") or "%")
+    tick_fs = int(
+        params.get("tick_fontsize", 10) or 10
+    )
 
     # ---- Colors ----
     colors = {
@@ -310,7 +313,9 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                     va='center',
                     color=label_color,
                     fontsize=label_fs,
-                    fontfamily=font_family
+                    fontfamily=font_family,
+                    fontweight="normal",
+                    rotation=0
                 )
 
         bottom += values
@@ -362,9 +367,11 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
     for tick in ax.get_xticklabels():
         tick.set_fontfamily(font_family)
+        tick.set_fontsize(tick_fs)
 
     for tick in ax.get_yticklabels():
         tick.set_fontfamily(font_family)
+        tick.set_fontsize(tick_fs)
 
     plt.savefig(output_file)
     legend_output_file = os.path.join(

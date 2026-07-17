@@ -1,20 +1,39 @@
 param,value,description
-,,
-## ===== THRESHOLDS =====
+
+### ===== THRESHOLDS =====
+
 label_threshold,0,Minimum percent to display label
 group_other_threshold,0.065,Minimum percent before grouping into Other
 
-## ===== LABEL CONTROL =====
+### ===== LABEL CONTROL =====
+
 show_counts,True,Include counts in labels
 show_percent,True,Include percent in labels
 label_decimals,1,Percent decimal precision
+label_fontsize,10,Pie label size
 
-## ===== FIGURE =====
-fig_width,6,Figure width
-fig_height,6,Figure height
-dpi,100,Resolution
+### ===== FIGURE =====
 
-## ===== COLORS =====
+fig_width,3,Figure width
+fig_height,2.75,Figure height
+dpi,300,Resolution
+
+### ===== TITLE IMAGE =====
+
+title_width,3.5,Title image width
+title_height,0.25,Title image height
+subtitle_fontsize,8,Subtitle size
+title_background_color,#d9d9d9,Title background color
+title_weight,bold,Title font weight
+
+### ===== LEGEND IMAGE =====
+
+legend_width,4,Legend width
+legend_height,1,Legend height
+legend_fontsize,8,Legend font size
+
+### ===== COLORS =====
+
 color_ambulance,#1f77b4,Ambulance
 color_car,#ff7f0e,Car
 color_wheelchair,#d62728,Wheelchair

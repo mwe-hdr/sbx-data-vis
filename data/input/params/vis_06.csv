@@ -1,25 +1,48 @@
 param,value,description
-,,
-## ===== LABELS =====,,
+
+### ===== LABELS =====
+
 label_threshold,0.01,Minimum percent to show labels
 label_decimals,1,Decimal places for labels
 label_color,black,Label color
-,,
-## ===== FIGURE =====,,
-fig_width,12,Figure width
-fig_height,6,Figure height
-dpi,100,Image DPI
-,,
-## ===== FONT SIZES =====,,
-title_fontsize,14,Title size
-axis_fontsize,11,Axis label size
-label_fontsize,9,Bar label size
+
+### ===== FIGURE =====
+
+fig_width,3,Figure width
+fig_height,2.75,Figure height
+dpi,300,Resolution
+
+### ===== TITLE IMAGE =====
+
+title_width,3.5,Title image width
+title_height,0.25,Title image height
+subtitle_fontsize,8,Subtitle size
+title_background_color,#d9d9d9,Title background color
+title_weight,bold,Title font weight
+
+### ===== LEGEND IMAGE =====
+
+legend_width,4,Legend width
+legend_height,1,Legend height
+
+### ===== FONT SIZES =====
+
+title_fontsize,10,Title size
+axis_fontsize,9,Axis label size
+label_fontsize,7,Bar label size
+tick_fontsize,8,Tick label size
 font_family,Segoe UI,Global font family
-,,
-## ===== COLORS =====,,
+
+### ===== TICKS =====
+
+x_tick_rotation,0,X-axis rotation
+
+### ===== COLORS =====
+
 bar_color,#1f77b4,Bar color
-,,
-## ===== Y AXIS =====,,
+
+### ===== Y AXIS =====
+
 y_axis_mode,percent,Axis type
 y_axis_decimals,0,Decimals
 y_axis_multiplier,100,Multiplier

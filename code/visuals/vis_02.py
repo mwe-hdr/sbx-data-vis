@@ -40,6 +40,7 @@ import logging
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
 from utils.vis_helpers import (
     normalize_params,
     format_date_range,
@@ -48,7 +49,8 @@ from utils.vis_helpers import (
     save_legend_png,
     format_display_value,
     get_display_parameters,
-    save_parameter_table_png
+    save_parameter_table_png,
+    save_title_png
 )
 
 def run(df, params, start_date, end_date, output_dir, generate_output_name):
@@ -80,10 +82,50 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         font_family = str(
             params.get("font_family", "Segoe UI")
         ).strip()
+        # ---- Title Image ----
+
+        title_height = float(
+            params.get("title_height", 0.6) or 0.6
+        )
+
+        title_width = float(
+            params.get("title_width", 6.25) or 6.25
+        )
+
+        subtitle_fontsize = int(
+            params.get("subtitle_fontsize", 12) or 12
+        )
+
+        label_color = str(params.get("label_color", "white"))
+
+        title_background_color = str(
+            params.get(
+                "title_background_color",
+                "#d9d9d9"
+            )
+        )
+
+        title_weight = str(
+            params.get(
+                "title_weight",
+                "bold"
+            )
+        )
+        legend_width = float(
+            params.get("legend_width", 4) or 4
+        )
+
+        legend_height = float(
+            params.get("legend_height", 1) or 1
+        )
         y_axis_mode = params.get("y_axis_mode", "percent")
         y_axis_decimals = params.get("y_axis_decimals", 1)
         y_axis_multiplier = params.get("y_axis_multiplier", 100)
         y_axis_suffix = params.get("y_axis_suffix", "%")
+
+        tick_fs = int(
+            params.get("tick_fontsize", 10) or 10
+        )
 
         # Merge params (override defaults)
         p = {**defaults, **(params or {})}
@@ -275,24 +317,33 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             width=0.8
         )
 
+        legend_handles = [
+            Patch(
+                facecolor="#1f77b4",
+                label="Percent of Encounters"
+            )
+        ]
+
+        legend_labels = [
+            "Percent of Encounters"
+        ]
+
         # Labels above bars
         for _, row in grouped.iterrows():
             if row["percent"] >= p["label_threshold"]:
                     ax.text(
                         row["los_bucket"],
-                        row["percent"] + 0.001,
+                        row["percent"] / 2,
                         f"{row['percent'] * 100:.{int(p['label_decimals'])}f}%",
                         ha="center",
+                        color=label_color,
                         fontsize=p["label_fontsize"],
-                        fontfamily=font_family
+                        fontfamily=font_family,
+                        fontweight="normal",
+                        rotation=0
                     )
         
-        date_range = format_date_range(start_date, end_date)
-        ax.set_title(
-            f"Length of Stay Distribution (Hours)\n{date_range}",
-            fontsize=p["title_fontsize"],
-            fontfamily=font_family
-        )
+
         ax.set_xlabel(
             "Length of Stay (Hours)",
             fontsize=p["axis_fontsize"],
@@ -306,7 +357,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
         # Improve layout
         ax.set_xticks(grouped["los_bucket"])
-        plt.xticks(rotation=45)
+        plt.xticks(rotation=0)
         
         apply_yaxis_format(
             ax,
@@ -318,9 +369,11 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
         for tick in ax.get_xticklabels():
             tick.set_fontfamily(font_family)
+            tick.set_fontsize(tick_fs)
 
         for tick in ax.get_yticklabels():
             tick.set_fontfamily(font_family)
+            tick.set_fontsize(tick_fs)
 
         plt.tight_layout()
 
@@ -344,6 +397,68 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         plt.close()
 
         logging.info(f"vis_02 saved to {output_path}")
+
+        legend_output_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id="vis_02_legend",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
+        )
+
+        save_legend_png(
+            handles=legend_handles,
+            labels=legend_labels,
+            output_file=legend_output_file,
+            ncol=1,
+            font_family=font_family,
+            font_size=p["axis_fontsize"],
+            width=legend_width,
+            height=legend_height
+        )
+
+        logging.info(
+            f"vis_02 legend written: "
+            f"{legend_output_file}"
+        )
+
+        date_range = format_date_range(
+            start_date,
+            end_date
+        )
+
+        title_output_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id="vis_02_title",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
+        )
+
+        save_title_png(
+            title="Length of Stay Distribution (Hours)",
+            subtitle=date_range,
+            output_file=title_output_file,
+            width=title_width,
+            height=title_height,
+            dpi=int(p["dpi"]),
+            font_family=font_family,
+            title_fontsize=int(p["title_fontsize"]),
+            subtitle_fontsize=subtitle_fontsize,
+            background_color=title_background_color,
+            title_weight=title_weight
+        )
+
+        logging.info(
+            f"vis_02 title written: "
+            f"{title_output_file}"
+        )
 
         return {
             "output_path": output_path,

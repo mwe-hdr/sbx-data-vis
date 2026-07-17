@@ -48,7 +48,7 @@ import os
 import logging
 import pandas as pd
 import matplotlib.pyplot as plt
-
+from matplotlib.lines import Line2D
 from utils.vis_helpers import (
     normalize_params,
     format_date_range,
@@ -57,7 +57,8 @@ from utils.vis_helpers import (
     save_legend_png,
     format_display_value,
     get_display_parameters,
-    save_parameter_table_png
+    save_parameter_table_png,
+    save_title_png
 )
 VISUAL_ID = "vis_05"
 
@@ -113,6 +114,48 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     font_family = str(
         params.get("font_family", "Segoe UI")
     ).strip()
+    # ---- Title Image ----
+
+    title_width = float(
+        params.get("title_width", 6.25) or 6.25
+    )
+
+    title_height = float(
+        params.get("title_height", 0.6) or 0.6
+    )
+
+    subtitle_fontsize = int(
+        params.get("subtitle_fontsize", 12) or 12
+    )
+
+    title_background_color = str(
+        params.get(
+            "title_background_color",
+            "#d9d9d9"
+        )
+    )
+
+    title_weight = str(
+        params.get(
+            "title_weight",
+            "bold"
+        )
+    )
+    legend_width = float(
+        params.get("legend_width", 4) or 4
+    )
+
+    legend_height = float(
+        params.get("legend_height", 1) or 1
+    )
+    tick_fontsize = int(
+        params.get("tick_fontsize", 10) or 10
+    )
+
+    x_tick_rotation = float(
+        params.get("x_tick_rotation", 45) or 45
+    )
+
     # =========================
     # VALIDATION
     # =========================
@@ -263,6 +306,20 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             markersize=float(cfg["marker_size"])
         )
 
+        legend_handles = [
+            Line2D(
+                [0],
+                [0],
+                color=cfg["line_color"],
+                marker=cfg["marker"],
+                label="Monthly Arrivals"
+            )
+        ]
+
+        legend_labels = [
+            "Monthly Arrivals"
+        ]
+
         # X-axis labels
         if len(x) > 24:
             labels = x.dt.strftime("%Y-%m")
@@ -270,16 +327,13 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             labels = x.dt.strftime("%b %Y")
 
         ax.set_xticks(x)
-        ax.set_xticklabels(labels, rotation=45, ha="right")
-
-        # Titles
-        date_range_str = format_date_range(start_date, end_date)
-        ax.set_title(
-            f"{cfg['title']} {date_range_str}",
-            fontsize=int(cfg["title_fontsize"]),
-            fontfamily=font_family
+        ax.set_xticklabels(
+            labels,
+            rotation=x_tick_rotation,
+            ha="right"
         )
 
+        # Titles
         ax.set_xlabel(
             "Month",
             fontsize=int(cfg["axis_fontsize"]),
@@ -289,6 +343,11 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             "Number of Arrivals",
             fontsize=int(cfg["axis_fontsize"]),
             fontfamily=font_family
+        )
+
+        ax.tick_params(
+            axis="both",
+            labelsize=tick_fontsize
         )
 
         # Y-axis formatting
@@ -331,9 +390,11 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         plt.tight_layout()
         for tick in ax.get_xticklabels():
             tick.set_fontfamily(font_family)
+            tick.set_fontsize(tick_fontsize)
 
         for tick in ax.get_yticklabels():
             tick.set_fontfamily(font_family)
+            tick.set_fontsize(tick_fontsize)
         # =========================
         # SAVE OUTPUT
         # =========================
@@ -349,6 +410,70 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                 )
 
         plt.savefig(filepath)
+        legend_output_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id="vis_05_legend",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
+        )
+
+        save_legend_png(
+            handles=legend_handles,
+            labels=legend_labels,
+            output_file=legend_output_file,
+            ncol=1,
+            font_family=font_family,
+            font_size=int(cfg["axis_fontsize"]),
+            width=legend_width,
+            height=legend_height
+        )
+
+        logging.info(
+            f"{VISUAL_ID}: Legend written: "
+            f"{legend_output_file}"
+        )
+
+        date_range_str = format_date_range(
+            start_date,
+            end_date
+        )
+
+        title_output_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id="vis_05_title",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
+        )
+
+        save_title_png(
+            title=cfg["title"],
+            subtitle=date_range_str,
+            output_file=title_output_file,
+            width=title_width,
+            height=title_height,
+            dpi=int(cfg["dpi"]),
+            font_family=font_family,
+            title_fontsize=int(cfg["title_fontsize"]),
+            subtitle_fontsize=subtitle_fontsize,
+            background_color=title_background_color,
+            title_weight=title_weight
+        )
+
+        logging.info(
+            f"{VISUAL_ID}: Title written: "
+            f"{title_output_file}"
+        )
+
+
+
         plt.close()
 
         logging.info(f"{VISUAL_ID}: Saved output to {filepath}")

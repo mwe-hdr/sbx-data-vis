@@ -1,21 +1,46 @@
-param,value,description,,
-fig_width,12,Figure width,,
-fig_height,6,Figure height,,
-dpi,100,Image resolution,,
-,,,,
-title_fontsize,14,Title font size,,
-axis_fontsize,11,Axis label font size,,
-label_fontsize,9,Bar label font size,,
+param,value,description
+
+## ===== FIGURE =====
+
+fig_width,6.5,Figure width
+fig_height,3,Figure height
+dpi,300,Image resolution
+
+## ===== TITLE IMAGE =====
+
+title_width,6.40,Title image width
+title_height,0.25,Title image height
+subtitle_fontsize,8,Subtitle font size
+title_background_color,#d9d9d9,Background color
+title_weight,bold,Title font weight
+
+## ===== LEGEND IMAGE =====
+
+legend_width,4,Legend width
+legend_height,1,Legend height
+legend_fontsize,8,Legend font size
+
+## ===== FONTS =====
+
+title_fontsize,10,Title font size
+axis_fontsize,9,Axis label font size
+label_fontsize,5,Bar label font size
+label_color,white,label color
 font_family,Segoe UI,Global font family
-,,,,
-label_decimals,1,Decimal places for percent labels,,
-label_threshold,0.01,Minimum percent to display label,,
-,,,,
-max_bucket,24,Cap LOS buckets (e.g. >=24 grouped together),,
-,,,,
-## ===== AXIS FORMATTING =====,,,,
-,,,,
-y_axis_mode,percent,percent | count | raw,,
-y_axis_decimals,0,Number of decimals,,
-y_axis_multiplier,100,Multiply values (e.g., 100 for percent),
-y_axis_suffix,%,Suffix (%, , etc.)
+
+## ===== LABELS =====
+
+label_decimals,1,Decimal places for percent labels
+label_threshold,0.01,Minimum percent to display label
+
+## ===== BUCKETING =====
+
+max_bucket,24,Cap LOS buckets (>=24 grouped together)
+
+## ===== AXIS FORMATTING =====
+
+y_axis_mode,percent,percent count raw
+y_axis_decimals,0,Number of decimals
+y_axis_multiplier,100,Percent multiplier
+y_axis_suffix,%,Axis suffix
+tick_fontsize,8,axis tick label size
