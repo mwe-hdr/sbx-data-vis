@@ -23,6 +23,73 @@ def normalize_params(params):
 
     return normalized
 
+def save_title_png(
+    title,
+    subtitle,
+    output_file,
+    width=12,
+    height=0.8,
+    dpi=100,
+    font_family="Segoe UI",
+    title_fontsize=16,
+    subtitle_fontsize=12,
+    background_color="#d9d9d9",
+    title_weight="bold",
+    title_alignment="left"
+):
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots(
+        figsize=(width, height),
+        dpi=dpi
+    )
+
+    fig.patch.set_facecolor(background_color)
+    ax.set_facecolor(background_color)
+
+    # Left-justified title
+
+    ax.text(
+        0.01,
+        0.50,
+        str(title),
+        ha="left",
+        va="center",
+        fontsize=title_fontsize,
+        fontweight=title_weight,
+        fontfamily=font_family,
+        transform=ax.transAxes
+    )
+
+    # Right-justified reporting period
+
+    ax.text(
+        0.99,
+        0.50,
+        str(subtitle),
+        ha="right",
+        va="center",
+        fontsize=subtitle_fontsize,
+        fontfamily=font_family,
+        transform=ax.transAxes
+    )
+
+    ax.axis("off")
+
+    plt.subplots_adjust(
+        left=0,
+        right=1,
+        top=1,
+        bottom=0
+    )
+
+    plt.savefig(
+        output_file,
+        bbox_inches="tight",
+        pad_inches=0
+    )
+
+    plt.close()
 
 def format_date_range(start_date, end_date):
     try:
@@ -131,7 +198,7 @@ def save_legend_png(
     output_file,
     ncol=4,
     width=8,
-    height=1.5,
+    height=1,
     font_family="Segoe UI",
     font_size=10
 ):

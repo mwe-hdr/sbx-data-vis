@@ -41,7 +41,8 @@ from utils.vis_helpers import (
     save_legend_png,
     format_display_value,
     get_display_parameters,
-    save_parameter_table_png
+    save_parameter_table_png,
+    save_title_png
 )
 
 def run(df, params, start_date, end_date, output_dir, generate_output_name):
@@ -93,6 +94,8 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     legend_pos = str(params.get("legend_position", "upper left") or "upper left")
     legend_x = float(params.get("legend_anchor_x", 1.05) or 1.05)
     legend_y = float(params.get("legend_anchor_y", 1.0) or 1.0)
+    legend_height = float(params.get("legend_height", 1) or 1)
+    legend_width = float(params.get("legend_width", 4) or 4)
 
     # ---- Axis ----
     y_max = float(params.get("y_max", 1) or 1)
@@ -109,6 +112,32 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         '2 - Emergent': params.get('2 - Emergent', '#17becf'),
         '1 - Immediate': params.get('1 - Immediate', '#ff7f0e'),
     }
+
+    # ---- Title Image ----
+
+    title_height = float(
+        params.get("title_height", 0.8) or 0.8
+    )
+
+    title_background_color = str(
+        params.get("title_background_color", "#d9d9d9")
+    )
+
+    title_alignment = str(
+        params.get("title_alignment", "left")
+    )
+
+    subtitle_fontsize = int(
+        params.get("subtitle_fontsize", 12) or 12
+    )
+
+    title_weight = str(
+        params.get("title_weight", "bold")
+    )
+    
+    title_width = float(
+        params.get("title_width", 6.25) or 6.25
+    )
 
     # =========================
     # FILTER
@@ -196,11 +225,11 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     plot_data = plot_data.reindex(range(24), fill_value=0)
 
     esi_order = [
-        '5 - Non-Urgent',
-        '4 - Less Urgent',
-        '3 - Urgent',
+        '1 - Immediate',
         '2 - Emergent',
-        '1 - Immediate'
+        '3 - Urgent',
+        '4 - Less Urgent',
+        '5 - Non-Urgent'
     ]
 
     for col in esi_order:
@@ -295,13 +324,6 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         fontsize=axis_fs,
         fontfamily=font_family
     )
-    date_range = format_date_range(start_date, end_date)
-    title = f"Hourly Arrivals Distribution by ESI\n{date_range}"
-    ax.set_title(
-        title,
-        fontsize=title_fs,
-        fontfamily=font_family
-    )
 
     legend = ax.legend(
         loc=legend_pos,
@@ -360,14 +382,52 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         handles=handles,
         labels=labels,
         output_file=legend_output_file,
-        ncol=3,
+        ncol=1,
         font_family=font_family,
-        font_size=legend_fs
+        font_size=legend_fs,
+        width=legend_width,
+        height=legend_height
     )
 
     logging.info(
         f"vis_01 legend written: "
         f"{legend_output_file}"
+    )
+
+    date_range = format_date_range(
+        start_date,
+        end_date
+    )
+
+    title_output_file = os.path.join(
+        output_dir,
+        generate_output_name(
+            visual_id="vis_01_title",
+            start_date=start_date,
+            end_date=end_date,
+            cohort_id=params.get("cohort_id"),
+            ext="png"
+        )
+    )
+
+    save_title_png(
+        title="Hourly Arrivals Distribution by ESI",
+        subtitle=date_range,
+        output_file=title_output_file,
+        width=title_width,
+        height=title_height,
+        dpi=dpi,
+        font_family=font_family,
+        title_fontsize=title_fs,
+        subtitle_fontsize=subtitle_fontsize,
+        background_color=title_background_color,
+        title_weight=title_weight,
+        title_alignment=title_alignment
+    )
+
+    logging.info(
+        f"vis_01 title written: "
+        f"{title_output_file}"
     )
 
     plt.close()
@@ -446,4 +506,3 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     "output_path": output_file,
     "rdb": rdb_rows
     }
-

@@ -1,0 +1,229 @@
+## Reporting Framework Context (Enhancement Mode)
+
+I am attaching one or more files from a custom reporting framework.
+These files may include:
+- main.py
+- processing_helpers.py
+- visual report files (vis_xx.py)
+- parameter files (vis_xx.csv)
+- user-defined functions (UDFs)
+- supporting utilities
+
+### Purpose
+
+The attached files represent the current production state of the reporting framework.
+Before proposing enhancements, review all attached files and use them as the primary source of truth.
+Do not assume framework behavior when the implementation can be inferred from the attached files.
+
+### FRAMEWORK OVERVIEW
+
+The reporting framework operates in two stages.
+
+Stage 1
+PROCESSING_MODE = parameters_only
+Produces parameterized report definitions.
+
+Typical flow:
+vis_driver.csv
++
+visual parameter csv files
++
+cohort definitions
+→ processing_driver.csv
+
+Stage 2
+PROCESSING_MODE = full_reports
+Produces final reports.
+
+Typical flow:
+processing_driver.csv
+→ main.py
+→ row_to_params()
+→ run(
+    df,
+    params,
+    start_date,
+    end_date,
+    output_dir,
+    generate_output_name
+)
+→ PNG outputs
+→ parameter outputs
+→ legend outputs
+→ RDB outputs
+
+### REVIEW REQUIREMENTS
+
+Before recommending enhancements, review all attached files.
+Use the files to understand:
+
+Framework Integration
+- execution flow
+- report lifecycle
+- run() expectations
+- return contracts
+- output generation conventions
+
+Parameters
+- normalize_params() behavior
+- parameter naming conventions
+- parameter retrieval conventions
+- safe parameter handling patterns
+
+Outputs
+- PNG generation
+- parameter image generation
+- legend generation
+- file naming conventions
+- generate_output_name() usage
+
+RDB
+- schema conventions
+- metadata conventions
+- dimension conventions
+- aggregation conventions
+- output structure
+
+Coding Style
+- logging patterns
+- error handling patterns
+- helper usage patterns
+- chart construction conventions
+- report organization conventions
+
+### ENHANCEMENT INSTRUCTIONS
+
+Assume the attached files are authoritative.
+When reviewing the implementation:
+- Trace current behavior against the actual framework implementation.
+- Identify opportunities to improve functionality, reliability, maintainability, usability, performance, and framework compliance.
+- Reference specific code locations when possible.
+- Preserve existing framework conventions and architectural patterns.
+- Prefer incremental, production-safe enhancements before larger redesigns.
+- Highlight enhancements that improve consistency with existing framework standards.
+
+When proposing enhancements:
+- Distinguish between required improvements and optional improvements.
+- Identify quick wins versus higher-effort opportunities.
+- Explain expected benefits and tradeoffs.
+- Call out any framework-wide implications.
+
+### AREAS TO EVALUATE
+
+Review the implementation for:
+
+Functionality
+- missing capabilities
+- incomplete workflows
+- opportunities to improve outputs
+- opportunities to improve user value
+
+Parameters
+- parameter validation
+- parameter safety
+- parameter defaults
+- parameter discoverability
+- parameter consistency with framework standards
+
+Outputs
+- PNG quality
+- table readability
+- legend quality
+- parameter documentation outputs
+- file naming consistency
+
+RDB
+- completeness of records
+- metadata quality
+- dimensional consistency
+- downstream analytics usefulness
+- alignment with framework RDB patterns
+
+Performance
+- computational efficiency
+- memory usage
+- scalability concerns
+- census-generation efficiency
+- aggregation efficiency
+
+Maintainability
+- code organization
+- helper reuse opportunities
+- defensive programming
+- logging quality
+- clarity and readability
+
+Framework Compliance
+- run() contract compliance
+- output contract compliance
+- return contract compliance
+- parameter normalization compliance
+- naming convention compliance
+
+### DESIRED OUTPUT
+
+For each enhancement identified provide:
+
+Enhancement Opportunity
+Describe the improvement.
+
+Current State
+Explain current behavior based on the implementation.
+
+Recommended Enhancement
+Provide the specific production-ready change.
+
+Expected Benefit
+Explain:
+- correctness impact
+- reporting impact
+- downstream impact
+- RDB impact
+- usability impact
+- maintainability impact
+- performance impact (if applicable)
+
+Implementation Priority
+Classify as:
+- High
+- Medium
+- Low
+
+Implementation Effort
+Estimate:
+- Small
+- Medium
+- Large
+
+Validation
+Describe how the enhancement should be tested.
+
+### IMPORTANT
+
+Treat the attached files as the source of truth.
+Prefer observed implementation behavior over assumptions.
+When framework behavior is unclear:
+- state the uncertainty explicitly
+- identify which file or function requires verification
+
+Do not redesign the framework unless explicitly requested.
+Focus on maintaining compatibility with the existing production reporting environment.
+
+### ENHANCEMENT REQUEST
+
+The primary file I want assistance with is:
+
+[PASTE TARGET VISUAL OR IMPLEMENTATION HERE]
+
+Please analyze the implementation in the context of the attached framework and identify:
+- enhancement opportunities
+- feature additions
+- usability improvements
+- parameter improvements
+- output improvements
+- RDB improvements
+- performance improvements
+- maintainability improvements
+- framework compliance improvements
+
+Then provide production-ready recommendations consistent with the framework conventions demonstrated in the attached files.
