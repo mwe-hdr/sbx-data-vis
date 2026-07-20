@@ -6,6 +6,7 @@
 *.twb
 *.twbx
 *.shp
+*.bak
 
 # Ignore all data
 data/*
