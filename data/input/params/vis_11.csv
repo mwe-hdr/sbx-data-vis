@@ -1,28 +1,76 @@
 param,value,description
 
-# ===== CORE PARAMETERS =====
+## ===== CORE PARAMETERS =====
+
 variable_10_year_growth,0.0,Growth adjustment factor
 utilization,0.75,Capacity utilization factor
 
-# ===== FIGURE =====
-fig_width,8,Figure width
-fig_height,2.5,Figure height
-dpi,100,Image resolution
+## ===== FIGURE =====
 
-# ===== TABLE =====
-table_col_width_acuity,0.30,Acuity column width
-table_col_width_peak,0.25,Peak census column width
-table_col_width_room,0.25,Room need column width
-table_scale_x,1.5
-table_scale_y,1.8
-table_font_family,Segoe UI,Font family
-table_font_size,10,Table font size
-table_header_font_size,12,Header font size
-table_band_color,#f2f2f2,Banding color
+fig_width,3,Figure width
+fig_height,3,Figure height
+dpi,300,Image resolution
+
+## ===== TITLE IMAGE =====
+
+title_width,3,Title image width
+title_height,0.25,Title image height
+subtitle_fontsize,10,Subtitle font size
+title_background_color,#d9d9d9,Background color
+title_weight,bold,Title font weight
+title_fontsize,10,Title font size
+
+## ===== LEGEND IMAGE =====
+
+legend_width,4,Legend width
+legend_height,1,Legend height
+legend_fontsize,10,Legend font size
+
+## ===== GLOBAL FONT SETTINGS =====
+
+font_family,Segoe UI,Global font family
+tick_fontsize,8,Tick label font size
+
+## ===== TABLE =====
+
+table_col_width_acuity,0.2,Acuity column width
+table_col_width_peak,0.12,Peak census column width
+table_col_width_room,0.12,Room need column width
+
+table_scale_x,2.5,Horizontal table scaling
+table_scale_y,2,Vertical table scaling
+
+table_font_family,Segoe UI,Table font family
+table_font_size,11,Table font size
+
+table_header_font_size,10,Header font size
+table_header_font_weight,bold,Header font weight
+table_header_row_height,0.16,Header row height
+
 table_header_color,#d9d9d9,Header color
+table_band_color,#f2f2f2,Alternating row color
+
 table_border_color,#cccccc,Border color
 table_border_width,0.4,Border width
-table_grand_total_color,#d9d9d9,Grand total color
-table_header_font_weight,bold
-table_grand_total_font_weight,bold
-table_grand_total_border_width,1.0
+
+table_grand_total_color,#d9d9d9,Grand total row color
+table_grand_total_font_weight,bold,Grand total font weight
+table_grand_total_border_width,1.0,Grand total border width
+
+### ===== TABLE IMAGE CROPPING =====
+
+crop_top_pct,0,Crop top percentage
+crop_bottom_pct,0,Crop bottom percentage
+crop_left_pct,0,Crop left percentage
+crop_right_pct,0,Crop right percentage
+
+### ===== VISITS TILE =====
+
+visit_tile_width,2.7,Visits tile width
+visit_tile_height,.75,Visits tile height
+visit_label_fontsize,12,Visits label font size
+visit_value_fontsize,20,Visits value font size
+visit_tile_background_color,#ffffff,Visits tile background color
+visit_tile_border_color,black,Visits tile border color
+visit_font_family,Segoe UI,Visits tile font family
+visit_value_font_weight,bold,Visits metric font weight

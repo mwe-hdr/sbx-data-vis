@@ -70,8 +70,15 @@ import logging
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
+from PIL import Image
 
-from utils.vis_helpers import format_date_range, normalize_params
+from utils.vis_helpers import (
+    format_date_range,
+    normalize_params,
+    save_title_png,
+    save_legend_png
+)
 
 VISUAL_ID = "vis_11"
 logger = logging.getLogger(__name__)
@@ -233,6 +240,60 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         fig_height = _safe_param(params, "fig_height", 7, float)
         dpi = _safe_param(params, "dpi", 100, int)
 
+        # ==================================
+        # TITLE / LEGEND PARAMETERS
+        # ==================================
+
+        font_family = str(
+            params.get("font_family", "Segoe UI")
+        ).strip()
+
+        title_width = float(
+            params.get("title_width", 6.25) or 6.25
+        )
+
+        title_height = float(
+            params.get("title_height", 0.60) or 0.60
+        )
+
+        subtitle_fontsize = int(
+            params.get("subtitle_fontsize", 12) or 12
+        )
+
+        title_fontsize = int(
+            params.get("title_fontsize", 14) or 14
+        )
+
+        title_background_color = str(
+            params.get(
+                "title_background_color",
+                "#d9d9d9"
+            )
+        )
+
+        title_weight = str(
+            params.get(
+                "title_weight",
+                "bold"
+            )
+        )
+
+        legend_width = float(
+            params.get("legend_width", 4) or 4
+        )
+
+        legend_height = float(
+            params.get("legend_height", 1) or 1
+        )
+
+        legend_fontsize = int(
+            params.get("legend_fontsize", 9) or 9
+        )
+
+        tick_fontsize = int(
+            params.get("tick_fontsize", 10) or 10
+        )
+
         if "esi" not in df.columns:
             logger.error(f"[{VISUAL_ID}] Missing required column: esi")
             return
@@ -315,6 +376,29 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
         table_df = pd.DataFrame(results)
 
+        visit_df = df.copy()
+
+        visit_df["ed_start_dtm"] = pd.to_datetime(
+            visit_df["ed_start_dtm"],
+            errors="coerce"
+        )
+
+        visit_df["ed_stop_dtm"] = pd.to_datetime(
+            visit_df["ed_stop_dtm"],
+            errors="coerce"
+        )
+
+        visit_df = visit_df.dropna(
+            subset=["ed_start_dtm", "ed_stop_dtm"]
+        )
+
+        visit_df = visit_df[
+            (visit_df["ed_start_dtm"] <= pd.to_datetime(end_date)) &
+            (visit_df["ed_stop_dtm"] >= pd.to_datetime(start_date))
+        ]
+
+        visit_count = len(visit_df)
+
         sort_order = {
             "0-Unknown": 0,
             "1-Immediate": 1,
@@ -359,12 +443,22 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             cellText=display_df.values,
             colLabels=[
                 "Acuity Name",
-                "ED Peak Census",
-                "ED Room Need"
+                "Peak\nCensus",
+                "Room\nNeed"
             ],
             colWidths=col_widths,
             loc="center"
         )
+
+        header_row_height = float(
+            params.get(
+                "table_header_row_height",
+                0.16
+            )
+        )
+
+        for col in range(len(display_df.columns)):
+            tbl[(0, col)].set_height(header_row_height)
 
         tbl.auto_set_font_size(False)
         tbl.set_fontsize(
@@ -381,13 +475,13 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             float(params.get("table_scale_y", 1.5))
         )
 
-        font_family = params.get(
+        table_font_family = params.get(
             "table_font_family",
-            "Arial"
+            font_family
         )
 
         for cell in tbl.get_celld().values():
-            cell.get_text().set_fontfamily(font_family)
+            cell.get_text().set_fontfamily(table_font_family)
 
         header_color = params.get(
             "table_header_color",
@@ -495,8 +589,293 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             )
         )
 
+        # ==================================
+        # TICK LABEL FORMATTING
+        # ==================================
+
+        for tick in ax.get_xticklabels():
+            tick.set_fontfamily(font_family)
+            tick.set_fontsize(tick_fontsize)
+
+        for tick in ax.get_yticklabels():
+            tick.set_fontfamily(font_family)
+            tick.set_fontsize(tick_fontsize)
+
         plt.tight_layout(pad=0.25)
         plt.savefig(output_file, bbox_inches="tight")
+        plt.close()
+
+        # ==================================
+        # IMAGE CROPPING
+        # ==================================
+
+        crop_top_pct = float(
+            params.get(
+                "crop_top_pct",
+                0
+            )
+        )
+
+        crop_bottom_pct = float(
+            params.get(
+                "crop_bottom_pct",
+                0
+            )
+        )
+
+        crop_left_pct = float(
+            params.get(
+                "crop_left_pct",
+                0
+            )
+        )
+
+        crop_right_pct = float(
+            params.get(
+                "crop_right_pct",
+                0
+            )
+        )
+
+        if any(
+            [
+                crop_top_pct,
+                crop_bottom_pct,
+                crop_left_pct,
+                crop_right_pct
+            ]
+        ):
+
+            img = Image.open(output_file)
+
+            width, height = img.size
+
+            left = int(
+                width *
+                (
+                    crop_left_pct / 100.0
+                )
+            )
+
+            right = int(
+                width *
+                (
+                    1 -
+                    crop_right_pct / 100.0
+                )
+            )
+
+            upper = int(
+                height *
+                (
+                    crop_top_pct / 100.0
+                )
+            )
+
+            lower = int(
+                height *
+                (
+                    1 -
+                    crop_bottom_pct / 100.0
+                )
+            )
+
+            img = img.crop(
+                (
+                    left,
+                    upper,
+                    right,
+                    lower
+                )
+            )
+
+            img.save(output_file)
+
+            logger.info(
+                f"[{VISUAL_ID}] Image cropped "
+                f"(top={crop_top_pct}%, "
+                f"bottom={crop_bottom_pct}%, "
+                f"left={crop_left_pct}%, "
+                f"right={crop_right_pct}%)"
+            )
+
+        # ==================================
+        # LEGEND PNG
+        # ==================================
+
+        legend_handles = [
+            Patch(
+                facecolor="#4C78A8",
+                label="ED Peak Census (Growth Adjusted)"
+            ),
+            Patch(
+                facecolor="#F58518",
+                label="ED Room Need (Utilization Adjusted)"
+            )
+        ]
+
+        legend_labels = [
+            "ED Peak Census (Growth Adjusted)",
+            "ED Room Need (Utilization Adjusted)"
+        ]
+
+        legend_output_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=f"{VISUAL_ID}_legend",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
+        )
+
+        save_legend_png(
+            handles=legend_handles,
+            labels=legend_labels,
+            output_file=legend_output_file,
+            ncol=1,
+            font_family=font_family,
+            font_size=legend_fontsize,
+            width=legend_width,
+            height=legend_height
+        )
+
+        logger.info(
+            f"[{VISUAL_ID}] Legend written: "
+            f"{legend_output_file}"
+        )
+
+        # ==================================
+        # TITLE PNG
+        # ==================================
+
+        date_range = format_date_range(
+            start_date,
+            end_date
+        )
+
+        title_output_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=f"{VISUAL_ID}_title",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
+        )
+
+        save_title_png(
+            title="ED Peak Census and Room Need by Acuity",
+            subtitle=date_range,
+            output_file=title_output_file,
+            width=title_width,
+            height=title_height,
+            dpi=dpi,
+            font_family=font_family,
+            title_fontsize=title_fontsize,
+            subtitle_fontsize=subtitle_fontsize,
+            background_color=title_background_color,
+            title_weight=title_weight
+        )
+
+        logger.info(
+            f"[{VISUAL_ID}] Title written: "
+            f"{title_output_file}"
+        )
+
+        visit_output_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=f"{VISUAL_ID}_visits",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
+        )
+
+        visit_fig_width = _safe_param(
+            params,
+            "visit_tile_width",
+            2.5,
+            float
+        )
+
+        visit_fig_height = _safe_param(
+            params,
+            "visit_tile_height",
+            1.8,
+            float
+        )
+
+        visit_label_fontsize = _safe_param(
+            params,
+            "visit_label_fontsize",
+            12,
+            int
+        )
+
+        visit_value_fontsize = _safe_param(
+            params,
+            "visit_value_fontsize",
+            22,
+            int
+        )
+
+        visit_background_color = params.get(
+            "visit_tile_background_color",
+            "#d9d9d9"
+        )
+
+        visit_border_color = params.get(
+            "visit_tile_border_color",
+            "black"
+        )
+
+        fig, ax = plt.subplots(
+            figsize=(visit_fig_width, visit_fig_height)
+        )
+
+        ax.set_facecolor(visit_background_color)
+
+        for spine in ax.spines.values():
+            spine.set_visible(True)
+            spine.set_color(visit_border_color)
+
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+        ax.text(
+            0.03,
+            0.92,
+            "Visits",
+            ha="left",
+            va="top",
+            fontsize=visit_label_fontsize,
+            transform=ax.transAxes
+        )
+
+        ax.text(
+            0.5,
+            0.5,
+            f"{visit_count:,}",
+            ha="center",
+            va="center",
+            fontsize=visit_value_fontsize,
+            weight="bold",
+            transform=ax.transAxes
+        )
+
+        plt.tight_layout(pad=0.2)
+
+        plt.savefig(
+            visit_output_file,
+            bbox_inches="tight",
+            dpi=dpi
+        )
+
         plt.close()
 
         # =========================

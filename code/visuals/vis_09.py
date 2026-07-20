@@ -67,6 +67,7 @@ import pandas as pd
 import numpy as np
 
 import plotly.graph_objects as go
+from matplotlib.patches import Patch
 from utils.vis_helpers import (
     normalize_params,
     format_date_range,
@@ -75,7 +76,8 @@ from utils.vis_helpers import (
     save_legend_png,
     format_display_value,
     get_display_parameters,
-    save_parameter_table_png
+    save_parameter_table_png,
+    save_title_png
 )
 logger = logging.getLogger(__name__)
 
@@ -91,14 +93,32 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     default_params = {
         "fig_width": 1200,
         "fig_height": 900,
+
         "title": "ED Patient Flow Sankey",
+
         "font_family": "Arial",
         "node_font_size": 16,
         "title_font_size": 24,
         "title_x": 0.01,
+
         "top_anchor_y": 0.02,
         "cascade_start_offset": 0.12,
-        "cascade_step": 0.08
+        "cascade_step": 0.08,
+
+        # title image
+        "title_width": 6.40,
+        "title_height": 0.25,
+        "subtitle_fontsize": 8,
+        "title_background_color": "#d9d9d9",
+        "title_weight": "bold",
+
+        # legend image
+        "legend_width": 6,
+        "legend_height": 2,
+        "legend_fontsize": 10,
+
+        # output
+        "dpi": 300
     }
 
     p = {**default_params, **(params or {})}
@@ -335,7 +355,13 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         start_y = TOP_Y + float(p["cascade_start_offset"])
         end_y = 0.90  # leave bottom margin for title
 
-        positions = np.linspace(start_y, end_y, len(remaining))
+        positions = [
+            start_y +
+            (
+                i * float(p["cascade_step"])
+            )
+            for i in range(len(remaining))
+        ]
 
         for c, y in zip(remaining, positions):
             node_y[idx[c]] = y
@@ -363,7 +389,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
     fig.update_layout(
         title=dict(
-            text=f"{p['title']} {format_date_range(start_date, end_date)}",
+            text="",
             font=dict(
                 size=int(p["title_font_size"]),
                 family=p["font_family"],
@@ -397,8 +423,177 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     )
 
     fig.write_image(output_file)
+    from PIL import Image
+
+    crop_top_pct = float(
+        p.get(
+            "crop_top_pct",
+            0
+        )
+    )
+
+    crop_bottom_pct = float(
+        p.get(
+            "crop_bottom_pct",
+            0
+        )
+    )
+
+    crop_left_pct = float(
+        p.get(
+            "crop_left_pct",
+            0
+        )
+    )
+
+    crop_right_pct = float(
+        p.get(
+            "crop_right_pct",
+            0
+        )
+    )
+
+    if any(
+        [
+            crop_top_pct,
+            crop_bottom_pct,
+            crop_left_pct,
+            crop_right_pct
+        ]
+    ):
+
+        img = Image.open(output_file)
+
+        width, height = img.size
+
+        left = int(
+            width *
+            (
+                crop_left_pct / 100.0
+            )
+        )
+
+        right = int(
+            width *
+            (
+                1 -
+                crop_right_pct / 100.0
+            )
+        )
+
+        upper = int(
+            height *
+            (
+                crop_top_pct / 100.0
+            )
+        )
+
+        lower = int(
+            height *
+            (
+                1 -
+                crop_bottom_pct / 100.0
+            )
+        )
+
+        img = img.crop(
+            (
+                left,
+                upper,
+                right,
+                lower
+            )
+        )
+
+        img.save(output_file)
+
+        logger.info(
+            f"[{visual_id}] Image cropped "
+            f"(top={crop_top_pct}%, "
+            f"bottom={crop_bottom_pct}%, "
+            f"left={crop_left_pct}%, "
+            f"right={crop_right_pct}%)"
+        )
+
 
     logger.info(f"[{visual_id}] Output saved to {output_file}")
+
+    date_range = format_date_range(
+        start_date,
+        end_date
+    )
+
+    title_output_file = os.path.join(
+        output_dir,
+        generate_output_name(
+            visual_id=f"{visual_id}_title",
+            start_date=start_date,
+            end_date=end_date,
+            cohort_id=params.get("cohort_id"),
+            ext="png"
+        )
+    )
+
+    save_title_png(
+        title=p["title"],
+        subtitle=date_range,
+        output_file=title_output_file,
+        width=float(p["title_width"]),
+        height=float(p["title_height"]),
+        dpi=int(p["dpi"]),
+        font_family=p["font_family"],
+        title_fontsize=int(p["title_font_size"]),
+        subtitle_fontsize=int(p["subtitle_fontsize"]),
+        background_color=p["title_background_color"],
+        title_weight=p["title_weight"]
+    )
+
+    logger.info(
+        f"[{visual_id}] Title written: "
+        f"{title_output_file}"
+    )
+
+    legend_handles = []
+
+    legend_labels = []
+
+    for node_name in ordered_flow:
+
+        legend_handles.append(
+            Patch(
+                facecolor=color_map[node_name],
+                edgecolor="black"
+            )
+        )
+
+        legend_labels.append(node_name)
+
+    legend_output_file = os.path.join(
+        output_dir,
+        generate_output_name(
+            visual_id=f"{visual_id}_legend",
+            start_date=start_date,
+            end_date=end_date,
+            cohort_id=params.get("cohort_id"),
+            ext="png"
+        )
+    )
+
+    save_legend_png(
+        handles=legend_handles,
+        labels=legend_labels,
+        output_file=legend_output_file,
+        ncol=2,
+        font_family=p["font_family"],
+        font_size=int(p["legend_fontsize"]),
+        width=float(p["legend_width"]),
+        height=float(p["legend_height"])
+    )
+
+    logger.info(
+        f"[{visual_id}] Legend written: "
+        f"{legend_output_file}"
+    )
 
     # -----------------------------
     # RDB OUTPUT

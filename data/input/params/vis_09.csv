@@ -1,21 +1,43 @@
 param,value,description
+
 title,ED Patient Flow Sankey,Chart title
 
-## ===== FIGURE =====
+### ===== FIGURE =====
 fig_width,1200,Width in pixels
-fig_height,900,Height in pixels
-
-top_anchor_y,0.02,Top lock alignment
+fig_height,700,Height in pixels
+top_anchor_y,0.10,Top lock alignment
 cascade_start_offset,0.35,Start of right cascade
 cascade_step,0.08,Spacing between cascade nodes
 
-## ===== FONT CONTROL =====
+### ===== TITLE IMAGE =====
+title_width,10,Title image width
+title_height,0.25,Title image height
+subtitle_fontsize,10,Subtitle font size
+title_background_color,#d9d9d9,Background color
+title_weight,bold,Title font weight
+show_embedded_title,False,Render title inside Sankey
+
+### ===== LEGEND IMAGE =====
+legend_width,3,Legend width
+legend_height,2,Legend height
+legend_fontsize,10,Legend font size
+
+### ===== FONT CONTROL =====
 font_family,Segoe UI,Global font family
 node_font_size,16,Node label font size
-title_font_size,24,Chart title font size
+title_font_size,12,Chart title font size
 title_x,0.01,Title horizontal alignment
 node_font_color,#1a1a1a,Node label color
 label_min_pct,0.00,Hide labels below threshold
 
-## ===== STYLE =====
+### ===== STYLE =====
 flow_opacity,0.3,Link opacity
+
+### ===== OUTPUT =====
+dpi,300,Output image resolution
+
+### ===== IMAGE CROPPING =====
+crop_top_pct,0,Remove top percent
+crop_bottom_pct,20,Remove bottom percent
+crop_left_pct,10,Remove left percent
+crop_right_pct,10,Remove right percent

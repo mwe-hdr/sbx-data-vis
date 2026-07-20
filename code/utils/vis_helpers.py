@@ -370,8 +370,13 @@ def save_parameter_table_png(
 
     for item in display_params:
 
+        value = item["value"]
+
+        if item["description"] == "Length of peak period":
+            value = f"{value} Hours"
+
         rows.append([item["description"]])
-        rows.append([item["value"]])
+        rows.append([value])
 
     table_df = pd.DataFrame(
         rows,
@@ -379,13 +384,13 @@ def save_parameter_table_png(
     )
 
     fig_height = max(
-        2,
+        1.8,
         len(table_df) * 0.40
     )
 
     plt.rcParams["font.family"] = font_family
     fig, ax = plt.subplots(
-        figsize=(3, fig_height)
+        figsize=(2.8, fig_height)
     )
 
     ax.axis("off")

@@ -1,3 +1,0 @@
-active_flag,report_id,visual_id,domain,cohort_id,cohort_file,cohort_desc,filter_str,group,name,client_name,enabled,end_date,start_date,type,write_rdb,year_type
-Y,vis_01,vis_01,ed,ed.ed.psych,ed_cohort_gen.singlefile.psych.nonpsych.ps1,Psych ED encounters,"psych_patient_flag == ""Yes""",ed,ed.psych,Riverside RMC,1,12/31/2025,1/1/2025,cohort,1,calendar
-Y,vis_01,vis_01,ed,ed.ed.non_psych,ed_cohort_gen.singlefile.psych.nonpsych.ps1,Non-Psych ED encounters,"psych_patient_flag == ""No""",ed,ed.non_psych,Riverside RMC,1,12/31/2025,1/1/2025,cohort,1,calendar

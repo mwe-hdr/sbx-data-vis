@@ -76,7 +76,8 @@ from utils.vis_helpers import (
     save_legend_png,
     format_display_value,
     get_display_parameters,
-    save_parameter_table_png
+    save_parameter_table_png,
+    save_title_png
 )
 from utils.io_helpers import (
     load_data,
@@ -244,6 +245,91 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             "Segoe UI",
             str
         )
+        # ==================================
+        # TITLE IMAGE PARAMETERS
+        # ==================================
+
+        title_width = _safe_param(
+            params,
+            "title_width",
+            6.40,
+            float
+        )
+
+        title_height = _safe_param(
+            params,
+            "title_height",
+            0.25,
+            float
+        )
+
+        title_fontsize = _safe_param(
+            params,
+            "title_fontsize",
+            10,
+            int
+        )
+
+        subtitle_fontsize = _safe_param(
+            params,
+            "subtitle_fontsize",
+            8,
+            int
+        )
+
+        title_background_color = params.get(
+            "title_background_color",
+            "#d9d9d9"
+        )
+
+        title_weight = params.get(
+            "title_weight",
+            "bold"
+        )
+
+        # ==================================
+        # LEGEND PARAMETERS
+        # ==================================
+
+        legend_width = _safe_param(
+            params,
+            "legend_width",
+            6,
+            float
+        )
+
+        legend_height = _safe_param(
+            params,
+            "legend_height",
+            1,
+            float
+        )
+
+        legend_fontsize = _safe_param(
+            params,
+            "legend_fontsize",
+            8,
+            int
+        )
+
+        legend_ncol = _safe_param(
+            params,
+            "legend_ncol",
+            4,
+            int
+        )
+
+        # ==================================
+        # TICK FORMATTING
+        # ==================================
+
+        tick_fontsize = _safe_param(
+            params,
+            "tick_fontsize",
+            8,
+            int
+        )
+
         colors = {
             "peak": params.get("peak_bar_color", "teal"),
             "offpeak": params.get("offpeak_bar_color", "gray"),
@@ -402,10 +488,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # Labels
         date_range_str = format_date_range(start_date, end_date)
 
-        ax.set_title(
-            f"ED Hourly Census with Peak Period and Capacity Benchmarks {date_range_str}",
-            fontfamily=font_family
-        )
+        ax.set_title("")
         ax.set_xlabel(
             "Hour of Day",
             fontfamily=font_family
@@ -422,9 +505,44 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         plt.tight_layout()
         for tick in ax.get_xticklabels():
             tick.set_fontfamily(font_family)
+            tick.set_fontsize(tick_fontsize)
 
         for tick in ax.get_yticklabels():
             tick.set_fontfamily(font_family)
+            tick.set_fontsize(tick_fontsize)
+
+        y_axis_mode = params.get(
+            "y_axis_mode",
+            "raw"
+        )
+
+        y_axis_decimals = _safe_param(
+            params,
+            "y_axis_decimals",
+            0,
+            int
+        )
+
+        y_axis_multiplier = _safe_param(
+            params,
+            "y_axis_multiplier",
+            1,
+            float
+        )
+
+        y_axis_suffix = params.get(
+            "y_axis_suffix",
+            ""
+        )
+        apply_yaxis_format(
+            ax,
+            mode=y_axis_mode,
+            decimals=y_axis_decimals,
+            multiplier=y_axis_multiplier,
+            suffix=y_axis_suffix
+        )
+
+
         # =========================
         # Save output
         # =========================
@@ -459,8 +577,45 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             handles=handles,
             labels=labels,
             output_file=legend_output_file,
-            ncol=4,
-            font_family=font_family
+            ncol=legend_ncol,
+            font_family=font_family,
+            font_size=legend_fontsize,
+            width=legend_width,
+            height=legend_height
+        )
+
+        # ==================================
+        # TITLE IMAGE
+        # ==================================
+
+        title_output_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=f"{VISUAL_ID}_title",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
+        )
+
+        save_title_png(
+            title="ED Hourly Census with Peak Period and Capacity Benchmarks",
+            subtitle=date_range_str,
+            output_file=title_output_file,
+            width=title_width,
+            height=title_height,
+            dpi=dpi,
+            font_family=font_family,
+            title_fontsize=title_fontsize,
+            subtitle_fontsize=subtitle_fontsize,
+            background_color=title_background_color,
+            title_weight=title_weight
+        )
+
+        logger.info(
+            f"[{VISUAL_ID}] Title image saved to "
+            f"{title_output_file}"
         )
 
         parameter_output_file = os.path.join(

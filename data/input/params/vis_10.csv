@@ -1,25 +1,51 @@
 param,value,description,display,display_format
 
-## ===== CORE PARAMETERS =====
+### ===== CORE PARAMETERS =====
 
 variable_10_year_growth,0.0,Growth adjustment factor,0,percent0
 peak_period_start,13,Start hour for peak period,1,hour12
 peak_period_length_hours,10,Length of peak period,1,integer
 utilization,0.75,Capacity utilization factor,1,percent0
 
-## ===== FIGURE =====
+### ===== FIGURE =====
 
-fig_width,14,Figure width,0,
-fig_height,7,Figure height,0,
-dpi,100,Image resolution,0,
+fig_width,10,Figure width,0,
+fig_height,6,Figure height,0,
+dpi,300,Image resolution,0,
 font_family,Segoe UI,Global font family,0,
 
-## ===== COLORS =====
+### ===== TITLE IMAGE =====
 
-peak_bar_color,teal,Peak bars,0,
-offpeak_bar_color,gray,Off-peak bars,0,
-p70_color,green,P70 line,0,
-p80_color,yellow,P80 line,0,
-p90_color,orange,P90 line,0,
-peak_line_color,darkblue,Peak census line,0,
-room_need_color,darkred,Room need line,0,
+title_width,13,Title image width,0,
+title_height,0.25,Title image height,0,
+title_fontsize,12,Title font size,0,
+subtitle_fontsize,10,Subtitle font size,0,
+title_background_color,#d9d9d9,Background color,0,
+title_weight,bold,Title font weight,0,
+
+### ===== LEGEND IMAGE =====
+
+legend_width,4,Legend width,0,
+legend_height,3,Legend height,0,
+legend_fontsize,10,Legend font size,0,
+legend_ncol,2,Legend columns,0,
+
+### ===== AXIS FORMATTING =====
+
+tick_fontsize,10,Axis tick label size,0,
+y_axis_mode,raw,raw count percent formatting mode,0,
+y_axis_decimals,0,Axis decimal places,0,
+y_axis_multiplier,1,Axis multiplier,0,
+y_axis_suffix,,Axis suffix,0,
+
+### ===== COLORS =====
+
+peak_bar_color,#3E839E,Peak bars,0,
+offpeak_bar_color,#A7AAAD,Off-peak bars,0,
+
+p70_color,#6F994E,P70 line,0,
+p80_color,#F2B701,P80 line,0,
+p90_color,#F28E2B,P90 line,0,
+
+peak_line_color,#0B4F79,Peak census line,0,
+room_need_color,#D40062,Room need line,0,
