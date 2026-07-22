@@ -42,12 +42,15 @@ import logging
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
 
 from utils.vis_helpers import (
     normalize_params,
     format_date_range,
     get_display_parameters,
-    save_parameter_table_png
+    save_parameter_table_png,
+    save_title_png,
+    save_legend_png
 )
 
 VISUAL_ID = "vis_17"
@@ -133,6 +136,58 @@ def run(
     font_family = str(
         params.get("font_family", "Segoe UI")
     ).strip()
+
+    tick_fontsize = _safe_int(
+        params.get("tick_fontsize", 8),
+        8
+    )
+
+    title_width = float(
+        params.get("title_width", 6.40) or 6.40
+    )
+
+    title_height = float(
+        params.get("title_height", 0.25) or 0.25
+    )
+
+    title_fontsize = _safe_int(
+        params.get("title_fontsize", 10),
+        10
+    )
+
+    subtitle_fontsize = _safe_int(
+        params.get("subtitle_fontsize", 8),
+        8
+    )
+
+    title_background_color = str(
+        params.get(
+            "title_background_color",
+            "#d9d9d9"
+        )
+    )
+
+    title_weight = str(
+        params.get(
+            "title_weight",
+            "bold"
+        )
+    )
+
+    legend_width = float(
+        params.get("legend_width", 4) or 4
+    )
+
+    legend_height = float(
+        params.get("legend_height", 1) or 1
+    )
+
+    legend_fontsize = _safe_int(
+        params.get("legend_fontsize", 8),
+        8
+    )
+
+
     heatmap_mode = str(
         params.get("heatmap_mode", "count")
     ).strip().lower()
@@ -183,6 +238,46 @@ def run(
 
     work_df = df.copy()
 
+    # =====================================================
+    # REPORTING PERIOD FILTER
+    # =====================================================
+
+    work_df["ed_start_dtm"] = pd.to_datetime(
+        work_df["ed_start_dtm"],
+        errors="coerce"
+    )
+
+    report_start = pd.to_datetime(start_date)
+    report_end = pd.to_datetime(end_date)
+
+    if (
+        report_end.hour == 0
+        and report_end.minute == 0
+        and report_end.second == 0
+    ):
+        report_end = (
+            report_end
+            + pd.Timedelta(days=1)
+            - pd.Timedelta(minutes=1)
+        )
+
+    work_df = work_df[
+        (work_df["ed_start_dtm"] >= report_start)
+        &
+        (work_df["ed_start_dtm"] <= report_end)
+    ].copy()
+
+    logger.info(
+        f"[{VISUAL_ID}] Rows after date filtering: "
+        f"{len(work_df):,}"
+    )
+
+    if work_df.empty:
+        logger.warning(
+            f"[{VISUAL_ID}] No encounters after date filtering"
+        )
+        return
+
     work_df["arrival_group"] = (
         work_df["arrival_method"]
         .apply(_map_arrival_method)
@@ -220,10 +315,6 @@ def run(
         work_df["esi"].isin(esi_list)
     ]
 
-    work_df["ed_start_dtm"] = pd.to_datetime(
-        work_df["ed_start_dtm"],
-        errors="coerce"
-    )
 
     work_df = work_df[
         work_df["ed_start_dtm"].notna()
@@ -386,15 +477,6 @@ def run(
         fontfamily=font_family
     )
 
-    ax.set_title(
-        "Ambulatory Low-Acuity Arrival Time Heatmap\n"
-        + format_date_range(
-            start_date,
-            end_date
-        ),
-        fontfamily=font_family
-    )
-
     if show_cell_labels == 1:
 
         for r in range(len(weekday_order)):
@@ -447,12 +529,15 @@ def run(
     plt.tight_layout()
     for tick in ax.get_xticklabels():
         tick.set_fontfamily(font_family)
+        tick.set_fontsize(tick_fontsize)
 
     for tick in ax.get_yticklabels():
         tick.set_fontfamily(font_family)
+        tick.set_fontsize(tick_fontsize)
 
     for tick in cbar.ax.get_yticklabels():
         tick.set_fontfamily(font_family)
+        tick.set_fontsize(tick_fontsize)
     output_name = generate_output_name(
         visual_id=VISUAL_ID,
         start_date=start_date,
@@ -473,12 +558,85 @@ def run(
 
     plt.close()
 
+    legend_handles = [
+        Patch(
+            facecolor=plt.get_cmap(cmap)(0.75),
+            label=colorbar_label
+        )
+    ]
+
+    legend_labels = [
+        colorbar_label
+    ]
+
+    legend_output_file = os.path.join(
+        output_dir,
+        generate_output_name(
+            visual_id=f"{VISUAL_ID}_legend",
+            start_date=start_date,
+            end_date=end_date,
+            cohort_id=params.get("cohort_id"),
+            ext="png"
+        )
+    )
+
+    save_legend_png(
+        handles=legend_handles,
+        labels=legend_labels,
+        output_file=legend_output_file,
+        ncol=1,
+        font_family=font_family,
+        font_size=legend_fontsize,
+        width=legend_width,
+        height=legend_height
+    )
+
+    logger.info(
+        f"[vis_17] Legend written: "
+        f"{legend_output_file}"
+    )
+
+    date_range = format_date_range(
+        start_date,
+        end_date
+    )
+
+    title_output_file = os.path.join(
+        output_dir,
+        generate_output_name(
+            visual_id=f"{VISUAL_ID}_title",
+            start_date=start_date,
+            end_date=end_date,
+            cohort_id=params.get("cohort_id"),
+            ext="png"
+        )
+    )
+
+    save_title_png(
+        title="Ambulatory Low-Acuity Arrival Time Heatmap",
+        subtitle=date_range,
+        output_file=title_output_file,
+        width=title_width,
+        height=title_height,
+        dpi=dpi,
+        font_family=font_family,
+        title_fontsize=title_fontsize,
+        subtitle_fontsize=subtitle_fontsize,
+        background_color=title_background_color,
+        title_weight=title_weight
+    )
+
+    logger.info(
+        f"[vis_17] Title written: "
+        f"{title_output_file}"
+    )
+
     summary_rows = [
-        ["Total Visits", total_visits],
-        ["Weekday Visits", weekday_total],
-        ["Weekend Visits", weekend_total],
-        ["In-Hours Visits", in_hours_total],
-        ["After-Hours Visits", after_hours_total],
+        ["Total Visits", f"{total_visits:,}"],
+        ["Weekday Visits", f"{weekday_total:,}"],
+        ["Weekend Visits", f"{weekend_total:,}"],
+        ["In-Hours Visits", f"{in_hours_total:,}"],
+        ["After-Hours Visits", f"{after_hours_total:,}"],
         ["Peak Day", peak_day],
         ["Peak Hour", peak_hour],
         ["Peak Hour-Day", peak_hour_day]

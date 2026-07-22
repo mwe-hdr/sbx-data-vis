@@ -376,6 +376,122 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
         table_df = pd.DataFrame(results)
 
+        scenario_factors = {
+            "1-Immediate": _safe_param(
+                params,
+                "esi1_volume_factor",
+                1.0,
+                float
+            ),
+            "2-Emergent": _safe_param(
+                params,
+                "esi2_volume_factor",
+                1.0,
+                float
+            ),
+            "3-Urgent": _safe_param(
+                params,
+                "esi3_volume_factor",
+                1.0,
+                float
+            ),
+            "4-Less Urgent": _safe_param(
+                params,
+                "esi4_volume_factor",
+                1.0,
+                float
+            ),
+            "5-Non-Urgent": _safe_param(
+                params,
+                "esi5_volume_factor",
+                1.0,
+                float
+            )
+        }
+
+        scenario_df = table_df.copy()
+
+        scenario_df["scenario_factor"] = (
+            scenario_df["acuity_name"]
+            .map(scenario_factors)
+            .fillna(1.0)
+        )
+
+        scenario_df["scenario_peak_census"] = (
+            scenario_df["peak_census"]
+            * scenario_df["scenario_factor"]
+        )
+
+        scenario_df["scenario_room_need"] = (
+            scenario_df["room_need"]
+            * scenario_df["scenario_factor"]
+        )
+
+        grand_mask = (
+            scenario_df["acuity_name"]
+            == "Grand Total"
+        )
+
+        scenario_df.loc[
+            grand_mask,
+            "scenario_factor"
+        ] = np.nan
+
+        scenario_total_peak = (
+            scenario_df.loc[
+                ~grand_mask,
+                "scenario_peak_census"
+            ].sum()
+        )
+
+        scenario_total_room = (
+            scenario_df.loc[
+                ~grand_mask,
+                "scenario_room_need"
+            ].sum()
+        )
+
+        scenario_df.loc[
+            grand_mask,
+            "scenario_peak_census"
+        ] = scenario_total_peak
+
+        scenario_df.loc[
+            grand_mask,
+            "scenario_room_need"
+        ] = scenario_total_room
+
+        scenario_display_df = scenario_df[
+            [
+                "acuity_name",
+                "scenario_factor",
+                "scenario_peak_census",
+                "scenario_room_need"
+            ]
+        ].copy()
+
+        scenario_display_df["scenario_factor"] = (
+            scenario_display_df["scenario_factor"]
+            .apply(
+                lambda x:
+                ""
+                if pd.isna(x)
+                else f"{x:.0%}"
+            )
+        )
+
+        scenario_display_df[
+            "scenario_peak_census"
+        ] = scenario_display_df[
+            "scenario_peak_census"
+        ].round(1)
+
+        scenario_display_df[
+            "scenario_room_need"
+        ] = scenario_display_df[
+            "scenario_room_need"
+        ].round(1)
+
         visit_df = df.copy()
 
         visit_df["ed_start_dtm"] = pd.to_datetime(
@@ -605,6 +721,188 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         plt.savefig(output_file, bbox_inches="tight")
         plt.close()
 
+        fig, ax = plt.subplots(figsize=(fig_width, fig_height), dpi=dpi)
+
+        ax.axis("off")
+
+        scenario_col_widths = [
+            0.23,
+            0.12,
+            0.15,
+            0.15
+        ]
+
+        tbl = ax.table(
+            cellText=scenario_display_df.values,
+            colLabels=[
+                "Acuity Name",
+                "Factor",
+                "Scenario\nPeak\nCensus",
+                "Scenario\nRoom\nNeed"
+            ],
+            colWidths=scenario_col_widths,
+            loc="center"
+        )
+
+        header_row_height = float(
+            params.get(
+                "table_header_row_height",
+                0.16
+            )
+        )
+
+        for col in range(len(scenario_display_df.columns)):
+            tbl[(0, col)].set_height(header_row_height)
+
+        tbl.auto_set_font_size(False)
+        tbl.set_fontsize(
+            _safe_param(
+                params,
+                "table_font_size",
+                10,
+                int
+            )
+        )
+
+        tbl.scale(
+            float(params.get("table_scale_x", 1.2)),
+            float(params.get("table_scale_y", 1.5))
+        )
+
+        table_font_family = params.get(
+            "table_font_family",
+            font_family
+        )
+
+        for cell in tbl.get_celld().values():
+            cell.get_text().set_fontfamily(table_font_family)
+
+        header_color = params.get(
+            "table_header_color",
+            "#e8e8e8"
+        )
+        header_font_size = _safe_param(
+            params,
+            "table_header_font_size",
+            12,
+            int
+        )
+        for col in range(len(scenario_display_df.columns)):
+
+            cell = tbl[(0, col)]
+
+            cell.set_facecolor(header_color)
+
+            cell.get_text().set_weight("bold")
+
+            cell.get_text().set_fontsize(
+                header_font_size
+            )
+
+        band_color = params.get(
+            "table_band_color",
+            "#f2f2f2"
+        )
+
+        grand_total_row = len(scenario_display_df)
+
+        for row in range(1, grand_total_row):
+
+            if row % 2 == 1:
+
+                for col in range(len(scenario_display_df.columns)):
+
+                    tbl[(row, col)].set_facecolor(
+                        band_color
+                    )
+
+        grand_total_color = params.get(
+            "table_grand_total_color",
+            "#e6e6e6"
+        )
+
+        grand_total_row = len(scenario_display_df)
+
+        for col in range(len(scenario_display_df.columns)):
+
+            cell = tbl[(grand_total_row, col)]
+
+            cell.set_facecolor(grand_total_color)
+
+            cell.set_linewidth(1.0)
+
+            cell.get_text().set_weight("bold")
+
+        tbl[(0, 0)].get_text().set_ha("left")
+
+        tbl[(0, 1)].get_text().set_ha("right")
+
+        tbl[(0, 2)].get_text().set_ha("right")
+
+        tbl[(0, 3)].get_text().set_ha("right")
+
+        for row in range(1, len(scenario_display_df) + 1):
+
+            tbl[(row, 0)].get_text().set_ha("left")
+
+            tbl[(row, 1)].get_text().set_ha("right")
+
+            tbl[(row, 2)].get_text().set_ha("right")
+
+            tbl[(row, 3)].get_text().set_ha("right")
+
+        border_color = params.get(
+            "table_border_color",
+            "#cccccc"
+        )
+
+        border_width = float(
+            params.get(
+                "table_border_width",
+                0.4
+            )
+        )
+
+        grand_total_border_width = float(
+            params.get(
+                "table_grand_total_border_width",
+                1.0
+            )
+        )
+
+        for cell in tbl.get_celld().values():
+
+            cell.set_edgecolor(border_color)
+
+            cell.set_linewidth(border_width)
+
+        scenario_output_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=f"{VISUAL_ID}_scenario",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
+        )
+
+        # ==================================
+        # TICK LABEL FORMATTING
+        # ==================================
+
+        for tick in ax.get_xticklabels():
+            tick.set_fontfamily(font_family)
+            tick.set_fontsize(tick_fontsize)
+
+        for tick in ax.get_yticklabels():
+            tick.set_fontfamily(font_family)
+            tick.set_fontsize(tick_fontsize)
+
+        plt.tight_layout(pad=0.25)
+        plt.savefig(scenario_output_file, bbox_inches="tight")
+        plt.close()
+
         # ==================================
         # IMAGE CROPPING
         # ==================================
@@ -700,6 +998,72 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             )
 
         # ==================================
+        # IMAGE CROPPING
+        # ==================================
+
+        if any(
+            [
+                crop_top_pct,
+                crop_bottom_pct,
+                crop_left_pct,
+                crop_right_pct
+            ]
+        ):
+
+            img = Image.open(scenario_output_file)
+
+            width, height = img.size
+
+            left = int(
+                width *
+                (
+                    crop_left_pct / 100.0
+                )
+            )
+
+            right = int(
+                width *
+                (
+                    1 -
+                    crop_right_pct / 100.0
+                )
+            )
+
+            upper = int(
+                height *
+                (
+                    crop_top_pct / 100.0
+                )
+            )
+
+            lower = int(
+                height *
+                (
+                    1 -
+                    crop_bottom_pct / 100.0
+                )
+            )
+
+            img = img.crop(
+                (
+                    left,
+                    upper,
+                    right,
+                    lower
+                )
+            )
+
+            img.save(scenario_output_file)
+
+            logger.info(
+                f"[{VISUAL_ID}] Image cropped "
+                f"(top={crop_top_pct}%, "
+                f"bottom={crop_bottom_pct}%, "
+                f"left={crop_left_pct}%, "
+                f"right={crop_right_pct}%)"
+            )
+
+        # ==================================
         # LEGEND PNG
         # ==================================
 
@@ -767,7 +1131,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         )
 
         save_title_png(
-            title="ED Peak Census and Room Need by Acuity",
+            title="ED Peak Census and Room Need by Acuity - Scenarios",
             subtitle=date_range,
             output_file=title_output_file,
             width=title_width,

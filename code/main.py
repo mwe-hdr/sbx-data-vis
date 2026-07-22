@@ -46,6 +46,12 @@ DOMAINS = {
 
 BASE_DIR = os.getcwd()
 INPUT_DIR = os.path.join(BASE_DIR, "data", "input")
+COHORT_LOCATIONS_FILE = os.path.join(
+    INPUT_DIR,
+    "geo",
+    "cohort_locations",
+    "cohort_locations.csv"
+)
 PARAM_DIR = os.path.join(INPUT_DIR, "params")
 VIS_DRIVER_FILE = os.path.join(PARAM_DIR, "vis_driver.csv")
 PROCESSING_MODE = os.getenv("PROCESSING_MODE", "parameters_only").strip().lower()
@@ -205,6 +211,7 @@ def run_visuals(
             "run_id": run_id,
             "domain": cohort_meta.get("domain"),
             "client_name": row.get("client_name"),
+            "cohort_locations_file": COHORT_LOCATIONS_FILE,
             "year_type": row.get("year_type"),
             "write_rdb": row.get("write_rdb"),
             "start_date": row.get("start_date"),

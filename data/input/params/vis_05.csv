@@ -49,8 +49,8 @@ y_axis_separator,TRUE,Use thousands separator
 
 ## ===== AXIS RANGE =====
 
-y_min,5000,Minimum y-axis value
-y_max,7000,Maximum y-axis value
+y_min,100,Minimum y-axis value
+y_max,250,Maximum y-axis value
 
 ## ===== TITLE =====
 

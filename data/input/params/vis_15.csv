@@ -1,26 +1,43 @@
 param,value,description
 
-## ===== FIGURE =====
-fig_width,12,Figure width
+### ===== FIGURE =====
+
+fig_width,14,Figure width
 fig_height,8,Figure height
 dpi,300,Image resolution
 font_family,Segoe UI,Global font family
-## ===== VISUAL =====
+
+### ===== TITLE IMAGE =====
+
+title_width,13,Title image width
+title_height,0.25,Title image height
+subtitle_fontsize,10,Subtitle font size
+title_background_color,#d9d9d9,Background color
+title_weight,bold,Title font weight
+title_fontsize,14,Title font size
+
+### ===== LEGEND IMAGE =====
+
+legend_enabled,1,Generate legend image
+legend_width,4,Legend width
+legend_height,1,Legend height
+legend_fontsize,8,Legend font size
+
+### ===== VISUAL =====
+
 positive_color,#4E79A7,Contribution bar color
 total_color,#E15759,Total census bar color
+label_fontsize,12,Bar annotation font size
+table_fontsize,12,Summary table font size
+tick_fontsize,12,Axis tick label size
 
-label_fontsize,8,Bar annotation font size
-table_fontsize,8,Summary table font size
+### ===== OUTPUT =====
 
-## ===== LEGEND =====
-legend_enabled,1,Generate legend image
-
-## ===== OUTPUT =====
 write_rdb,1,Generate RDB output
 
-## ===== NUMBER FORMATTING =====
+### ===== NUMBER FORMATTING =====
+
 volume_decimals,0,Volume decimal places
 occupancy_decimals,0,Occupancy contribution decimal places
-
 volume_thousands_separator,1,Display volume with commas
 occupancy_thousands_separator,1,Display occupancy with commas

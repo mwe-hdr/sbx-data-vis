@@ -4,13 +4,13 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
-
+from matplotlib.ticker import StrMethodFormatter
 from utils.vis_helpers import (
     format_date_range,
-    normalize_params
+    normalize_params,
+    save_title_png,
+    save_legend_png
 )
-
-
 
 VISUAL_ID = "vis_15"
 
@@ -95,6 +95,36 @@ def run(
             str
         )
 
+        title_height = float(
+            params.get("title_height", 0.25) or 0.25
+        )
+
+        title_width = float(
+            params.get("title_width", 6.40) or 6.40
+        )
+
+        subtitle_fontsize = int(
+            params.get("subtitle_fontsize", 8) or 8
+        )
+
+        title_fontsize = int(
+            params.get("title_fontsize", 10) or 10
+        )
+
+        title_background_color = str(
+            params.get(
+                "title_background_color",
+                "#d9d9d9"
+            )
+        )
+
+        title_weight = str(
+            params.get(
+                "title_weight",
+                "bold"
+            )
+        )
+
         positive_color = _safe_param(
             params,
             "positive_color",
@@ -135,6 +165,13 @@ def run(
             int
         )
 
+        tick_fontsize = int(
+            params.get(
+                "tick_fontsize",
+                9
+            )
+        )
+
         volume_thousands_separator = _safe_param(
             params,
             "volume_thousands_separator",
@@ -154,6 +191,46 @@ def run(
         # =====================================================
 
         df = df.copy()
+
+        # =====================================================
+        # REPORTING PERIOD FILTER
+        # =====================================================
+
+        report_start = pd.to_datetime(start_date)
+        report_end = pd.to_datetime(end_date)
+
+        if (
+            report_end.hour == 0
+            and report_end.minute == 0
+            and report_end.second == 0
+        ):
+            report_end = (
+                report_end
+                + pd.Timedelta(days=1)
+                - pd.Timedelta(minutes=1)
+            )
+
+        df["ed_start_dtm"] = pd.to_datetime(
+            df["ed_start_dtm"],
+            errors="coerce"
+        )
+
+        df = df[
+            (df["ed_start_dtm"] >= report_start)
+            &
+            (df["ed_start_dtm"] <= report_end)
+        ].copy()
+
+        logger.info(
+            f"[{VISUAL_ID}] Rows after date filtering: "
+            f"{len(df):,}"
+        )
+
+        if df.empty:
+            logger.warning(
+                f"[{VISUAL_ID}] No encounters after date filtering"
+            )
+            return
 
         df["ed_start_dtm"] = pd.to_datetime(
             df["ed_start_dtm"],
@@ -376,34 +453,13 @@ def run(
         )
 
         ax.set_ylabel(
-            "Occupancy Contribution"
+            "Occupancy Contribution (Visits x LOS, Minutes)",
+            fontfamily=font_family,
+            fontsize=label_fontsize
         )
 
-        ax.set_title(
-            "Occupancy Waterfall by Acuity",
-            pad=25,
-            fontfamily=font_family
-        )
-
-        subtitle = (
-            f"{format_date_range(start_date, end_date)}"
-            if callable(format_date_range)
-            else f"{start_date} - {end_date}"
-        )
-
-        ax.text(
-            0.5,
-            1.01,
-            subtitle,
-            transform=ax.transAxes,
-            ha="center",
-            fontsize=10,
-            fontfamily=font_family
-        )
-
-        ax.set_ylabel(
-            "% Occupancy Contribution",
-            fontfamily=font_family
+        ax.yaxis.set_major_formatter(
+            StrMethodFormatter("{x:,.0f}")
         )
 
         # =====================================================
@@ -489,9 +545,9 @@ def run(
             ].values,
             colLabels=[
                 "ESI",
-                "Volume",
-                "% Volume",
-                "Average LOS",
+                "Visits",
+                "% Visits",
+                "Average LOS (Hours)",
                 "Occupancy Contribution",
                 "% Contribution"
             ],
@@ -504,12 +560,23 @@ def run(
         for cell in tbl.get_celld().values():
             cell.get_text().set_fontfamily(font_family)
 
+        for col in range(6):
+            header_cell = tbl[(0, col)]
+
+            header_cell.set_facecolor("#e8e8e8")
+
+            header_cell.get_text().set_weight(
+                "bold"
+            )
+
         plt.tight_layout()
         for tick in ax.get_xticklabels():
             tick.set_fontfamily(font_family)
+            tick.set_fontsize(tick_fontsize)
 
         for tick in ax.get_yticklabels():
             tick.set_fontfamily(font_family)
+            tick.set_fontsize(tick_fontsize)
 
         output_file = os.path.join(
             output_dir,
@@ -522,6 +589,39 @@ def run(
                 ),
                 ext="png"
             )
+        )
+
+        title_output_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=f"{VISUAL_ID}_title",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
+        )
+
+        save_title_png(
+            title="Occupancy Waterfall by Acuity",
+            subtitle=format_date_range(
+                start_date,
+                end_date
+            ),
+            output_file=title_output_file,
+            width=title_width,
+            height=title_height,
+            dpi=dpi,
+            font_family=font_family,
+            title_fontsize=title_fontsize,
+            subtitle_fontsize=subtitle_fontsize,
+            background_color=title_background_color,
+            title_weight=title_weight
+        )
+
+        logger.info(
+            f"[{VISUAL_ID}] Title saved to "
+            f"{title_output_file}"
         )
 
         plt.savefig(

@@ -45,12 +45,16 @@ import logging
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
+from matplotlib.patches import Patch
+
 
 from utils.vis_helpers import (
     normalize_params,
     format_date_range,
     save_parameter_table_png,
-    get_display_parameters
+    get_display_parameters,
+    save_title_png,
+    save_legend_png
 )
 
 logger = logging.getLogger(__name__)
@@ -148,14 +152,36 @@ def run(
     params = normalize_params(params)
 
     defaults = {
-        "title": "Ambulance Arrival Funnel by ESI",
+        "title": "EMT Arrival Funnel by ESI",
+
         "fig_width": 1400,
         "fig_height": 900,
-        "font_family": "Arial",
+
+        "font_family": "Segoe UI",
         "node_font_size": 14,
+
         "title_font_size": 22,
         "title_x": 0.01,
-        "flow_opacity": 0.30
+
+        "flow_opacity": 0.30,
+
+        # ==================================================
+        # TITLE IMAGE
+        # ==================================================
+
+        "title_width": 6.40,
+        "title_height": 0.25,
+        "subtitle_fontsize": 8,
+        "title_background_color": "#d9d9d9",
+        "title_weight": "bold",
+
+        # ==================================================
+        # LEGEND IMAGE
+        # ==================================================
+
+        "legend_width": 6,
+        "legend_height": 1,
+        "legend_fontsize": 8
     }
 
     p = {**defaults, **(params or {})}
@@ -275,7 +301,7 @@ def run(
     node_labels = []
     node_names = []
 
-    node_names.append("Ambulance Arrival")
+    node_names.append("EMT Arrival")
 
     for esi in esi_levels:
         node_names.append(f"ESI {esi}")
@@ -294,7 +320,7 @@ def run(
 
     totals = {}
 
-    totals["Ambulance Arrival"] = len(work_df)
+    totals["EMT Arrival"] = len(work_df)
 
     parent_totals = {}
     
@@ -322,7 +348,7 @@ def run(
 
         totals[f"ESI {esi} ED"] = ed_count
 
-        parent_totals[f"ESI {esi}"] = totals["Ambulance Arrival"]
+        parent_totals[f"ESI {esi}"] = totals["EMT Arrival"]
 
         parent_totals[f"ESI {esi} Triage"] = totals[f"ESI {esi}"]
 
@@ -345,7 +371,7 @@ def run(
 
         count = totals.get(name, 0)
 
-        if name == "Ambulance Arrival":
+        if name == "EMT Arrival":
 
             pct = 1.0
 
@@ -357,7 +383,7 @@ def run(
             "ESI 5"
         }:
 
-            pct = count / totals["Ambulance Arrival"]
+            pct = count / totals["EMT Arrival"]
 
         else:
 
@@ -402,7 +428,7 @@ def run(
         ed_count = len(ed_df)
 
         if esi_count > 0:
-            sources.append(idx["Ambulance Arrival"])
+            sources.append(idx["EMT Arrival"])
             targets.append(idx[f"ESI {esi}"])
             values.append(int(esi_count))
 
@@ -449,7 +475,7 @@ def run(
 
     for name in node_names:
 
-        if name == "Ambulance Arrival":
+        if name == "EMT Arrival":
             node_colors.append(color_scale[0])
 
         elif name.startswith("ESI 1"):
@@ -490,18 +516,17 @@ def run(
     )
 
     fig.update_layout(
-        title=dict(
-            text=(
-                f"{p['title']} "
-                f"{format_date_range(start_date,end_date)}"
-            ),
-            x=float(p["title_x"])
-        ),
         width=int(p["fig_width"]),
         height=int(p["fig_height"]),
         font=dict(
             family=p["font_family"],
             size=int(p["node_font_size"])
+        ),
+        margin=dict(
+            t=10,
+            l=10,
+            r=10,
+            b=10
         )
     )
 
@@ -517,6 +542,46 @@ def run(
     )
 
     fig.write_image(output_file)
+
+    # ==========================================================
+    # TITLE IMAGE
+    # ==========================================================
+
+    title_output_file = os.path.join(
+        output_dir,
+        generate_output_name(
+            visual_id=f"{VISUAL_ID}_title",
+            start_date=start_date,
+            end_date=end_date,
+            cohort_id=params.get("cohort_id"),
+            ext="png"
+        )
+    )
+
+    save_title_png(
+        title=p["title"],
+        subtitle=format_date_range(
+            start_date,
+            end_date
+        ),
+        output_file=title_output_file,
+        width=float(p["title_width"]),
+        height=float(p["title_height"]),
+        dpi=300,
+        font_family=p["font_family"],
+        title_fontsize=int(p["title_font_size"]),
+        subtitle_fontsize=int(
+            p["subtitle_fontsize"]
+        ),
+        background_color=
+            p["title_background_color"],
+        title_weight=p["title_weight"]
+    )
+
+    logger.info(
+        f"[{VISUAL_ID}] Title written: "
+        f"{title_output_file}"
+    )
 
     # ==========================================================
     # ESI 3-5 COMPANION FUNNEL
@@ -542,7 +607,7 @@ def run(
     ed_count = len(ed_df)
 
     node_names_focused = [
-        f"Ambulance ESI {esi_min}-{esi_max}",
+        f"EMT ESI {esi_min}-{esi_max}",
         "Triage",
         "ED",
         "Discharge",
@@ -565,7 +630,7 @@ def run(
 
     node_labels_focused = [
         (
-            f"<b>Ambulance ESI {esi_min}-{esi_max}</b><br>"
+            f"<b>EMT ESI {esi_min}-{esi_max}</b><br>"
             f"{total_count:,} (100.0%)"
         ),
         (
@@ -608,7 +673,7 @@ def run(
 
     sourcesfocused = [
         idxfocused[
-            f"Ambulance ESI {esi_min}-{esi_max}"
+            f"EMT ESI {esi_min}-{esi_max}"
         ],
         idxfocused["Triage"]
     ]
@@ -676,25 +741,90 @@ def run(
     )
 
     figfocused.update_layout(
-        title=dict(
-            text=
-                f"Ambulance ESI {esi_min}-{esi_max} Funnel "
-                + format_date_range(
-                    start_date,
-                    end_date
-                ),
-            x=float(p["title_x"])
-        ),
         width=int(p["fig_width"]),
         height=int(p["fig_height"]),
         font=dict(
             family=p["font_family"],
             size=int(p["node_font_size"])
+        ),
+        margin=dict(
+            t=10,
+            l=10,
+            r=10,
+            b=10
         )
     )
 
     figfocused.write_image(
         esifocused_output_file
+    )
+
+    # ==========================================================
+    # LEGEND PNG
+    # ==========================================================
+
+    legend_handles = [
+        Patch(
+            facecolor="#08306B",
+            label="ESI 1"
+        ),
+        Patch(
+            facecolor="#2171B5",
+            label="ESI 2"
+        ),
+        Patch(
+            facecolor="#4292C6",
+            label="ESI 3"
+        ),
+        Patch(
+            facecolor="#6BAED6",
+            label="ESI 4"
+        ),
+        Patch(
+            facecolor="#9ECAE1",
+            label="ESI 5"
+        )
+    ]
+
+    legend_labels = [
+        "ESI 1",
+        "ESI 2",
+        "ESI 3",
+        "ESI 4",
+        "ESI 5"
+    ]
+
+    legend_output_file = os.path.join(
+        output_dir,
+        generate_output_name(
+            visual_id=f"{VISUAL_ID}_legend",
+            start_date=start_date,
+            end_date=end_date,
+            cohort_id=params.get("cohort_id"),
+            ext="png"
+        )
+    )
+
+    save_legend_png(
+        handles=legend_handles,
+        labels=legend_labels,
+        output_file=legend_output_file,
+        ncol=5,
+        font_family=p["font_family"],
+        font_size=int(
+            p["legend_fontsize"]
+        ),
+        width=float(
+            p["legend_width"]
+        ),
+        height=float(
+            p["legend_height"]
+        )
+    )
+
+    logger.info(
+        f"[{VISUAL_ID}] Legend written: "
+        f"{legend_output_file}"
     )
 
     try:

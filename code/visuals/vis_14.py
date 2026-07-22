@@ -25,8 +25,14 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
-from utils.vis_helpers import normalize_params
+from matplotlib.patches import Patch
 
+from utils.vis_helpers import (
+    normalize_params,
+    format_date_range,
+    save_title_png,
+    save_legend_png
+)
 VISUAL_ID = "vis_14"
 
 logger = logging.getLogger(__name__)
@@ -307,7 +313,17 @@ def _build_table(
     for col in range(len(dataframe.columns)):
         cell = tbl[(0, col)]
         cell.set_facecolor(header_color)
+        header_font_size = int(
+            params.get(
+                "table_header_font_size",
+                12
+            )
+        )
+
         cell.get_text().set_weight("bold")
+        cell.get_text().set_fontsize(
+            header_font_size
+        )
 
     grand_row = len(dataframe)
 
@@ -328,6 +344,33 @@ def _build_table(
         tbl[(grand_row, col)].get_text().set_weight(
             "bold"
         )
+
+    border_color = params.get(
+        "table_border_color",
+        "#cccccc"
+    )
+
+    border_width = float(
+        params.get(
+            "table_border_width",
+            0.4
+        )
+    )
+
+    for cell in tbl.get_celld().values():
+        cell.set_edgecolor(border_color)
+        cell.set_linewidth(border_width)
+
+    grand_border_width = float(
+        params.get(
+            "table_grand_total_border_width",
+            1.0
+        )
+    )
+
+    tbl[(grand_row, col)].set_linewidth(
+        grand_border_width
+    )
 
     plt.tight_layout(pad=0.25)
 
@@ -353,6 +396,36 @@ def run(
     )
 
     params = normalize_params(params)
+
+    title_height = float(
+        params.get("title_height", 0.25) or 0.25
+    )
+
+    title_width = float(
+        params.get("title_width", 6.40) or 6.40
+    )
+
+    subtitle_fontsize = int(
+        params.get("subtitle_fontsize", 8) or 8
+    )
+
+    title_fontsize = int(
+        params.get("title_fontsize", 10) or 10
+    )
+
+    title_background_color = str(
+        params.get(
+            "title_background_color",
+            "#d9d9d9"
+        )
+    )
+
+    title_weight = str(
+        params.get(
+            "title_weight",
+            "bold"
+        )
+    )
 
     try:
 
@@ -609,6 +682,107 @@ def run(
                 cohort_id=params.get("cohort_id"),
                 ext="png"
             )
+        )
+
+        date_range = format_date_range(
+            start_date,
+            end_date
+        )
+
+        title_output_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=f"{VISUAL_ID}_title",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
+        )
+
+        save_title_png(
+            title="ED ESI Mix Scenario Simulator",
+            subtitle=date_range,
+            output_file=title_output_file,
+            width=title_width,
+            height=title_height,
+            dpi=int(params.get("dpi", 100)),
+            font_family=params.get(
+                "table_font_family",
+                "Segoe UI"
+            ),
+            title_fontsize=title_fontsize,
+            subtitle_fontsize=subtitle_fontsize,
+            background_color=title_background_color,
+            title_weight=title_weight
+        )
+
+        logger.info(
+            f"[{VISUAL_ID}] Title image saved to "
+            f"{title_output_file}"
+        )
+
+        legend_width = float(
+            params.get("legend_width", 6)
+        )
+
+        legend_height = float(
+            params.get("legend_height", 1)
+        )
+
+        legend_fontsize = int(
+            params.get("legend_fontsize", 8)
+        )
+
+        legend_handles = [
+            Patch(
+                facecolor="#d9d9d9",
+                label="Current Census = Observed Average Census"
+            ),
+            Patch(
+                facecolor="#b3d9ff",
+                label="Scenario Census = Modeled Census"
+            ),
+            Patch(
+                facecolor="#ffd9b3",
+                label="Δ Census = Difference from Current"
+            )
+        ]
+
+        legend_labels = [
+            "Current Census = Observed Average Census",
+            "Scenario Census = Modeled Census",
+            "Δ Census = Scenario - Current"
+        ]
+
+        legend_output_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=f"{VISUAL_ID}_legend",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
+        )
+
+        save_legend_png(
+            handles=legend_handles,
+            labels=legend_labels,
+            output_file=legend_output_file,
+            ncol=1,
+            font_family=params.get(
+                "table_font_family",
+                "Segoe UI"
+            ),
+            font_size=legend_fontsize,
+            width=legend_width,
+            height=legend_height
+        )
+
+        logger.info(
+            f"[{VISUAL_ID}] Legend image saved to "
+            f"{legend_output_file}"
         )
 
         detail_col_widths = [

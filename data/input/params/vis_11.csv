@@ -7,13 +7,13 @@ utilization,0.75,Capacity utilization factor
 
 ## ===== FIGURE =====
 
-fig_width,3,Figure width
-fig_height,3,Figure height
+fig_width,3.9,Figure width
+fig_height,3.5,Figure height
 dpi,300,Image resolution
 
 ## ===== TITLE IMAGE =====
 
-title_width,3,Title image width
+title_width,13,Title image width
 title_height,0.25,Title image height
 subtitle_fontsize,10,Subtitle font size
 title_background_color,#d9d9d9,Background color
@@ -74,3 +74,9 @@ visit_tile_background_color,#ffffff,Visits tile background color
 visit_tile_border_color,black,Visits tile border color
 visit_font_family,Segoe UI,Visits tile font family
 visit_value_font_weight,bold,Visits metric font weight
+
+esi1_volume_factor,1.00,ESI 1 volume multiplier
+esi2_volume_factor,1.00,ESI 2 volume multiplier
+esi3_volume_factor,0.95,ESI 3 volume multiplier
+esi4_volume_factor,0.90,ESI 4 volume multiplier
+esi5_volume_factor,0.85,ESI 5 volume multiplier

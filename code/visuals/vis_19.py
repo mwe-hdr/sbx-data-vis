@@ -19,7 +19,7 @@
 #
 # Calculates:
 #
-#     Encounter Count
+#     Visits
 #     Mean LOS
 #     Median LOS
 #     P25 LOS
@@ -30,7 +30,7 @@
 #
 # Census Contribution =
 #
-#     Encounter Count * Mean LOS
+#     Visits * Mean LOS
 #
 # Outputs:
 #
@@ -54,7 +54,8 @@ from utils.vis_helpers import (
     format_date_range,
     save_parameter_table_png,
     save_legend_png,
-    get_display_parameters
+    get_display_parameters,
+    save_title_png
 )
 
 VISUAL_ID = "vis_19"
@@ -180,6 +181,77 @@ def run(
     font_family = str(
         params.get("font_family", "Segoe UI")
     ).strip()
+    title_width = _safe_param(
+        params,
+        "title_width",
+        6.40,
+        float
+    )
+
+    title_height = _safe_param(
+        params,
+        "title_height",
+        0.25,
+        float
+    )
+
+    legend_width = _safe_param(
+        params,
+        "legend_width",
+        6,
+        float
+    )
+
+    tick_fontsize = _safe_param(
+        params,
+        "tick_fontsize",
+        10,
+        int
+    )
+
+    legend_height = _safe_param(
+        params,
+        "legend_height",
+        1,
+        float
+    )
+
+    legend_fontsize = _safe_param(
+        params,
+        "legend_fontsize",
+        8,
+        int
+    )
+
+    title_fontsize = _safe_param(
+        params,
+        "title_fontsize",
+        10,
+        int
+    )
+
+    subtitle_fontsize = _safe_param(
+        params,
+        "subtitle_fontsize",
+        8,
+        int
+    )
+
+    title_background_color = str(
+        params.get(
+            "title_background_color",
+            "#d9d9d9"
+        )
+    )
+
+    title_weight = str(
+        params.get(
+            "title_weight",
+            "bold"
+        )
+    )
+
+
     display_mode = str(
         params.get(
             "display_mode",
@@ -271,6 +343,20 @@ def run(
             "ed_start_dtm",
             "ed_stop_dtm"
         ]
+    )
+
+    start_dt = pd.to_datetime(start_date)
+    end_dt = pd.to_datetime(end_date)
+
+    work_df = work_df[
+        (work_df["ed_start_dtm"] >= start_dt)
+        &
+        (work_df["ed_start_dtm"] <= end_dt)
+    ]
+
+    logger.info(
+        f"[{VISUAL_ID}] Rows after date filtering: "
+        f"{len(work_df):,}"
     )
 
     work_df["esi"] = pd.to_numeric(
@@ -554,15 +640,6 @@ def run(
         fontfamily=font_family
     )
 
-    ax.set_title(
-        "LOS by Arrival Method and ESI\n"
-        + format_date_range(
-            start_date,
-            end_date
-        ),
-        fontfamily=font_family
-    )
-
     annotation = (
         f"Highest LOS: "
         f"{highest_los_category['arrival_type']} "
@@ -585,9 +662,11 @@ def run(
     plt.tight_layout()
     for tick in ax.get_xticklabels():
         tick.set_fontfamily(font_family)
+        tick.set_fontsize(tick_fontsize)
 
     for tick in ax.get_yticklabels():
         tick.set_fontfamily(font_family)
+        tick.set_fontsize(tick_fontsize)
     output_file = os.path.join(
         output_dir,
         generate_output_name(
@@ -609,15 +688,79 @@ def run(
 
     plt.close()
 
+    date_range = format_date_range(
+        start_date,
+        end_date
+    )
+
+    title_output_file = os.path.join(
+        output_dir,
+        generate_output_name(
+            visual_id=f"{VISUAL_ID}_title",
+            start_date=start_date,
+            end_date=end_date,
+            cohort_id=params.get("cohort_id"),
+            ext="png"
+        )
+    )
+
+    save_title_png(
+        title="LOS by Arrival Method and ESI",
+        subtitle=date_range,
+        output_file=title_output_file,
+        width=title_width,
+        height=title_height,
+        dpi=dpi,
+        font_family=font_family,
+        title_fontsize=title_fontsize,
+        subtitle_fontsize=subtitle_fontsize,
+        background_color=title_background_color,
+        title_weight=title_weight
+    )
+
+    logger.info(
+        f"[{VISUAL_ID}] Title written: "
+        f"{title_output_file}"
+    )
+
     # ==========================================================
     # SUMMARY TABLE PNG
     # ==========================================================
+
+    table_width = _safe_param(
+        params,
+        "table_width",
+        10,
+        float
+    )
+
+    table_height = _safe_param(
+        params,
+        "table_height",
+        4,
+        float
+    )
+
+    table_header_fontsize = _safe_param(
+        params,
+        "table_header_fontsize",
+        table_fontsize + 1,
+        int
+    )
+
+    table_row_scale = _safe_param(
+        params,
+        "table_row_scale",
+        1.3,
+        float
+    )
 
     table_df = (
         summary_df.sort_values(
             "census_contribution",
             ascending=False
         )
+        .head(5)
         [
             [
                 "arrival_type",
@@ -631,10 +774,13 @@ def run(
     )
 
     table_fig, table_ax = plt.subplots(
-        figsize=(12, 8)
+        figsize=(table_width, table_height)
     )
-
     table_ax.axis("off")
+
+    table_ax.set_position(
+        [0.01, 0.01, 0.98, 0.98]
+    )
 
     table_display = table_df.copy()
 
@@ -646,8 +792,7 @@ def run(
 
     for col in [
         "mean_los",
-        "median_los",
-        "census_contribution"
+        "median_los"
     ]:
         table_display[col] = (
             table_display[col]
@@ -655,14 +800,65 @@ def run(
             .round(2)
         )
 
+    table_display["census_contribution"] = (
+        table_display["census_contribution"]
+        .round(0)
+        .astype(int)
+        .map("{:,}".format)
+    )
+
+    table_display.columns = [
+        "Arrival Method",
+        "ESI",
+        "Visits",
+        "Mean LOS",
+        "Median LOS",
+        "Contribution"
+    ]
+
     table = table_ax.table(
         cellText=table_display.values,
         colLabels=table_display.columns,
-        loc="center"
+        bbox=[0, 0, 1, 1]
     )
+
+    column_widths = {
+        0: 0.18,  # arrival_type
+        1: 0.035,  # esi
+        2: 0.10,  # count
+        3: 0.10,  # mean_los
+        4: 0.13,  # median_los
+        5: 0.16   # census_contribution
+    }
+
+    for (row, col), cell in table.get_celld().items():
+
+        if col in column_widths:
+            cell.set_width(
+                column_widths[col]
+            )
+
     table.auto_set_font_size(False)
     table.set_fontsize(table_fontsize)
-    table.scale(1.0, 1.3)
+    table.scale(
+        1.0,
+        table_row_scale
+    )
+    for col in range(len(table_display.columns)):
+
+        header_cell = table[(0, col)]
+
+        header_cell.get_text().set_weight(
+            "bold"
+        )
+
+        header_cell.get_text().set_fontsize(
+            table_header_fontsize
+        )
+
+        header_cell.set_facecolor(
+            "#E8E8E8"
+        )
     for cell in table.get_celld().values():
         cell.get_text().set_fontfamily(font_family)
     summary_output = output_file.replace(
@@ -721,17 +917,31 @@ def run(
 
         labels = arrival_order
 
-        legend_output = output_file.replace(
-            ".png",
-            "_legend.png"
+        legend_output = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=f"{VISUAL_ID}_legend",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
         )
 
         save_legend_png(
             handles=handles,
             labels=labels,
             output_file=legend_output,
-            ncol=len(arrival_order),
-            font_family=font_family
+            ncol=1,
+            font_family=font_family,
+            font_size=legend_fontsize,
+            width=legend_width,
+            height=legend_height
+        )
+
+        logger.info(
+            f"[{VISUAL_ID}] Legend written: "
+            f"{legend_output}"
         )
 
     except Exception as ex:

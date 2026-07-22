@@ -1,7 +1,31 @@
 param,value,description
 
-# ===== FIGURE =====
+### ===== FIGURE =====
+
 fig_width,10,Figure width in inches
 fig_height,4,Figure height in inches
 dpi,300,Image resolution
+
+### ===== TITLE IMAGE =====
+
+title_width,13,Title image width
+title_height,0.25,Title image height
+subtitle_fontsize,10,Subtitle font size
+title_background_color,#d9d9d9,Background color
+title_weight,bold,Title font weight
+
+### ===== LEGEND IMAGE =====
+
+legend_width,4,Legend width
+legend_height,1,Legend height
+legend_fontsize,8,Legend font size
+
+### ===== FONTS =====
+
 font_family,Segoe UI,Global font family
+title_fontsize,14,Title font size
+tick_fontsize,8,Axis tick label size
+
+### ===== RDB =====
+
+write_rdb,0,Write RDB output records

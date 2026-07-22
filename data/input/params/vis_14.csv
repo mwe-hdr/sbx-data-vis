@@ -2,31 +2,31 @@ param,value,description,display,display_format
 
 ### ===== SCENARIO PARAMETERS =====
 
-variable_10_year_growth,0.0,Growth adjustment factor,1,percent0
+variable_10_year_growth,0.00,Growth adjustment factor,1,percent0
 utilization,0.75,Capacity utilization factor,1,percent0
 
 esi1_volume_factor,1.00,ESI 1 volume multiplier,1,percent0
 esi2_volume_factor,1.00,ESI 2 volume multiplier,1,percent0
-esi3_volume_factor,0.95,ESI 3 volume multiplier,1,percent0
-esi4_volume_factor,0.85,ESI 4 volume multiplier,1,percent0
-esi5_volume_factor,0.80,ESI 5 volume multiplier,1,percent0
+esi3_volume_factor,1,ESI 3 volume multiplier,1,percent0
+esi4_volume_factor,1,ESI 4 volume multiplier,1,percent0
+esi5_volume_factor,1,ESI 5 volume multiplier,1,percent0
 
 ### ===== TABLE FIGURES =====
 
-detail_fig_width,14,Detail table figure width,0,
-detail_fig_height,7,Detail table figure height,0,
+detail_fig_width,9,Detail table figure width,0,
+detail_fig_height,3,Detail table figure height,0,
 
-parameter_fig_width,10,Parameter table figure width,0,
-parameter_fig_height,5,Parameter table figure height,0,
+parameter_fig_width,4,Parameter table figure width,0,
+parameter_fig_height,3,Parameter table figure height,0,
 
-summary_fig_width,10,Summary table figure width,0,
-summary_fig_height,4,Summary table figure height,0,
+summary_fig_width,5,Summary table figure width,0,
+summary_fig_height,2,Summary table figure height,0,
 
-dpi,100,Image resolution,0,
+dpi,300,Image resolution,0,
 
 ### ===== TABLE FORMATTING =====
 
-table_font_size,10,Table font size,0,
+table_font_size,12,Table font size,0,
 table_header_font_size,12,Header font size,0,
 table_font_family,Segoe UI,Table font family,0
 
@@ -47,9 +47,24 @@ table_col_width_scenario,0.16,Scenario column width,0,
 table_col_width_difference,0.16,Difference column width,0,
 table_col_width_percent,0.17,Percent column width,0
 
-parameter_col_width_name,0.70,Parameter name column width,0,
-parameter_col_width_value,0.30,Parameter value column width,0,
+parameter_col_width_name,0.50,Parameter name column width,0,
+parameter_col_width_value,0.12,Parameter value column width,0,
 
 summary_col_width_metric,0.50,Summary metric column width,0,
 summary_col_width_current,0.25,Summary current column width,0,
 summary_col_width_scenario,0.25,Summary scenario column width,0,
+
+#### ===== TITLE IMAGE =====
+
+title_width,13,Title image width,0,
+title_height,0.25,Title image height,0,
+subtitle_fontsize,10,Subtitle font size,0,
+title_background_color,#d9d9d9,Title background color,0,
+title_weight,bold,Title font weight,0,
+title_fontsize,14,Title font size,0,
+
+#### ===== LEGEND IMAGE =====
+
+legend_width,6,Legend width,0,
+legend_height,1,Legend height,0,
+legend_fontsize,8,Legend font size,0,

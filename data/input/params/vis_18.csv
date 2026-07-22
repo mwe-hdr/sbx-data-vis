@@ -1,8 +1,8 @@
 param,value,description
 
 ## ===== FIGURE =====
-fig_width,12,Figure width
-fig_height,7,Figure height
+fig_width,11,Figure width
+fig_height,6,Figure height
 dpi,300,Image resolution
 font_family,Segoe UI,Global font family
 ## ===== FILTERS =====
@@ -17,11 +17,35 @@ show_bar_labels,1,Display segment labels
 show_chart_legend,0,Display legend on main chart
 
 ## ===== COLORS =====
-discharge_color,#4E79A7,Discharge color
-admit_color,#E15759,Admission color
-observation_color,#F28E2B,Observation color
-transfer_color,#76B7B2,Transfer color
-lwbs_color,#59A14F,LWBS color
-ama_color,#EDC948,AMA color
-expired_color,#AF7AA1,Expired color
-other_color,#BAB0AC,Other color
+discharge_color,#AFC4DA
+admit_color,#123A7A
+observation_color,#6FA4CC
+transfer_color,#8BB7D5
+lwbs_color,#D0DEEC
+ama_color,#4A8FC7
+expired_color,#2E73B8
+other_color,#E2E8F0
+
+### ===== TITLE IMAGE =====
+
+title_width,13,Title image width
+title_height,0.25,Title image height
+title_fontsize,14,Title font size
+subtitle_fontsize,10,Subtitle font size
+title_background_color,#d9d9d9,Background color
+title_weight,bold,Title font weight
+
+### ===== LEGEND IMAGE =====
+
+legend_width,4,Legend width
+legend_height,1,Legend height
+legend_fontsize,10,Legend font size
+
+### ===== FONTS =====
+
+tick_fontsize,12,Tick label font size
+bar_label_fontsize,10,Stacked bar label font size
+
+### ===== LABELS =====
+
+bar_label_threshold,4,Minimum percent for bar label display

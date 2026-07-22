@@ -2,9 +2,9 @@ param,value,description,display,display_format
 
 ### ===== CORE PARAMETERS =====
 
-variable_10_year_growth,0.0,Growth adjustment factor,0,percent0
-peak_period_start,13,Start hour for peak period,1,hour12
-peak_period_length_hours,10,Length of peak period,1,integer
+variable_10_year_growth,0.00,Growth adjustment factor,0,percent0
+peak_period_start,19,Start hour for peak period,1,hour12
+peak_period_length_hours,8,Length of peak period,1,integer
 utilization,0.75,Capacity utilization factor,1,percent0
 
 ### ===== FIGURE =====
@@ -37,6 +37,7 @@ y_axis_mode,raw,raw count percent formatting mode,0,
 y_axis_decimals,0,Axis decimal places,0,
 y_axis_multiplier,1,Axis multiplier,0,
 y_axis_suffix,,Axis suffix,0,
+graph_start_hour,0,Display start hour for hourly graph,0,hour12
 
 ### ===== COLORS =====
 
@@ -49,3 +50,9 @@ p90_color,#F28E2B,P90 line,0,
 
 peak_line_color,#0B4F79,Peak census line,0,
 room_need_color,#D40062,Room need line,0,
+
+esi1_volume_factor,1.00,ESI 1 volume multiplier,1,percent0
+esi2_volume_factor,1.00,ESI 2 volume multiplier,1,percent0
+esi3_volume_factor,1.00,ESI 3 volume multiplier,1,percent0
+esi4_volume_factor,1.0,ESI 4 volume multiplier,1,percent0
+esi5_volume_factor,1.0,ESI 5 volume multiplier,1,percent0

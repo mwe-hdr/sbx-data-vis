@@ -6,23 +6,67 @@ county_file,data/input/geo/tl_2025_us_county/tl_2025_us_county.shp,County bounda
 focus_county_geoids,51700;51650;51735;51199;51093;51181,Highlighted counties
 
 ## ===== FILTERS =====
-low_acuity_esi_values,4;5,Included ESI levels
+low_acuity_esi_values,3;4;5,Included ESI levels
 
 ## ===== FIGURE =====
 fig_width,16,Figure width
 fig_height,5,Figure height
 dpi,600,Image resolution
 font_family,Segoe UI,Global font family
-## ===== MAP =====
-classification_method,quantiles,Map classification method
-num_classes,5,Number of choropleth classes
-cmap,YlOrRd,Color palette
+
+## ===== COLORS =====
+classification_method,naturalbreaks,Map classification method
+num_classes,6,Number of choropleth classes
+cmap,Blues,Color palette
 
 ## ===== LABELS =====
-label_top_n_zips,10,Number of ZIPs to label
-zip_label_fontsize,6,ZIP label font size
+label_top_n_zips,5,Number of ZIPs to label
+zip_label_fontsize,5,ZIP label font size
 
 ## ===== COUNTY LABELS =====
-county_label_fontsize,6,County label font size
+county_label_fontsize,5,County label font size
 county_label_color,#444444,County label color
 county_label_weight,bold,County label font weight
+county_label_offsets,51700:W:7500
+
+### ===== TITLE IMAGE =====
+title_width,13,Title image width
+title_height,0.25,Title image height
+subtitle_fontsize,10,Subtitle font size
+title_background_color,#d9d9d9,Background color
+title_weight,bold,Title font weight
+title_fontsize,14,Title font size
+
+### ===== LEGEND IMAGE =====
+legend_width,5,Legend width
+legend_height,2,Legend height
+legend_fontsize,10,Legend font size
+legend_value_suffix,Visits,Legend value suffix
+
+### ===== FONTS =====
+tick_fontsize,6,Axis tick label size
+
+### ===== MAP ENHANCEMENTS =====
+show_scalebar,0,Display map scale bar
+show_north_arrow,1,Display north arrow
+zip_label_weight,normal,ZIP label font weight
+zip_label_halo_width,1.5,ZIP label halo width
+county_label_halo_width,2.0,County label halo width
+
+### ===== WATER =====
+show_water,1,Display water polygons
+water_directory,data/input/geo/tl_2025_water,Directory containing county areawater shapefiles
+water_color,#A9D6F5,Water fill color
+water_alpha,1.0,Water transparency
+
+### ===== FACILITY MARKER =====
+facility_marker_size,25,Facility marker size
+facility_marker_color,#FF0000,Facility marker color
+facility_marker_edgecolor,white,Facility marker edge color
+facility_label,,Facility label
+zoom_radius_miles,12,Zoom map radius in miles
+
+water_contiguity_order,2,County expansion order for water rendering
+water_area_threshold,250000,Minimum water polygon area
+zip_label_weight,bold,ZIP label font weight
+zip_label_halo_width,1.5,ZIP label halo width

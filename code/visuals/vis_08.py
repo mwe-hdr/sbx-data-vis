@@ -378,27 +378,55 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             below = pd.Series(True, index=ts.index)
             above = pd.Series(False, index=ts.index)
 
+        # # -----------------------------------------------------
+        # # MAIN LINE 
+        # # -----------------------------------------------------
+        # below_line, = plt.plot(
+        #     ts["interval"],
+        #     ts["census"].where(below),
+        #     color=below_color,
+        #     linewidth=line_width,
+        #     label=f"Census (≤{int(capacity_threshold_pct*100)}%)"
+        # )
+
+        # above_line = None
+
+        # if capacity_value is not None:
+
+        #     above_line, = plt.plot(
+        #         ts["interval"],
+        #         ts["census"].where(above),
+        #         color=above_color,
+        #         linewidth=line_width,
+        #         label=f"Census (>{int(capacity_threshold_pct*100)}%)"
+        #     )
+
         # -----------------------------------------------------
-        # MAIN LINE 
+        # MAIN LINE (CONTINUOUS)
         # -----------------------------------------------------
         below_line, = plt.plot(
             ts["interval"],
-            ts["census"].where(below),
+            ts["census"],
             color=below_color,
             linewidth=line_width,
-            label=f"Census (≤{int(capacity_threshold_pct*100)}%)"
+            label="Census",
+            zorder=2
         )
 
         above_line = None
 
+        # -----------------------------------------------------
+        # ABOVE-THRESHOLD OVERLAY
+        # -----------------------------------------------------
         if capacity_value is not None:
 
             above_line, = plt.plot(
                 ts["interval"],
                 ts["census"].where(above),
                 color=above_color,
-                linewidth=line_width,
-                label=f"Census (>{int(capacity_threshold_pct*100)}%)"
+                linewidth=line_width + 0.3,
+                label=f"Census (>{int(capacity_threshold_pct*100)}%)",
+                zorder=3
             )
 
         # -----------------------------------------------------

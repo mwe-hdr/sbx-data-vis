@@ -1,17 +1,66 @@
 param,value,description
 
-# ===== CORE PARAMETERS =====
-zcta_file,data/input/geo/tl_2025_us_zcta520/tl_2025_us_zcta520.shp
-focus_county_geoids,51700;51650;51735;51199;51093;51181
-county_file,data/input/geo/tl_2025_us_county/tl_2025_us_county.shp
+### ===== CORE PARAMETERS =====
 
-# ===== FIGURE =====
+zcta_file,data/input/geo/tl_2025_us_zcta520/tl_2025_us_zcta520.shp,ZCTA shapefile
+county_file,data/input/geo/tl_2025_us_county/tl_2025_us_county.shp,County shapefile
+focus_county_geoids,51700;51650;51735;51199;51093;51181,Focus county GEOIDs
+
+### ===== FIGURE =====
+
 fig_width,16,Figure width
 fig_height,5,Figure height
 dpi,600,Image resolution
-title_fontsize,10,Title font size
-font_family,Segoe UI,Global font family
 
+### ===== COLORS =====
+classification_method,naturalbreaks,Map classification method
+num_classes,6,Number of choropleth classes
+cmap,Blues,Color palette
+
+### ===== TITLE IMAGE =====
+
+title_width,13,Title image width
+title_height,0.25,Title image height
+subtitle_fontsize,10,Subtitle font size
+title_background_color,#d9d9d9,Background color
+title_weight,bold,Title font weight
+
+### ===== LEGEND IMAGE =====
+
+legend_width,5,Legend width
+legend_height,2,Legend height
+legend_fontsize,10,Legend font size
+legend_value_suffix,Visits,Legend value suffix
+
+### ===== FONTS =====
+title_fontsize,14,Title font size
+font_family,Segoe UI,Global font family
+tick_fontsize,6,Axis tick label size
+
+### ===== COUNTY LABELS =====
+cmap,Blues,Color palette
 county_label_fontsize,6,County label font size
 county_label_color,#444444,County label color
 county_label_weight,bold,County label font weight
+county_label_offsets,51700:W:7500
+
+### ===== WATER =====
+show_water,1,Display water polygons
+water_directory,data/input/geo/tl_2025_water,Directory containing county areawater shapefiles
+water_color,#A9D6F5,Water fill color
+water_alpha,1.0,Water transparency
+water_contiguity_order,2,County expansion order for water rendering
+water_area_threshold,250000,Minimum water polygon area
+
+### ===== ZIP LABELS =====
+label_top_n_zips,10,Number of ZIPs to label
+zip_label_fontsize,6,ZIP label font size
+zip_label_weight,bold,ZIP label font weight
+zip_label_halo_width,1.5,ZIP label halo width
+
+### ===== FACILITY MARKER =====
+facility_marker_size,25,Facility marker size
+facility_marker_color,#FF0000,Facility marker color
+facility_marker_edgecolor,white,Facility marker edge color
+facility_label,,Facility label
+zoom_radius_miles,12,Zoom map radius in miles

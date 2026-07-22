@@ -1,21 +1,40 @@
 param,value,description
 
-## ===== FIGURE =====
+### ===== FIGURE =====
 fig_width,14,Figure width
-fig_height,7,Figure height
+fig_height,6,Figure height
 dpi,300,Image resolution
+
+### ===== FONTS =====
 font_family,Segoe UI,Global font family
-## ===== HEATMAP =====
-heatmap_mode,count,Display mode (count|percent_total|percent_day)
+tick_fontsize,10,Axis tick size
+
+### ===== TITLE IMAGE =====
+title_width,13,Title image width
+title_height,0.25,Title image height
+title_fontsize,14,Title font size
+subtitle_fontsize,10,Subtitle font size
+title_background_color,#d9d9d9,Background color
+title_weight,bold,Title font weight
+
+### ===== LEGEND IMAGE =====
+legend_width,4,Legend width
+legend_height,1,Legend height
+legend_fontsize,8,Legend font size
+
+### ===== HEATMAP =====
+heatmap_mode,count,count|percent_total|percent_day
 cmap,YlOrRd,Heatmap color palette
-
-show_cell_labels,1,Display values within cells
+show_cell_labels,1,Display values in cells
 cell_label_mode,both,count|percent|both|none
-cell_fontsize,7,Cell text size
+cell_fontsize,10,Cell label fontsize
 
-## ===== BUSINESS HOURS =====
+### ===== BUSINESS HOURS =====
 clinic_open_hour,8,Clinic opens
 clinic_close_hour,17,Clinic closes
 
-## ===== FILTERS =====
-low_acuity_esi_values,4;5,Included ESI levels
+### ===== FILTERS =====
+low_acuity_esi_values,3;4;5,Included ESI levels
+
+### ===== OUTPUT =====
+write_rdb,1,Write RDB output

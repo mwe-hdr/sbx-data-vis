@@ -1,13 +1,13 @@
 param,value,description
 
 ## ===== FIGURE =====
-fig_width,14,Figure width
-fig_height,8,Figure height
+fig_width,11,Figure width
+fig_height,6,Figure height
 dpi,300,Image resolution
 font_family,Segoe UI,Global font family
 ## ===== DISPLAY =====
 display_mode,boxplot,boxplot|median_bar
-show_outliers,1,Display outlier points
+show_outliers,0,Display outlier points
 show_data_labels,0,Display data labels
 
 ## ===== LOS FILTERS =====
@@ -22,4 +22,25 @@ police_color,#F28E2B,Police color
 other_color,#BAB0AC,Other color
 
 ## ===== TABLE =====
-table_fontsize,8,Summary table font size
+table_fontsize,12,Summary table font size
+table_width,6,Summary table width
+table_height,3,Summary table height
+table_fontsize,12,Summary table body font size
+table_header_fontsize,12,Summary table header font size
+table_row_scale,1.3,Summary table row height multiplier
+
+### ===== TITLE IMAGE =====
+title_width,13,Title image width
+title_height,0.25,Title image height
+title_fontsize,14,Title font size
+subtitle_fontsize,10,Subtitle font size
+title_background_color,#d9d9d9,Title background color
+title_weight,bold,Title font weight
+
+### ===== LEGEND IMAGE =====
+legend_width,6,Legend image width
+legend_height,1,Legend image height
+legend_fontsize,12,Legend font size
+
+### ===== AXIS FORMATTING =====
+tick_fontsize,12,Axis tick font size

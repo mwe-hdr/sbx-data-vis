@@ -399,6 +399,15 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             lambda h: "Peak" if is_peak(h) else "Off-Peak"
         )
 
+        graph_start_hour = _safe_param(
+            params,
+            "graph_start_hour",
+            0,
+            int
+        )
+
+        graph_start_hour = min(max(graph_start_hour, 0), 23)
+
         # =========================
         # Percentiles
         # =========================
@@ -414,6 +423,22 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         )
 
         hourly = hourly.merge(percentiles, on="hour", how="left")
+
+        display_hours = list(range(graph_start_hour, 24)) + \
+                        list(range(0, graph_start_hour))
+
+        hourly["display_order"] = pd.Categorical(
+            hourly["hour"],
+            categories=display_hours,
+            ordered=True
+        )
+
+        hourly = (
+            hourly.sort_values("display_order")
+            .reset_index(drop=True)
+        )
+
+        hourly["plot_position"] = range(len(hourly))
 
         # =========================
         # Capacity metrics
@@ -447,38 +472,49 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         peak_mask = hourly["peak_flag"] == "Peak"
 
         ax.bar(
-            hourly.loc[~peak_mask, "hour"],
+            hourly.loc[~peak_mask, "plot_position"],
             hourly.loc[~peak_mask, "hourly_census"],
             color=colors["offpeak"],
             label="Off-Peak",
         )
 
         ax.bar(
-            hourly.loc[peak_mask, "hour"],
+            hourly.loc[peak_mask, "plot_position"],
             hourly.loc[peak_mask, "hourly_census"],
             color=colors["peak"],
             label="Peak",
         )
 
         # Percentiles
-        ax.plot(hourly["hour"], hourly["p70"], linestyle="--", color=colors["p70"], label="P70")
-        ax.plot(hourly["hour"], hourly["p80"], linestyle="--", color=colors["p80"], label="P80")
-        ax.plot(hourly["hour"], hourly["p90"], linestyle="--", color=colors["p90"], label="P90")
+        ax.plot(hourly["plot_position"], hourly["p70"], linestyle="--", color=colors["p70"], label="P70")
+        ax.plot(hourly["plot_position"], hourly["p80"], linestyle="--", color=colors["p80"], label="P80")
+        ax.plot(hourly["plot_position"], hourly["p90"], linestyle="--", color=colors["p90"], label="P90")
 
         # Capacity lines
-        peak_hours = hourly[hourly["peak_flag"] == "Peak"]["hour"]
+        hourly["peak_line"] = np.nan
+        hourly["room_line"] = np.nan
+
+        hourly.loc[
+            hourly["peak_flag"] == "Peak",
+            "peak_line"
+        ] = peak_census
+
+        hourly.loc[
+            hourly["peak_flag"] == "Peak",
+            "room_line"
+        ] = room_need
 
         ax.plot(
-            peak_hours,
-            [peak_census] * len(peak_hours),
+            hourly["plot_position"],
+            hourly["peak_line"],
             color=colors["peak_line"],
             linewidth=2,
             label="Peak Census",
         )
 
         ax.plot(
-            peak_hours,
-            [room_need] * len(peak_hours),
+            hourly["plot_position"],
+            hourly["room_line"],
             color=colors["room_need"],
             linestyle="-.",
             linewidth=2,
@@ -498,8 +534,8 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             fontfamily=font_family
         )
 
-        ax.set_xticks(range(24))
-
+        ax.set_xticks(hourly["plot_position"])
+        ax.set_xticklabels(hourly["hour"])
         handles, labels = ax.get_legend_handles_labels()
 
         plt.tight_layout()

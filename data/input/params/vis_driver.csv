@@ -15,8 +15,8 @@ vis_13,ed,ED Arrival Method vs ESI Heatmap,0,1/1/2025,12/31/2025,cohort,Riversid
 vis_14,ed,ED ESI Mix Scenario Simulator,0,1/1/2025,12/31/2025,cohort,Riverside RMC,calendar,1
 vis_15,ed,ED Census Waterfall by Acuity,0,1/1/2025,12/31/2025,cohort,Riverside RMC,calendar,1
 vis_16,ed,ED Low-Acuity Ambulatory Patient Origin Map,0,1/1/2025,12/31/2025,cohort,Riverside RMC,calendar,1
-vis_17,ed,ED Ambulatory Arrival Time Heatmap,0,1/1/2025,12/31/2025,cohort,Riverside RMC,calendar,1
-vis_18,ed,ED Ambulatory Arrival Disposition by ESI,0,1/1/2025,12/31/2025,cohort,Riverside RMC,calendar,1
+vis_17,ed,ED EMT Arrival Time Heatmap,0,1/1/2025,12/31/2025,cohort,Riverside RMC,calendar,1
+vis_18,ed,ED EMT Arrival Disposition by ESI,0,1/1/2025,12/31/2025,cohort,Riverside RMC,calendar,1
 vis_19,ed,ED LOS by Arrival Method and ESI,0,1/1/2025,12/31/2025,cohort,Riverside RMC,calendar,1
 vis_20,ed,ED EMS Arrival Funnel by ESI,0,1/1/2025,12/31/2025,cohort,Riverside RMC,calendar,1
 tbl_01,inpatient,Annual Patients and Patient Days Summary,0,1/1/2025,12/31/2025,cohort,Riverside RMC,calendar,1

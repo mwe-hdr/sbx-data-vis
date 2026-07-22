@@ -2,11 +2,11 @@
 ##
 ## Domain      : ED (Emergency Department)
 ##
-## Report Name : Ambulatory Arrival Disposition by ESI
+## Report Name : EMT Arrival Disposition by ESI
 ##
 ## Description :
 ##
-## Evaluates disposition outcomes across ESI levels for ambulatory
+## Evaluates disposition outcomes across ESI levels for EMT
 ## Emergency Department patients.
 ##
 ## Arrival methods are standardized using the same arrival grouping
@@ -46,13 +46,27 @@ from utils.vis_helpers import (
     format_date_range,
     save_legend_png,
     get_display_parameters,
-    save_parameter_table_png
+    save_parameter_table_png,
+    save_title_png
 )
 
 VISUAL_ID = "vis_18"
 
 logger = logging.getLogger(__name__)
 
+from matplotlib.colors import to_rgb
+
+def _get_contrasting_text_color(hex_color):
+
+    r, g, b = to_rgb(hex_color)
+
+    luminance = (
+        0.2126 * r
+        + 0.7152 * g
+        + 0.0722 * b
+    )
+
+    return "white" if luminance < 0.55 else "black"
 
 def _map_arrival_method(value):
 
@@ -135,13 +149,13 @@ def _map_disposition(value):
         or "left without being seen" in txt
         or "left before triage" in txt
     ):
-        return "Left Without Being Seen"
+        return "Left w/o Being Seen"
 
     if (
         "against medical advice" in txt
         or txt == "ama"
     ):
-        return "Left Against Medical Advice"
+        return "Left AMA"
 
     if (
         "expired" in txt
@@ -178,10 +192,91 @@ def run(
     font_family = str(
         params.get("font_family", "Segoe UI")
     ).strip()
+    title_width = float(
+        params.get("title_width", 6.40) or 6.40
+    )
+
+    title_height = float(
+        params.get("title_height", 0.25) or 0.25
+    )
+
+    title_fontsize = int(
+        float(
+            params.get(
+                "title_fontsize",
+                10
+            )
+        )
+    )
+
+
+    bar_label_fontsize = int(
+        float(
+            params.get(
+                "bar_label_fontsize",
+                7
+            )
+        )
+    )
+
+    legend_width = float(
+        params.get(
+            "legend_width",
+            6
+        ) or 6
+    )
+
+    legend_height = float(
+        params.get(
+            "legend_height",
+            1
+        ) or 1
+    )
+
+    legend_fontsize = int(
+        float(
+            params.get(
+                "legend_fontsize",
+                8
+            )
+        )
+    )
+
+    subtitle_fontsize = int(
+        float(
+            params.get(
+                "subtitle_fontsize",
+                8
+            )
+        )
+    )
+
+    title_background_color = str(
+        params.get(
+            "title_background_color",
+            "#d9d9d9"
+        )
+    )
+
+    title_weight = str(
+        params.get(
+            "title_weight",
+            "bold"
+        )
+    )
+    tick_fontsize = int(
+        float(
+            params.get(
+                "tick_fontsize",
+                10
+            )
+        )
+    )
     required_cols = [
         "arrival_method",
         "esi",
-        "disch_disp_desc"
+        "disch_disp_desc",
+        "ed_start_dtm"
     ]
 
     missing_cols = [
@@ -196,6 +291,46 @@ def run(
         )
 
     work_df = df.copy()
+
+    # ============================================================
+    # REPORTING PERIOD FILTER
+    # ============================================================
+
+    work_df["ed_start_dtm"] = pd.to_datetime(
+        work_df["ed_start_dtm"],
+        errors="coerce"
+    )
+
+    report_start = pd.to_datetime(start_date)
+    report_end = pd.to_datetime(end_date)
+
+    if (
+        report_end.hour == 0
+        and report_end.minute == 0
+        and report_end.second == 0
+    ):
+        report_end = (
+            report_end
+            + pd.Timedelta(days=1)
+            - pd.Timedelta(minutes=1)
+        )
+
+    work_df = work_df[
+        (work_df["ed_start_dtm"] >= report_start)
+        &
+        (work_df["ed_start_dtm"] <= report_end)
+    ].copy()
+
+    logger.info(
+        f"[{VISUAL_ID}] Rows after date filtering: "
+        f"{len(work_df):,}"
+    )
+
+    if work_df.empty:
+        logger.warning(
+            f"[{VISUAL_ID}] No encounters after date filtering"
+        )
+        return
 
     work_df["esi"] = pd.to_numeric(
         work_df["esi"],
@@ -242,8 +377,8 @@ def run(
         "Admit",
         "Observation",
         "Transfer",
-        "Left Without Being Seen",
-        "Left Against Medical Advice",
+        "Left w/o Being Seen",
+        "Left AMA",
         "Expired",
         "Other"
     ]
@@ -324,14 +459,20 @@ def run(
             ):
                 if val >= 4:
 
+                    label_color = _get_contrasting_text_color(
+                        colors[idx]
+                    )
+
                     ax.text(
                         bar.get_x() + bar.get_width()/2,
                         bar.get_y() + bar.get_height()/2,
-                        f"{val:.0f}%",
+                        f"{disp}\n{val:.0f}%",
                         ha="center",
                         va="center",
-                        fontsize=7,
-                        fontfamily=font_family
+                        fontsize=bar_label_fontsize,
+                        fontfamily=font_family,
+                        color=label_color,
+                        fontweight="bold"
                     )
 
         bottom += values
@@ -340,17 +481,11 @@ def run(
 
     ax.set_ylabel(
         "Percent of Encounters",
-        fontfamily=font_family
+        fontfamily=font_family,
+        fontsize=bar_label_fontsize
     )
 
     arrival_display = ", ".join(selected_arrivals)
-
-    ax.set_title(
-        "Ambulatory Arrival Disposition by ESI\n"
-        + format_date_range(start_date, end_date)
-        + f"  |  n = {total_encounters:,} encounters",
-        fontfamily=font_family
-    )
 
     if show_chart_legend == 1:
 
@@ -363,9 +498,11 @@ def run(
     plt.tight_layout()
     for tick in ax.get_xticklabels():
         tick.set_fontfamily(font_family)
+        tick.set_fontsize(tick_fontsize)
 
     for tick in ax.get_yticklabels():
         tick.set_fontfamily(font_family)
+        tick.set_fontsize(tick_fontsize)
     output_name = generate_output_name(
         visual_id=VISUAL_ID,
         start_date=start_date,
@@ -385,6 +522,46 @@ def run(
     )
 
     plt.close()
+
+    date_range = format_date_range(
+        start_date,
+        end_date
+    )
+
+    title_output_file = os.path.join(
+        output_dir,
+        generate_output_name(
+            visual_id=f"{VISUAL_ID}_title",
+            start_date=start_date,
+            end_date=end_date,
+            cohort_id=params.get("cohort_id"),
+            ext="png"
+        )
+    )
+
+    save_title_png(
+        title="EMT Arrival Disposition by ESI",
+        subtitle=
+        (
+            f"{date_range}"
+            f" | Arrivals: {arrival_display}"
+            f" | n = {total_encounters:,}"
+        ),       
+        output_file=title_output_file,
+        width=title_width,
+        height=title_height,
+        dpi=dpi,
+        font_family=font_family,
+        title_fontsize=title_fontsize,
+        subtitle_fontsize=subtitle_fontsize,
+        background_color=title_background_color,
+        title_weight=title_weight
+    )
+
+    logger.info(
+        f"[vis_18] Title written: "
+        f"{title_output_file}"
+    )
 
     total_encounters = len(work_df)
 
@@ -487,15 +664,31 @@ def run(
     legend_labels = disp_order.copy()
 
     try:
+        legend_output_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=f"{VISUAL_ID}_legend",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
+        )
+
         save_legend_png(
-            legend_handles,
-            legend_labels,
-            png_path.replace(
-                ".png",
-                "_legend.png"
-            ),
-            ncol=4,
-            font_family=font_family
+            handles=legend_handles,
+            labels=legend_labels,
+            output_file=legend_output_file,
+            ncol=1,
+            font_family=font_family,
+            font_size=legend_fontsize,
+            width=legend_width,
+            height=legend_height
+        )
+
+        logger.info(
+            f"[vis_18] Legend written: "
+            f"{legend_output_file}"
         )
         
     except Exception as ex:
@@ -580,7 +773,7 @@ def run(
                     "start_date": start_date,
                     "end_date": end_date,
                     "report_title":
-                        "Ambulatory Arrival Disposition by ESI",
+                        "EMT Arrival Disposition by ESI",
                     "visual_id": VISUAL_ID,
                     "dimension": "esi",
                     "secondary_dimension":

@@ -1,24 +1,44 @@
 param,value,description
-title,Ambulatory Arrival Funnel,Chart title
 
-### ===== FIGURE =====
+#### ===== FIGURE =====
 
-fig_width,1400,Width in pixels
-fig_height,1600,Height in pixels
+title,EMT Arrival Funnel by ESI,Chart title
+fig_width,1700,Width in pixels
+fig_height,950,Height in pixels
 
-### ===== FONT CONTROL =====
+#### ===== FONT CONTROL =====
 
 font_family,Segoe UI,Global font family
 node_font_size,14,Node label font size
-title_font_size,22,Title font size
+title_font_size,14,Title font size
 title_x,0.01,Title horizontal alignment
 
-### ===== STYLE =====
+#### ===== TITLE IMAGE =====
+
+title_width,8,Title image width
+title_height,0.25,Title image height
+subtitle_fontsize,10,Subtitle font size
+title_background_color,#d9d9d9,Title background color
+title_weight,bold,Title font weight
+
+#### ===== LEGEND IMAGE =====
+
+legend_width,6,Legend image width
+legend_height,1,Legend image height
+legend_fontsize,8,Legend font size
+
+#### ===== STYLE =====
 
 flow_opacity,0.30,Sankey link opacity
 
-esi_focused_min,1,Minimum ESI for companion funnel
+#### ===== ESI FOCUS =====
+
+esi_focused_min,3,Minimum ESI for companion funnel
 esi_focused_max,5,Maximum ESI for companion funnel
 
-### ===== OUTPUT =====
+#### ===== OUTPUT =====
 
+write_rdb,1,Write RDB records
+
+collapse_small_dispositions,1,Collapse small disposition nodes
+other_threshold_pct,3.0,Minimum percent of ESI ED volume to show separately
