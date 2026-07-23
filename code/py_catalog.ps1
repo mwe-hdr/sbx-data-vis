@@ -11,7 +11,7 @@ $FolderName = Split-Path $RootFolder -Leaf
 $OutputFile = "$FolderName.txt"
 
 # Get all .py files recursively
-$files = Get-ChildItem -Path $RootFolder -Recurse -Filter *.py -File | Where-Object {
+$files = Get-ChildItem -Path $RootFolder -Recurse -Filter vis_*.py -File | Where-Object {
     $fullPath = $_.FullName
 
     foreach ($keyword in $ExcludeKeywords) {

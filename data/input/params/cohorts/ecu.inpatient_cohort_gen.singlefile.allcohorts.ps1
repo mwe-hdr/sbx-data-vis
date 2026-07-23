@@ -3,6 +3,7 @@
 # =========================
 
 $outputFolder = "C:\lwf\sbx-data-vis\data\input\params\cohorts\inpatient"
+
 New-Item -ItemType Directory -Force -Path $outputFolder | Out-Null
 
 $outputFile = Join-Path $outputFolder "inpatient.csv"
@@ -25,28 +26,23 @@ $hospitals = @(
 )
 
 # =========================
-# SERVICE LINE GROUPS
+# MATERNAL SERVICE LINES
 # =========================
 
-$neonate = @(
+$maternalServices = @(
     "Pediatrics",
     "Neonatology",
-    "NEWBORN"
-)
-
-$ob = @(
+    "NEWBORN",
     "Obstetrics/Gyn",
     "Obstetrics",
     "Gynecology",
     "Maternal-Fetal Med"
 )
 
-# format arrays into CSV-style string for filter
-$neonateStr = ($neonate | ForEach-Object { "`"$_`"" }) -join ", "
-$obStr      = ($ob | ForEach-Object { "`"$_`"" }) -join ", "
-
-# combined exclusion list
-$excludeStr = ($neonate + $ob | ForEach-Object { "`"$_`"" }) -join ", "
+$maternalServicesStr = (
+    $maternalServices |
+    ForEach-Object { "`"$_`"" }
+) -join ", "
 
 # =========================
 # PROCESS
@@ -61,48 +57,69 @@ foreach ($h in $hospitals) {
 
     $rows = @(
 
-        # ✅ all hospital encounters
+        # ✅ All Inpatient
         [PSCustomObject]@{
             name        = "$prefix.all.inpatient"
             param       = "filter"
-            value       = "hospital_name == `"$loc`""
-            description = "$loc - All inpatient encounters"
+            value       = "hospital_name == `"$loc`" and patient_class == `"Inpatient`""
+            description = "$loc - All Inpatient"
             cohort_file = "inpatient_cohort_gen.singlefile.allcohorts.ps1"
         }
 
-        # ✅ all service lines excluding neonate + OB
+        # ✅ Maternal Services
         [PSCustomObject]@{
-            name        = "$prefix.all.service.lines.excl.neonate.and.ob"
+            name        = "$prefix.maternal.services"
             param       = "filter"
-            value       = "hospital_name == `"$loc`" and service_line not in [$excludeStr]"
-            description = "$loc - All service lines excluding Neonate and OB"
+            value       = "hospital_name == `"$loc`" and patient_class == `"Inpatient`" and service_line in [$maternalServicesStr]"
+            description = "$loc - Maternal Services"
             cohort_file = "inpatient_cohort_gen.singlefile.allcohorts.ps1"
         }
 
-        # ✅ neonate services only
+        # ✅ Inpatient Excluding Maternal Services
         [PSCustomObject]@{
-            name        = "$prefix.neonate.services"
+            name        = "$prefix.inpatient.excl.maternal.services"
             param       = "filter"
-            value       = "hospital_name == `"$loc`" and service_line in [$neonateStr]"
-            description = "$loc - Neonatal and pediatric-related services"
+            value       = "hospital_name == `"$loc`" and patient_class == `"Inpatient`" and service_line not in [$maternalServicesStr]"
+            description = "$loc - Inpatient Excluding Maternal Services"
             cohort_file = "inpatient_cohort_gen.singlefile.allcohorts.ps1"
         }
 
-        # ✅ psychiatry only
+        # ✅ Psychiatry Inpatient
         [PSCustomObject]@{
-            name        = "$prefix.psychiatry"
+            name        = "$prefix.psychiatry.inpatient"
             param       = "filter"
-            value       = "hospital_name == `"$loc`" and service_line in [`"Psychiatry`"]"
-            description = "$loc - Psychiatry services"
+            value       = "hospital_name == `"$loc`" and patient_class == `"Psych Inpatient`""
+            description = "$loc - Psychiatry Inpatient"
+            cohort_file = "inpatient_cohort_gen.singlefile.allcohorts.ps1"
+        }
+
+        # ✅ Rehab Inpatient
+        [PSCustomObject]@{
+            name        = "$prefix.rehab.inpatient"
+            param       = "filter"
+            value       = "hospital_name == `"$loc`" and patient_class == `"Rehab Inpatient`""
+            description = "$loc - Rehab Inpatient"
+            cohort_file = "inpatient_cohort_gen.singlefile.allcohorts.ps1"
+        }
+
+        # ✅ Observation
+        [PSCustomObject]@{
+            name        = "$prefix.observation"
+            param       = "filter"
+            value       = "hospital_name == `"$loc`" and patient_class == `"Observation`""
+            description = "$loc - Observation"
             cohort_file = "inpatient_cohort_gen.singlefile.allcohorts.ps1"
         }
     )
 
-    # ✅ accumulate instead of writing per hospital
     $allRows += $rows
 }
 
-# ✅ single consolidated CSV
-$allRows | Export-Csv -NoTypeInformation -Path $outputFile -Encoding UTF8
+# =========================
+# EXPORT
+# =========================
+
+$allRows |
+    Export-Csv -NoTypeInformation -Path $outputFile -Encoding UTF8
 
 Write-Host "Created consolidated inpatient file -> inpatient.csv"

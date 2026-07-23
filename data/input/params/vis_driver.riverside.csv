@@ -1,0 +1,24 @@
+visual_id,domain,name,enabled,start_date,end_date,type,client_name,year_type,write_rdb
+vis_01,ed,Hourly Arrivals Distribution by ESI,0,1/1/2025,12/31/2025,cohort,Riverside RMC,calendar,1
+vis_02,ed,Length of Stay Distribution (Hours),0,1/1/2025,12/31/2025,cohort,Riverside RMC,calendar,1
+vis_03,ed,ED Visits by Year,0,1/1/2023,12/31/2025,cohort,Riverside RMC,calendar,1
+vis_04,ed,ESI Level Distribution,0,1/1/2025,12/31/2025,cohort,Riverside RMC,calendar,1
+vis_05,ed,Monthly ED Arrivals Trend,0,1/1/2025,12/31/2025,cohort,Riverside RMC,calendar,1
+vis_06,ed,Weekday Arrival Distribution,0,1/1/2025,12/31/2025,cohort,Riverside RMC,calendar,1
+vis_07,ed,Encounters by Arrival Type,0,1/1/2025,12/31/2025,cohort,Riverside RMC,calendar,1
+vis_08,ed,ED Census Trend,0,1/1/2025,12/31/2025,cohort,Riverside RMC,calendar,0
+vis_09,ed,ED Patient Flow Sankey,0,1/1/2025,12/31/2025,cohort,Riverside RMC,calendar,1
+vis_10,ed,ED Hourly Census with Peak Period and Capacity Benchmarks,1,1/1/2025,12/31/2025,cohort,Riverside RMC,calendar,1
+vis_11,ed,ED Peak Census and Room Need by Acuity,1,1/1/2025,12/31/2025,cohort,Riverside RMC,calendar,1
+vis_12,ed,ED Geographic Catchment Analysis,0,1/1/2025,12/31/2025,cohort,Riverside RMC,calendar,1
+vis_13,ed,ED Arrival Method vs ESI Heatmap,0,1/1/2025,12/31/2025,cohort,Riverside RMC,calendar,1
+vis_14,ed,ED ESI Mix Scenario Simulator,0,1/1/2025,12/31/2025,cohort,Riverside RMC,calendar,1
+vis_15,ed,ED Census Waterfall by Acuity,0,1/1/2025,12/31/2025,cohort,Riverside RMC,calendar,1
+vis_16,ed,ED Low-Acuity Ambulatory Patient Origin Map,0,1/1/2025,12/31/2025,cohort,Riverside RMC,calendar,1
+vis_17,ed,ED EMT Arrival Time Heatmap,0,1/1/2025,12/31/2025,cohort,Riverside RMC,calendar,1
+vis_18,ed,ED EMT Arrival Disposition by ESI,0,1/1/2025,12/31/2025,cohort,Riverside RMC,calendar,1
+vis_19,ed,ED LOS by Arrival Method and ESI,0,1/1/2025,12/31/2025,cohort,Riverside RMC,calendar,1
+vis_20,ed,ED EMS Arrival Funnel by ESI,0,1/1/2025,12/31/2025,cohort,Riverside RMC,calendar,1
+tbl_01,inpatient,Annual Patients and Patient Days Summary,0,1/1/2025,12/31/2025,cohort,Riverside RMC,calendar,1
+tbl_02,surgery,Surgical Encounter Duration Summary,0,1/1/2025,12/31/2025,cohort,Riverside RMC,calendar,1
+tbl_03,ed,Emergency Department Encounter Duration Summary,0,1/1/2025,12/31/2025,cohort,Riverside RMC,calendar,1

@@ -1,3 +1,11 @@
-﻿"name","param","value","description","cohort_file"
-"ed.psych","filter","psych_patient_flag == ""Yes""","Psych ED encounters","ed_cohort_gen.singlefile.psych.nonpsych.ps1"
-"ed.non_psych","filter","psych_patient_flag == ""No""","Non-Psych ED encounters","ed_cohort_gen.singlefile.psych.nonpsych.ps1"
+﻿name,param,value,description,cohort_file
+med_center.all.emergency,filter,"facility_name == ""RL ECUH MEDICAL CENTER HOSPITAL""",All emergency encounters at RL ECUH MEDICAL CENTER HOSPITAL,ed_cohort_gen.singlefile.highlevel.ps1
+chowan.all.emergency,filter,"facility_name == ""RL ECUH CHOWAN HOSPITAL""",All emergency encounters at RL ECUH CHOWAN HOSPITAL,ed_cohort_gen.singlefile.highlevel.ps1
+outer_banks.all.emergency,filter,"facility_name == ""RL OUTER BANKS HEALTH""",All emergency encounters at RL OUTER BANKS HEALTH,ed_cohort_gen.singlefile.highlevel.ps1
+edgecombe.all.emergency,filter,"facility_name == ""RL ECUH EDGECOMBE HOSPITAL""",All emergency encounters at RL ECUH EDGECOMBE HOSPITAL,ed_cohort_gen.singlefile.highlevel.ps1
+duplin.all.emergency,filter,"facility_name == ""RL ECUH DUPLIN HOSPITAL""",All emergency encounters at RL ECUH DUPLIN HOSPITAL,ed_cohort_gen.singlefile.highlevel.ps1
+beaufort.all.emergency,filter,"facility_name == ""RL ECUH BEAUFORT HOSPITAL""",All emergency encounters at RL ECUH BEAUFORT HOSPITAL,ed_cohort_gen.singlefile.highlevel.ps1
+north.all.emergency,filter,"facility_name == ""RL ECUH NORTH HOSPITAL""",All emergency encounters at RL ECUH NORTH HOSPITAL,ed_cohort_gen.singlefile.highlevel.ps1
+roanoke_chowan.all.emergency,filter,"facility_name == ""RL ECUH ROANOKE CHOWAN HOSPITAL""",All emergency encounters at RL ECUH ROANOKE CHOWAN HOSPITAL,ed_cohort_gen.singlefile.highlevel.ps1
+bertie.all.emergency,filter,"facility_name == ""RL ECUH BERTIE HOSPITAL""",All emergency encounters at RL ECUH BERTIE HOSPITAL,ed_cohort_gen.singlefile.highlevel.ps1
+surgicenter.all.emergency,filter,"facility_name == ""RL SURGICENTER""",All emergency encounters at RL SURGICENTER,ed_cohort_gen.singlefile.highlevel.ps1

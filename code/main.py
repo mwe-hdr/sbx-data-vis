@@ -26,19 +26,19 @@ from utils.processing_helpers import (
 # =========================
 DOMAINS = {
     "inpatient": {
-        "data_file": "nodata.csv",
-        "cohort_dir": "inpatient",
-        "domain": "inpatient"
+        "data_file": "ecu_hospital_encounters_export.csv",
+        "cohort_dir": "hospital_encounters",
+        "domain": "hospital_encounters"
     },
 
     "surgery": {
-        "data_file": "nodata.csv",
+        "data_file": "ecu_surgery_export.csv",
         "cohort_dir": "surgery",
         "domain": "surgery"
     },
 
     "emergency": {
-        "data_file": "rmc_emergency_export.csv",
+        "data_file": "ecu_emergency_export.csv",
         "cohort_dir": "ed",
         "domain": "ed"
     }
