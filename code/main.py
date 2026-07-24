@@ -38,7 +38,7 @@ DOMAINS = {
     },
 
     "emergency": {
-        "data_file": "ecu_emergency_export.csv",
+        "data_file": "rmc_emergency_export.csv",
         "cohort_dir": "ed",
         "domain": "ed"
     }
