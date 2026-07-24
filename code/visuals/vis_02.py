@@ -21,8 +21,8 @@
 #   - Patient flow analysis
 #
 # Inputs :
-#   - start_dtm : Facility arrival/start datetime
-#   - stop_dtm  : Facility departure/stop datetime
+#   - arrival_dtm : Facility arrival/start datetime
+#   - tmt_stop_dtm  : Facility departure/stop datetime
 #   - start_date   : Reporting period start date
 #   - end_date     : Reporting period end date
 #
@@ -51,6 +51,8 @@ from utils.vis_helpers import (
     save_parameter_table_png,
     save_title_png
 )
+
+VISUAL_ID = "vis_02"
 
 def run(df, params, start_date, end_date, output_dir, generate_output_name):
     """
@@ -150,42 +152,47 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # --------------------------------------------------
         # REQUIRED COLUMNS CHECK
         # --------------------------------------------------
-        required_cols = ["start_dtm", "stop_dtm"]
+        required_cols = ["arrival_dtm", "tmt_stop_dtm"]
         for col in required_cols:
             if col not in df.columns:
-                logging.error(f"Missing required column: {col}")
+                logging.error(f"{VISUAL_ID}: Missing required column: {col}")
                 return
 
         # --------------------------------------------------
         # DATETIME HANDLING
         # --------------------------------------------------
-        df["start_dtm"] = pd.to_datetime(df["start_dtm"], errors="coerce")
-        df["stop_dtm"] = pd.to_datetime(df["stop_dtm"], errors="coerce")
+        df["arrival_dtm"] = pd.to_datetime(df["arrival_dtm"], errors="coerce")
+        df["tmt_stop_dtm"] = pd.to_datetime(df["tmt_stop_dtm"], errors="coerce")
 
         # Drop null timestamps
-        df = df.dropna(subset=["start_dtm", "stop_dtm"])
+        df = df.dropna(df=["arrival_dtm", "tmt_stop_dtm"])
 
-        # --------------------------------------------------
-        # DATE FILTERING
-        # --------------------------------------------------
-        try:
-            start_dt = pd.to_datetime(start_date)
-            end_dt = pd.to_datetime(end_date)
-        except Exception:
-            logging.error("Invalid start_date or end_date")
-            return
-
-        df = df[(df["start_dtm"] >= start_dt) & (df["start_dtm"] <= end_dt)]
+        # =========================
+        # DATE WINDOW FILTER
+        # =========================
+        if "tmt_stop_dtm" in df.columns:
+            # Include any record whose interval overlaps the requested window
+            df = df[
+                (df["arrival_dtm"] <= end_date) &
+                (df["tmt_stop_dtm"] >= start_date)
+            ].copy()
+        else:
+            # Fallback for datasets without tmt_stop_dtm:
+            # arrival_dtm must fall within the requested window
+            df = df[
+                (df["arrival_dtm"] >= start_date) &
+                (df["arrival_dtm"] <= end_date)
+            ].copy()
 
         if df.empty:
-            logging.warning("vis_02: No data after filtering")
+            logging.warning(f"{VISUAL_ID}: no data after date window filtering")
             return
 
         # --------------------------------------------------
         # LOS CALCULATION (HOURS)
         # --------------------------------------------------
         df["los_hours"] = (
-            (df["stop_dtm"] - df["start_dtm"])
+            (df["tmt_stop_dtm"] - df["arrival_dtm"])
             .dt.total_seconds() / 3600.0
         )
 

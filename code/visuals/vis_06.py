@@ -19,7 +19,7 @@
 #   - Operational workload assessment
 #
 # Inputs :
-#   - start_dtm : Facility arrival/start datetime
+#   - arrival_dtm : Facility arrival/start datetime
 #   - start_date   : Reporting period start date
 #   - end_date     : Reporting period end date
 #
@@ -146,7 +146,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # =============================
         # VALIDATION
         # =============================
-        required_cols = ["start_dtm"]
+        required_cols = ["arrival_dtm"]
         missing_cols = [col for col in required_cols if col not in df.columns]
 
         if missing_cols:
@@ -155,42 +155,31 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
         df = df.copy()
 
-        # =============================
-        # DATETIME HANDLING
-        # =============================
-        df["start_dtm"] = pd.to_datetime(df["start_dtm"], errors="coerce")
-
-        df = df.dropna(subset=["start_dtm"])
-
-        if df.empty:
-            logging.warning(f"{VISUAL_ID}: No valid start_dtm after conversion")
-            return
-
-        # =============================
-        # DATE FILTER
-        # =============================
-        try:
-            start_dt = pd.to_datetime(start_date)
-            end_dt = pd.to_datetime(end_date)
-
+        # =========================
+        # DATE WINDOW FILTER
+        # =========================
+        if "tmt_stop_dtm" in df.columns:
+            # Include any record whose interval overlaps the requested window
             df = df[
-                (df["start_dtm"] >= start_dt) &
-                (df["start_dtm"] <= end_dt)
-            ]
-
-        except Exception as e:
-            logging.warning(
-                f"{VISUAL_ID}: Date filtering failed: {str(e)}"
-            )
+                (df["arrival_dtm"] <= end_date) &
+                (df["tmt_stop_dtm"] >= start_date)
+            ].copy()
+        else:
+            # Fallback for datasets without tmt_stop_dtm:
+            # arrival_dtm must fall within the requested window
+            df = df[
+                (df["arrival_dtm"] >= start_date) &
+                (df["arrival_dtm"] <= end_date)
+            ].copy()
 
         if df.empty:
-            logging.warning(f"{VISUAL_ID}: No data after date filtering")
+            logging.warning(f"{VISUAL_ID}: no data after date window filtering")
             return
 
         # =============================
         # DERIVE WEEKDAY
         # =============================
-        df["weekday_num"] = df["start_dtm"].dt.dayofweek
+        df["weekday_num"] = df["arrival_dtm"].dt.dayofweek
 
         weekday_map = {
             0: "Mon",

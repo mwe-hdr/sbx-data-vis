@@ -33,7 +33,7 @@
 # Inputs :
 #   - arrival_dtm         : Facility arrival/visit datetime
 #   - triage_start_dtm  : Triage start datetime
-#   - ed_start_dtm      : Facility treatment start datetime
+#   - tmt_start_dtm      : Facility treatment start datetime
 #   - disch_disp_desc   : Facility discharge/disposition description
 #   - start_date        : Reporting period start date
 #   - end_date          : Reporting period end date
@@ -80,11 +80,10 @@ from utils.vis_helpers import (
     save_title_png
 )
 logger = logging.getLogger(__name__)
-
+VISUAL_ID = "vis_09"
 
 def run(df, params, start_date, end_date, output_dir, generate_output_name):
-    visual_id = "vis_09"
-    logger.info(f"[{visual_id}] Starting execution")
+    logger.info(f"[{VISUAL_ID}] Starting execution")
     params = normalize_params(params)
 
     # -----------------------------
@@ -126,24 +125,24 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     required_cols = {
         "arrival_dtm",
         "triage_start_dtm",
-        "ed_start_dtm",
+        "tmt_start_dtm",
         "disch_disp_desc"
     }
 
     if df is None:
-        logger.warning(f"[{visual_id}] Input dataframe is None. Skipping.")
+        logger.warning(f"[{VISUAL_ID}] Input dataframe is None. Skipping.")
         return
 
     missing = required_cols - set(df.columns)
 
     if missing:
         logger.warning(
-            f"[{visual_id}] Missing required columns: {sorted(missing)}. Skipping."
+            f"[{VISUAL_ID}] Missing required columns: {sorted(missing)}. Skipping."
         )
         return
 
     if df.empty:
-        logger.warning(f"[{visual_id}] Input dataframe is empty. Skipping.")
+        logger.warning(f"[{VISUAL_ID}] Input dataframe is empty. Skipping.")
         return
 
     # -----------------------------
@@ -152,19 +151,35 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     df = df.copy()
     df["arrival_dtm"] = pd.to_datetime(df["arrival_dtm"], errors="coerce")
     df["triage_start_dtm"] = pd.to_datetime(df["triage_start_dtm"], errors="coerce")
-    df["ed_start_dtm"] = pd.to_datetime(df["ed_start_dtm"], errors="coerce")
+    df["tmt_start_dtm"] = pd.to_datetime(df["tmt_start_dtm"], errors="coerce")
 
-    df = df.dropna(subset=["arrival_dtm"])
+    df = df.dropna(df=["arrival_dtm"])
 
-    df = df[
-        (df["arrival_dtm"] >= pd.to_datetime(start_date)) &
-        (df["arrival_dtm"] <= pd.to_datetime(end_date))
-    ]
+    # =========================
+    # DATE WINDOW FILTER
+    # =========================
+    if "tmt_stop_dtm" in df.columns:
+        # Include any record whose interval overlaps the requested window
+        df = df[
+            (df["arrival_dtm"] <= end_date) &
+            (df["tmt_stop_dtm"] >= start_date)
+        ].copy()
+    else:
+        # Fallback for datasets without tmt_stop_dtm:
+        # arrival_dtm must fall within the requested window
+        df = df[
+            (df["arrival_dtm"] >= start_date) &
+            (df["arrival_dtm"] <= end_date)
+        ].copy()
+
+    if df.empty:
+        logging.warning(f"{VISUAL_ID}: no data after date window filtering")
+        return
 
     total_arrivals = len(df)
 
     df["has_triage"] = df["triage_start_dtm"].notna()
-    df["has_ed"] = df["ed_start_dtm"].notna()
+    df["has_ed"] = df["tmt_start_dtm"].notna()
 
     triage_count = df["has_triage"].sum()
     no_triage_count = total_arrivals - triage_count
@@ -414,7 +429,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     output_file = os.path.join(
         output_dir,
         generate_output_name(
-            visual_id=visual_id,
+            visual_id=VISUAL_ID,
             start_date=start_date,
             end_date=end_date,
             cohort_id=params.get("cohort_id"),
@@ -508,7 +523,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         img.save(output_file)
 
         logger.info(
-            f"[{visual_id}] Image cropped "
+            f"[{VISUAL_ID}] Image cropped "
             f"(top={crop_top_pct}%, "
             f"bottom={crop_bottom_pct}%, "
             f"left={crop_left_pct}%, "
@@ -516,7 +531,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         )
 
 
-    logger.info(f"[{visual_id}] Output saved to {output_file}")
+    logger.info(f"[{VISUAL_ID}] Output saved to {output_file}")
 
     date_range = format_date_range(
         start_date,
@@ -526,7 +541,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     title_output_file = os.path.join(
         output_dir,
         generate_output_name(
-            visual_id=f"{visual_id}_title",
+            visual_id=f"{VISUAL_ID}_title",
             start_date=start_date,
             end_date=end_date,
             cohort_id=params.get("cohort_id"),
@@ -549,7 +564,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     )
 
     logger.info(
-        f"[{visual_id}] Title written: "
+        f"[{VISUAL_ID}] Title written: "
         f"{title_output_file}"
     )
 
@@ -571,7 +586,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     legend_output_file = os.path.join(
         output_dir,
         generate_output_name(
-            visual_id=f"{visual_id}_legend",
+            visual_id=f"{VISUAL_ID}_legend",
             start_date=start_date,
             end_date=end_date,
             cohort_id=params.get("cohort_id"),
@@ -591,7 +606,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     )
 
     logger.info(
-        f"[{visual_id}] Legend written: "
+        f"[{VISUAL_ID}] Legend written: "
         f"{legend_output_file}"
     )
 
@@ -616,7 +631,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
             rdb_rows.append({
                 "run_id": params.get("run_id"),
-                "visual_id": visual_id,
+                "visual_id": VISUAL_ID,
                 "client_name": params.get("client_name"),
 
                 "domain": params.get("domain"),
@@ -646,7 +661,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
             rdb_rows.append({
                 "run_id": params.get("run_id"),
-                "visual_id": visual_id,
+                "visual_id": VISUAL_ID,
                 "client_name": params.get("client_name"),
 
                 "domain": params.get("domain"),

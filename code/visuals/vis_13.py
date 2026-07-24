@@ -187,61 +187,40 @@ def run(
             f"{VISUAL_ID}: Missing required columns: {missing_cols}"
         )
 
-    work_df = df.copy()
+    df = df.copy()
 
-    # ============================================================
-    # DATE FILTER
-    # ============================================================
-
-    if "ed_start_dtm" in work_df.columns:
-
-        work_df["ed_start_dtm"] = pd.to_datetime(
-            work_df["ed_start_dtm"],
-            errors="coerce"
-        )
-
-        report_start = pd.to_datetime(start_date)
-        report_end = pd.to_datetime(end_date)
-
-        if (
-            report_end.hour == 0
-            and report_end.minute == 0
-            and report_end.second == 0
-        ):
-            report_end = (
-                report_end
-                + pd.Timedelta(days=1)
-                - pd.Timedelta(minutes=1)
-            )
-
-        work_df = work_df[
-            (work_df["ed_start_dtm"] >= report_start)
-            &
-            (work_df["ed_start_dtm"] <= report_end)
+    # =========================
+    # DATE WINDOW FILTER
+    # =========================
+    if "tmt_stop_dtm" in df.columns:
+        # Include any record whose interval overlaps the requested window
+        df = df[
+            (df["arrival_dtm"] <= end_date) &
+            (df["tmt_stop_dtm"] >= start_date)
+        ].copy()
+    else:
+        # Fallback for datasets without tmt_stop_dtm:
+        # arrival_dtm must fall within the requested window
+        df = df[
+            (df["arrival_dtm"] >= start_date) &
+            (df["arrival_dtm"] <= end_date)
         ].copy()
 
-        logger.info(
-            f"[{VISUAL_ID}] Rows after date filter: "
-            f"{len(work_df):,}"
-        )
+    if df.empty:
+        logging.warning(f"{VISUAL_ID}: no data after date window filtering")
+        return
 
-        if work_df.empty:
-            logger.warning(
-                f"[{VISUAL_ID}] No encounters after date filtering"
-            )
-            return
-
-    work_df["esi"] = pd.to_numeric(
-        work_df["esi"],
+    df["esi"] = pd.to_numeric(
+        df["esi"],
         errors="coerce"
     )
 
-    work_df = work_df[
-        work_df["esi"].isin([1, 2, 3, 4, 5])
+    df = df[
+        df["esi"].isin([1, 2, 3, 4, 5])
     ]
 
-    work_df["arrival_group"] = (
-        work_df["arrival_method"]
+    df["arrival_group"] = (
+        df["arrival_method"]
         .apply(_map_arrival_method)
     )
 
@@ -256,8 +235,8 @@ def run(
     esi_order = [1, 2, 3, 4, 5]
 
     counts = pd.crosstab(
-        work_df["arrival_group"],
-        work_df["esi"]
+        df["arrival_group"],
+        df["esi"]
     )
 
     counts = counts.reindex(
@@ -472,7 +451,7 @@ def run(
     # RDB Output
     # ------------------------------------------------------------------
 
-    total_encounters = len(work_df)
+    total_encounters = len(df)
 
     write_rdb = int(params.get("write_rdb", 0))
 

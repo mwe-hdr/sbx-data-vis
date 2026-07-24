@@ -221,7 +221,7 @@ def run(
     required_cols = [
         "arrival_method",
         "esi",
-        "start_dtm"
+        "arrival_dtm"
     ]
 
     missing_cols = [
@@ -234,14 +234,14 @@ def run(
             f"{VISUAL_ID}: Missing required columns: {missing_cols}"
         )
 
-    work_df = df.copy()
+    df = df.copy()
 
     # =====================================================
     # REPORTING PERIOD FILTER
     # =====================================================
 
-    work_df["start_dtm"] = pd.to_datetime(
-        work_df["start_dtm"],
+    df["arrival_dtm"] = pd.to_datetime(
+        df["arrival_dtm"],
         errors="coerce"
     )
 
@@ -259,25 +259,40 @@ def run(
             - pd.Timedelta(minutes=1)
         )
 
-    work_df = work_df[
-        (work_df["start_dtm"] >= report_start)
-        &
-        (work_df["start_dtm"] <= report_end)
-    ].copy()
+    # =========================
+    # DATE WINDOW FILTER
+    # =========================
+    if "tmt_stop_dtm" in df.columns:
+        # Include any record whose interval overlaps the requested window
+        df = df[
+            (df["arrival_dtm"] <= end_date) &
+            (df["tmt_stop_dtm"] >= start_date)
+        ].copy()
+    else:
+        # Fallback for datasets without tmt_stop_dtm:
+        # arrival_dtm must fall within the requested window
+        df = df[
+            (df["arrival_dtm"] >= start_date) &
+            (df["arrival_dtm"] <= end_date)
+        ].copy()
+
+    if df.empty:
+        logging.warning(f"{VISUAL_ID}: no data after date window filtering")
+        return
 
     logger.info(
         f"[{VISUAL_ID}] Rows after date filtering: "
-        f"{len(work_df):,}"
+        f"{len(df):,}"
     )
 
-    if work_df.empty:
+    if df.empty:
         logger.warning(
             f"[{VISUAL_ID}] No encounters after date filtering"
         )
         return
 
-    work_df["arrival_group"] = (
-        work_df["arrival_method"]
+    df["arrival_group"] = (
+        df["arrival_method"]
         .apply(_map_arrival_method)
     )
 
@@ -299,23 +314,23 @@ def run(
             except Exception:
                 pass
 
-    work_df["esi"] = pd.to_numeric(
-        work_df["esi"],
+    df["esi"] = pd.to_numeric(
+        df["esi"],
         errors="coerce"
     )
 
-    work_df = work_df[
-        work_df["arrival_group"]
+    df = df[
+        df["arrival_group"]
         == "Car / Walk-in"
     ]
 
-    work_df = work_df[
-        work_df["esi"].isin(esi_list)
+    df = df[
+        df["esi"].isin(esi_list)
     ]
 
 
-    work_df = work_df[
-        work_df["start_dtm"].notna()
+    df = df[
+        df["arrival_dtm"].notna()
     ]
 
     weekday_order = [
@@ -328,18 +343,18 @@ def run(
         "Sunday"
     ]
 
-    work_df["hour_of_day"] = (
-        work_df["start_dtm"].dt.hour
+    df["hour_of_day"] = (
+        df["arrival_dtm"].dt.hour
     )
 
-    work_df["day_of_week"] = (
-        work_df["start_dtm"]
+    df["day_of_week"] = (
+        df["arrival_dtm"]
         .dt.day_name()
     )
 
     counts = pd.crosstab(
-        work_df["day_of_week"],
-        work_df["hour_of_day"]
+        df["day_of_week"],
+        df["hour_of_day"]
     )
 
     counts = counts.reindex(
@@ -394,12 +409,12 @@ def run(
     )
 
     in_hours_mask = (
-        (work_df["hour_of_day"] >= clinic_open_hour)
+        (df["hour_of_day"] >= clinic_open_hour)
         &
-        (work_df["hour_of_day"] < clinic_close_hour)
+        (df["hour_of_day"] < clinic_close_hour)
         &
         (
-            work_df["day_of_week"].isin(
+            df["day_of_week"].isin(
                 [
                     "Monday",
                     "Tuesday",

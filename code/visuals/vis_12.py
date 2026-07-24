@@ -90,6 +90,7 @@ from utils.vis_helpers import (
     save_parameter_table_png,
     save_title_png
 )
+VISUAL_ID = "vis_12"
 
 def _load_cohort_location(
     cohort_locations_file,
@@ -589,62 +590,41 @@ def run(
     # FILTER
     # ============================================================
 
-    subset = df.copy()
+    df = df.copy()
 
-    # ============================================================
-    # DATE FILTER
-    # ============================================================
-
-    if "ed_start_dtm" in subset.columns:
-
-        subset["ed_start_dtm"] = pd.to_datetime(
-            subset["ed_start_dtm"],
-            errors="coerce"
-        )
-
-        report_start = pd.to_datetime(start_date)
-        report_end = pd.to_datetime(end_date)
-
-        if (
-            report_end.hour == 0
-            and report_end.minute == 0
-            and report_end.second == 0
-        ):
-            report_end = (
-                report_end
-                + pd.Timedelta(days=1)
-                - pd.Timedelta(minutes=1)
-            )
-
-        subset = subset[
-            (subset["ed_start_dtm"] >= report_start)
-            &
-            (subset["ed_start_dtm"] <= report_end)
+    # =========================
+    # DATE WINDOW FILTER
+    # =========================
+    if "tmt_stop_dtm" in df.columns:
+        # Include any record whose interval overlaps the requested window
+        df = df[
+            (df["arrival_dtm"] <= end_date) &
+            (df["tmt_stop_dtm"] >= start_date)
+        ].copy()
+    else:
+        # Fallback for datasets without tmt_stop_dtm:
+        # arrival_dtm must fall within the requested window
+        df = df[
+            (df["arrival_dtm"] >= start_date) &
+            (df["arrival_dtm"] <= end_date)
         ].copy()
 
-        logging.info(
-            f"vis_12 rows after date filter: "
-            f"{len(subset):,}"
-        )
-
-        if subset.empty:
-            logging.warning(
-                "vis_12: no visits after date filtering"
-            )
-            return
-
-    subset["patient_zipcode"] = (
-        subset["patient_zipcode"]
+    if df.empty:
+        logging.warning(f"{VISUAL_ID}: no data after date window filtering")
+        return
+    
+    df["patient_zipcode"] = (
+        df["patient_zipcode"]
         .astype(str)
         .str.strip()
         .str.zfill(5)
     )
 
-    subset = subset[
-        subset["patient_zipcode"].notna()
+    df = df[
+        df["patient_zipcode"].notna()
     ]
 
-    if subset.empty:
+    if df.empty:
 
         logging.warning(
             "vis_12: no zipcode data available"
@@ -704,7 +684,7 @@ def run(
     # ============================================================
 
     visits = (
-        subset
+        df
         .groupby("patient_zipcode")
         .size()
         .reset_index(name="visits")

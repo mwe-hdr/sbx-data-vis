@@ -28,7 +28,7 @@
 #
 # Inputs :
 #   - arrival_method : Raw patient arrival method description
-#   - start_dtm      : Encounter/visit datetime (optional date filtering)
+#   - arrival_dtm      : Encounter/visit datetime (optional date filtering)
 #   - start_date     : Reporting period start date
 #   - end_date       : Reporting period end date
 #
@@ -180,37 +180,34 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     # =========================
     # VALIDATION
     # =========================
-    required_cols = ["arrival_method"]
+    required_cols = ["arrival_dtm","arrival_method"]
 
     for col in required_cols:
         if col not in df.columns:
             logging.error(f"{VISUAL_ID}: Missing required column '{col}'")
             return
 
-    # optional start_dtm for filtering
-    if "start_dtm" not in df.columns:
-        logging.warning(f"{VISUAL_ID}: 'start_dtm' not found - skipping date filter")
-
     df = df.copy()
 
     # =========================
-    # DATETIME FILTERING
+    # DATE WINDOW FILTER
     # =========================
-    if "start_dtm" in df.columns:
-        try:
-            df["start_dtm"] = pd.to_datetime(df["start_dtm"], errors="coerce")
-            start = pd.to_datetime(start_date)
-            end = pd.to_datetime(end_date)
-
-            df = df[
-                (df["start_dtm"] >= start) &
-                (df["start_dtm"] <= end)
-            ]
-        except Exception as e:
-            logging.warning(f"{VISUAL_ID}: Date filtering failed: {str(e)}")
+    if "stop_dtm" in df.columns:
+        # Include any record whose interval overlaps the requested window
+        df = df[
+            (df["arrival_dtm"] <= end_date) &
+            (df["stop_dtm"] >= start_date)
+        ].copy()
+    else:
+        # Fallback for datasets without stop_dtm:
+        # arrival_dtm must fall within the requested window
+        df = df[
+            (df["arrival_dtm"] >= start_date) &
+            (df["arrival_dtm"] <= end_date)
+        ].copy()
 
     if df.empty:
-        logging.warning(f"{VISUAL_ID}: No data after filtering")
+        logging.warning(f"{VISUAL_ID}: no data after date window filtering")
         return
 
     # =========================

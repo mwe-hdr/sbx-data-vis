@@ -15,7 +15,7 @@
 # by ESI category for downstream reporting and analytics.
 #
 # Inputs :
-#   - start_dtm : Facility arrival datetime
+#   - arrival_dtm : Facility arrival datetime
 #   - esi          : Emergency Severity Index (1-5)
 #   - start_date   : Reporting period start date
 #   - end_date     : Reporting period end date
@@ -44,17 +44,19 @@ from utils.vis_helpers import (
     save_title_png
 )
 
+VISUAL_ID = "vis_01"
+
 def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
-    logging.info("Running vis_01_ed_hourly_arrivals")
+    logging.info("Running vis_01_hourly_arrivals")
 
     # =========================
     # DEFENSIVE CHECKS
     # =========================
-    required_cols = ["start_dtm", "esi"]
+    required_cols = ["arrival_dtm", "esi"]
     for col in required_cols:
         if col not in df.columns:
-            logging.error(f"vis_01: missing required column '{col}'")
+            logging.error(f"{VISUAL_ID}: missing required column '{col}'")
             return
 
     # =========================
@@ -142,33 +144,42 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     )
 
     # =========================
-    # FILTER
+    # DATE WINDOW FILTER
     # =========================
-    subset = df[
-        (df["start_dtm"] >= start_date) &
-        (df["start_dtm"] <= end_date)
-    ].copy()
+    if "tmt_stop_dtm" in df.columns:
+        # Include any record whose interval overlaps the requested window
+        df = df[
+            (df["arrival_dtm"] <= end_date) &
+            (df["tmt_stop_dtm"] >= start_date)
+        ].copy()
+    else:
+        # Fallback for datasets without tmt_stop_dtm:
+        # arrival_dtm must fall within the requested window
+        df = df[
+            (df["arrival_dtm"] >= start_date) &
+            (df["arrival_dtm"] <= end_date)
+        ].copy()
 
-    if subset.empty:
-        logging.warning("vis_01: no data after filtering")
+    if df.empty:
+        logging.warning(f"{VISUAL_ID}: no data after date window filtering")
         return
 
     # =========================
     # DATA PREP
     # =========================
-    subset["start_dtm"] = pd.to_datetime(
-    subset["start_dtm"],
+    df["arrival_dtm"] = pd.to_datetime(
+    df["arrival_dtm"],
     errors="coerce"
     )
 
-    subset = subset[
-        subset["start_dtm"].notna()
+    df = df[
+        df["arrival_dtm"].notna()
     ].copy()
     
-    subset["arrival_hour"] = subset["start_dtm"].dt.hour
+    df["arrival_hour"] = df["arrival_dtm"].dt.hour
 
-    subset["esi"] = pd.to_numeric(
-        subset["esi"],
+    df["esi"] = pd.to_numeric(
+        df["esi"],
         errors="coerce"
     )
 
@@ -180,11 +191,11 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         5: '5 - Non-Urgent'
     }
 
-    subset["esi_category"] = subset["esi"].map(esi_map)
+    df["esi_category"] = df["esi"].map(esi_map)
 
-    subset = subset[subset["esi_category"].notna()]
+    df = df[df["esi_category"].notna()]
 
-    if subset.empty:
+    if df.empty:
         logging.warning("vis_01: no valid ESI data")
         return
 
@@ -192,7 +203,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     # AGGREGATION
     # =========================
     grouped = (
-        subset.groupby(["arrival_hour", "esi_category"])
+        df.groupby(["arrival_hour", "esi_category"])
         .size()
         .reset_index(name="count")
     )
@@ -208,7 +219,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     merged["percent"] = merged["percent"].fillna(0)
 
     pivot_counts = (
-        subset.groupby(["arrival_hour", "esi_category"])
+        df.groupby(["arrival_hour", "esi_category"])
         .size()
         .unstack(fill_value=0)
     )

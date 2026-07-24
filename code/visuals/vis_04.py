@@ -21,7 +21,7 @@
 # Facility case mix over time.
 #
 # Inputs :
-#   - start_dtm    : Facility arrival/start datetime
+#   - arrival_dtm    : Facility arrival/start datetime
 #   - esi          : Emergency Severity Index score
 #   - start_date   : Reporting period start date
 #   - end_date     : Reporting period end date
@@ -159,9 +159,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         cfg.get("x_tick_rotation", 30) or 30
     )
 
-
-
-    required_columns = ["start_dtm", "esi"]
+    required_columns = ["arrival_dtm", "esi"]
     params = params or {}
 
     # ======================================================
@@ -174,20 +172,25 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
     df = df.copy()
 
-    # ======================================================
-    # DATE HANDLING
-    # ======================================================
-    try:
-        df["start_dtm"] = pd.to_datetime(df["start_dtm"], errors="coerce")
-        mask = (df["start_dtm"] >= pd.to_datetime(start_date)) & \
-               (df["start_dtm"] <= pd.to_datetime(end_date))
-        df = df.loc[mask]
-    except Exception as e:
-        logging.error(f"[{VISUAL_ID}] Date filtering failed: {str(e)}")
-        return
+    # =========================
+    # DATE WINDOW FILTER
+    # =========================
+    if "tmt_stop_dtm" in df.columns:
+        # Include any record whose interval overlaps the requested window
+        df = df[
+            (df["arrival_dtm"] <= end_date) &
+            (df["tmt_stop_dtm"] >= start_date)
+        ].copy()
+    else:
+        # Fallback for datasets without tmt_stop_dtm:
+        # arrival_dtm must fall within the requested window
+        df = df[
+            (df["arrival_dtm"] >= start_date) &
+            (df["arrival_dtm"] <= end_date)
+        ].copy()
 
     if df.empty:
-        logging.warning(f"[{VISUAL_ID}] No data after filtering")
+        logging.warning(f"{VISUAL_ID}: no data after date window filtering")
         return
 
     # ======================================================

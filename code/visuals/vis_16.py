@@ -342,7 +342,7 @@ def run(
         "patient_zipcode",
         "arrival_method",
         "esi",
-        "start_dtm"
+        "arrival_dtm"
     ]
 
     for col in required_cols:
@@ -628,16 +628,16 @@ def run(
     # FILTER
     # ============================================================
 
-    subset = df.copy()
+    df = df.copy()
 
     # ============================================================
     # DATE FILTER
     # ============================================================
 
-    if "start_dtm" in subset.columns:
+    if "arrival_dtm" in df.columns:
 
-        subset["start_dtm"] = pd.to_datetime(
-            subset["start_dtm"],
+        df["arrival_dtm"] = pd.to_datetime(
+            df["arrival_dtm"],
             errors="coerce"
         )
 
@@ -655,35 +655,50 @@ def run(
                 - pd.Timedelta(minutes=1)
             )
 
-        subset = subset[
-            (subset["start_dtm"] >= report_start)
-            &
-            (subset["start_dtm"] <= report_end)
-        ].copy()
+        # =========================
+        # DATE WINDOW FILTER
+        # =========================
+        if "tmt_stop_dtm" in df.columns:
+            # Include any record whose interval overlaps the requested window
+            df = df[
+                (df["arrival_dtm"] <= end_date) &
+                (df["tmt_stop_dtm"] >= start_date)
+            ].copy()
+        else:
+            # Fallback for datasets without tmt_stop_dtm:
+            # arrival_dtm must fall within the requested window
+            df = df[
+                (df["arrival_dtm"] >= start_date) &
+                (df["arrival_dtm"] <= end_date)
+            ].copy()
+
+        if df.empty:
+            logging.warning(f"{VISUAL_ID}: no data after date window filtering")
+            return
 
         logging.info(
             f"vis_16 rows after date filter: "
-            f"{len(subset):,}"
+            f"{len(df):,}"
         )
 
-        if subset.empty:
+        if df.empty:
             logging.warning(
                 "vis_16: no visits after date filtering"
             )
             return
 
-    subset["patient_zipcode"] = (
-        subset["patient_zipcode"]
+    df["patient_zipcode"] = (
+        df["patient_zipcode"]
         .astype(str)
         .str.strip()
         .str.zfill(5)
     )
 
-    subset = subset[
-        subset["patient_zipcode"].notna()
+    df = df[
+        df["patient_zipcode"].notna()
     ]
 
-    if subset.empty:
+    if df.empty:
 
         logging.warning(
             "vis_16: no zipcode data available"
@@ -691,23 +706,23 @@ def run(
 
         return
 
-    subset["arrival_group"] = (
-        subset["arrival_method"]
+    df["arrival_group"] = (
+        df["arrival_method"]
         .apply(_map_arrival_method)
     )
 
-    subset["esi"] = pd.to_numeric(
-        subset["esi"],
+    df["esi"] = pd.to_numeric(
+        df["esi"],
         errors="coerce"
     )
 
-    subset = subset[
-        subset["arrival_group"]
+    df = df[
+        df["arrival_group"]
         == "EMT"
     ]
 
-    subset = subset[
-        subset["esi"].isin(
+    df = df[
+        df["esi"].isin(
             low_acuity_esi_values
         )
     ]
@@ -764,7 +779,7 @@ def run(
     # ============================================================
 
     visits = (
-        subset
+        df
         .groupby("patient_zipcode")
         .size()
         .reset_index(name="visits")

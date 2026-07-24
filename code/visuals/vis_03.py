@@ -13,7 +13,7 @@
 # and operational performance monitoring.
 #
 # Inputs :
-#   - start_dtm  : Facility visit/arrival datetime
+#   - arrival_dtm  : Facility visit/arrival datetime
 #   - start_date : Reporting period start date
 #   - end_date   : Reporting period end date
 #
@@ -140,7 +140,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     # =========================
     # VALIDATION
     # =========================
-    required_columns = ["start_dtm"]
+    required_columns = ["arrival_dtm"]
 
     for col in required_columns:
         if col not in df.columns:
@@ -153,42 +153,38 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     # DATA PREP
     # =========================
     try:
-        df["start_dtm"] = pd.to_datetime(df["start_dtm"], errors="coerce")
-        df = df.dropna(subset=["start_dtm"])
+        df["arrival_dtm"] = pd.to_datetime(df["arrival_dtm"], errors="coerce")
+        df = df.dropna(df=["arrival_dtm"])
     except Exception as e:
-        logging.error(f"[{VISUAL_ID}] Failed to process start_dtm: {e}")
+        logging.error(f"[{VISUAL_ID}] Failed to process arrival_dtm: {e}")
         return
 
     # =========================
-    # DATE FILTERING
+    # DATE WINDOW FILTER
     # =========================
-    try:
-        if start_date:
-            start_dt = pd.to_datetime(start_date, errors="coerce")
-        else:
-            start_dt = df["start_dtm"].min()
-
-        if end_date:
-            end_dt = pd.to_datetime(end_date, errors="coerce")
-        else:
-            end_dt = df["start_dtm"].max()
-
+    if "tmt_stop_dtm" in df.columns:
+        # Include any record whose interval overlaps the requested window
         df = df[
-            (df["start_dtm"] >= start_dt) &
-            (df["start_dtm"] <= end_dt)
-        ]
-    except Exception as e:
-        logging.warning(f"[{VISUAL_ID}] Date filtering failed: {e}")
+            (df["arrival_dtm"] <= end_date) &
+            (df["tmt_stop_dtm"] >= start_date)
+        ].copy()
+    else:
+        # Fallback for datasets without tmt_stop_dtm:
+        # arrival_dtm must fall within the requested window
+        df = df[
+            (df["arrival_dtm"] >= start_date) &
+            (df["arrival_dtm"] <= end_date)
+        ].copy()
 
     if df.empty:
-        logging.warning(f"[{VISUAL_ID}] No data after filtering")
+        logging.warning(f"{VISUAL_ID}: no data after date window filtering")
         return
 
     # =========================
     # FEATURE ENGINEERING
     # =========================
     try:
-        df["arrival_year"] = df["start_dtm"].dt.year
+        df["arrival_year"] = df["arrival_dtm"].dt.year
     except Exception as e:
         logging.error(f"[{VISUAL_ID}] Failed to derive year: {e}")
         return

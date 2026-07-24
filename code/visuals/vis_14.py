@@ -56,51 +56,46 @@ def _generate_census(df, start_date, end_date):
 
         if not all(
             c in df.columns
-            for c in ["start_dtm", "stop_dtm"]
+            for c in ["arrival_dtm", "tmt_stop_dtm"]
         ):
             return pd.DataFrame()
 
-        df["start_dtm"] = pd.to_datetime(
-            df["start_dtm"],
+        df["arrival_dtm"] = pd.to_datetime(
+            df["arrival_dtm"],
             errors="coerce"
         )
 
-        df["stop_dtm"] = pd.to_datetime(
-            df["stop_dtm"],
+        df["tmt_stop_dtm"] = pd.to_datetime(
+            df["tmt_stop_dtm"],
             errors="coerce"
         )
 
         df = df.dropna(
-            subset=[
-                "start_dtm",
-                "stop_dtm"
+            df=[
+                "arrival_dtm",
+                "tmt_stop_dtm"
             ]
         )
 
         invalid_mask = (
-            df["stop_dtm"]
-            < df["start_dtm"]
+            df["tmt_stop_dtm"]
+            < df["arrival_dtm"]
         )
 
         zero_mask = (
-            df["stop_dtm"]
-            == df["start_dtm"]
+            df["tmt_stop_dtm"]
+            == df["arrival_dtm"]
         )
 
-        df.loc[invalid_mask, "stop_dtm"] = (
-            df.loc[invalid_mask, "start_dtm"]
+        df.loc[invalid_mask, "tmt_stop_dtm"] = (
+            df.loc[invalid_mask, "arrival_dtm"]
             + pd.Timedelta(minutes=1)
         )
 
-        df.loc[zero_mask, "stop_dtm"] = (
-            df.loc[zero_mask, "start_dtm"]
+        df.loc[zero_mask, "tmt_stop_dtm"] = (
+            df.loc[zero_mask, "arrival_dtm"]
             + pd.Timedelta(minutes=1)
         )
-
-        if "encounter_id" in df.columns:
-            df = df.drop_duplicates(
-                subset=["encounter_id"]
-            )
 
         start_date = pd.to_datetime(start_date)
         end_date = pd.to_datetime(end_date)
@@ -116,17 +111,32 @@ def _generate_census(df, start_date, end_date):
                 - pd.Timedelta(minutes=1)
             )
 
-        df = df[
-            (df["start_dtm"] <= end_date)
-            &
-            (df["stop_dtm"] >= start_date)
-        ].copy()
+        # =========================
+        # DATE WINDOW FILTER
+        # =========================
+        if "tmt_stop_dtm" in df.columns:
+            # Include any record whose interval overlaps the requested window
+            df = df[
+                (df["arrival_dtm"] <= end_date) &
+                (df["tmt_stop_dtm"] >= start_date)
+            ].copy()
+        else:
+            # Fallback for datasets without tmt_stop_dtm:
+            # arrival_dtm must fall within the requested window
+            df = df[
+                (df["arrival_dtm"] >= start_date) &
+                (df["arrival_dtm"] <= end_date)
+            ].copy()
+
+        if df.empty:
+            logging.warning(f"{VISUAL_ID}: no data after date window filtering")
+            return
 
         if df.empty:
             return pd.DataFrame()
 
-        df["start"] = df["start_dtm"]
-        df["end"] = df["stop_dtm"]
+        df["start"] = df["arrival_dtm"]
+        df["end"] = df["tmt_stop_dtm"]
 
         df["end"] = df["end"].clip(
             lower=start_date,
@@ -187,9 +197,9 @@ def _generate_census(df, start_date, end_date):
         )
 
         initial_count = df[
-            (df["start_dtm"] < start_date)
+            (df["arrival_dtm"] < start_date)
             &
-            (df["stop_dtm"] >= start_date)
+            (df["tmt_stop_dtm"] >= start_date)
         ].shape[0]
 
         ts["census"] = (

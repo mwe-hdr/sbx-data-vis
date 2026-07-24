@@ -141,8 +141,8 @@ def run(
     required_cols = [
         "arrival_method",
         "esi",
-        "start_dtm",
-        "stop_dtm"
+        "arrival_dtm",
+        "tmt_stop_dtm"
     ]
 
     missing_cols = [
@@ -324,71 +324,86 @@ def run(
             )
     }
 
-    work_df = df.copy()
+    df = df.copy()
 
-    work_df["start_dtm"] = pd.to_datetime(
-        work_df["start_dtm"],
+    df["arrival_dtm"] = pd.to_datetime(
+        df["arrival_dtm"],
         errors="coerce"
     )
 
-    work_df["stop_dtm"] = pd.to_datetime(
-        work_df["stop_dtm"],
+    df["tmt_stop_dtm"] = pd.to_datetime(
+        df["tmt_stop_dtm"],
         errors="coerce"
     )
 
-    work_df = work_df.dropna(
-        subset=[
-            "start_dtm",
-            "stop_dtm"
+    df = df.dropna(
+        df=[
+            "arrival_dtm",
+            "tmt_stop_dtm"
         ]
     )
 
     start_dt = pd.to_datetime(start_date)
     end_dt = pd.to_datetime(end_date)
 
-    work_df = work_df[
-        (work_df["start_dtm"] >= start_dt)
-        &
-        (work_df["start_dtm"] <= end_dt)
-    ]
+    # =========================
+    # DATE WINDOW FILTER
+    # =========================
+    if "tmt_stop_dtm" in df.columns:
+        # Include any record whose interval overlaps the requested window
+        df = df[
+            (df["arrival_dtm"] <= end_date) &
+            (df["tmt_stop_dtm"] >= start_date)
+        ].copy()
+    else:
+        # Fallback for datasets without tmt_stop_dtm:
+        # arrival_dtm must fall within the requested window
+        df = df[
+            (df["arrival_dtm"] >= start_date) &
+            (df["arrival_dtm"] <= end_date)
+        ].copy()
+
+    if df.empty:
+        logging.warning(f"{VISUAL_ID}: no data after date window filtering")
+        return
 
     logger.info(
         f"[{VISUAL_ID}] Rows after date filtering: "
-        f"{len(work_df):,}"
+        f"{len(df):,}"
     )
 
-    work_df["esi"] = pd.to_numeric(
-        work_df["esi"],
+    df["esi"] = pd.to_numeric(
+        df["esi"],
         errors="coerce"
     )
 
-    work_df = work_df[
-        work_df["esi"].isin([1, 2, 3, 4, 5])
+    df = df[
+        df["esi"].isin([1, 2, 3, 4, 5])
     ]
 
-    work_df["los_hours"] = (
+    df["los_hours"] = (
         (
-            work_df["stop_dtm"]
+            df["tmt_stop_dtm"]
             -
-            work_df["start_dtm"]
+            df["arrival_dtm"]
         ).dt.total_seconds()
         / 3600
     )
 
-    work_df = work_df[
-        work_df["los_hours"] >= min_los_hours
+    df = df[
+        df["los_hours"] >= min_los_hours
     ]
 
-    work_df = work_df[
-        work_df["los_hours"] <= max_los_hours
+    df = df[
+        df["los_hours"] <= max_los_hours
     ]
 
-    work_df = work_df[
-        work_df["los_hours"] > 0
+    df = df[
+        df["los_hours"] > 0
     ]
 
-    work_df["arrival_type"] = (
-        work_df["arrival_method"]
+    df["arrival_type"] = (
+        df["arrival_method"]
         .apply(_map_arrival_method)
     )
 
@@ -406,10 +421,10 @@ def run(
 
         for esi in [1, 2, 3, 4, 5]:
 
-            subset = work_df[
-                (work_df["arrival_type"] == arrival)
+            subset = df[
+                (df["arrival_type"] == arrival)
                 &
-                (work_df["esi"] == esi)
+                (df["esi"] == esi)
             ]
 
             count = len(subset)
@@ -461,14 +476,14 @@ def run(
     # ==========================================================
 
     overall_mean_los = (
-        work_df["los_hours"].mean()
-        if len(work_df)
+        df["los_hours"].mean()
+        if len(df)
         else 0
     )
 
     overall_median_los = (
-        work_df["los_hours"].median()
-        if len(work_df)
+        df["los_hours"].median()
+        if len(df)
         else 0
     )
 
@@ -580,14 +595,14 @@ def run(
 
             for esi in esi_values:
 
-                vals = work_df.loc[
+                vals = df.loc[
                     (
-                        work_df["arrival_type"]
+                        df["arrival_type"]
                         == arrival
                     )
                     &
                     (
-                        work_df["esi"]
+                        df["esi"]
                         == esi
                     ),
                     "los_hours"

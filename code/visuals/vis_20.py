@@ -185,11 +185,11 @@ def run(
     p = {**defaults, **(params or {})}
 
     required_cols = {
-        "visit_dtm",
+        "arrival_dtm",
         "arrival_method",
         "esi",
         "triage_start_dtm",
-        "ed_start_dtm",
+        "tmt_start_dtm",
         "disch_disp_desc"
     }
 
@@ -205,59 +205,74 @@ def run(
         )
         return
 
-    work_df = df.copy()
+    df = df.copy()
 
-    work_df["visit_dtm"] = pd.to_datetime(
-        work_df["visit_dtm"],
+    df["arrival_dtm"] = pd.to_datetime(
+        df["arrival_dtm"],
         errors="coerce"
     )
 
-    work_df["triage_start_dtm"] = pd.to_datetime(
-        work_df["triage_start_dtm"],
+    df["triage_start_dtm"] = pd.to_datetime(
+        df["triage_start_dtm"],
         errors="coerce"
     )
 
-    work_df["ed_start_dtm"] = pd.to_datetime(
-        work_df["ed_start_dtm"],
+    df["tmt_start_dtm"] = pd.to_datetime(
+        df["tmt_start_dtm"],
         errors="coerce"
     )
 
-    work_df["esi"] = pd.to_numeric(
-        work_df["esi"],
+    df["esi"] = pd.to_numeric(
+        df["esi"],
         errors="coerce"
     )
 
-    work_df = work_df.dropna(subset=["visit_dtm"])
+    df = df.dropna(df=["arrival_dtm"])
 
-    work_df = work_df[
-        (work_df["visit_dtm"] >= pd.to_datetime(start_date))
-        &
-        (work_df["visit_dtm"] <= pd.to_datetime(end_date))
-    ]
+    # =========================
+    # DATE WINDOW FILTER
+    # =========================
+    if "tmt_stop_dtm" in df.columns:
+        # Include any record whose interval overlaps the requested window
+        df = df[
+            (df["arrival_dtm"] <= end_date) &
+            (df["tmt_stop_dtm"] >= start_date)
+        ].copy()
+    else:
+        # Fallback for datasets without tmt_stop_dtm:
+        # arrival_dtm must fall within the requested window
+        df = df[
+            (df["arrival_dtm"] >= start_date) &
+            (df["arrival_dtm"] <= end_date)
+        ].copy()
 
-    work_df["arrival_type"] = (
-        work_df["arrival_method"]
+    if df.empty:
+        logging.warning(f"{VISUAL_ID}: no data after date window filtering")
+        return
+
+    df["arrival_type"] = (
+        df["arrival_method"]
         .apply(_map_arrival_method)
     )
 
-    work_df = work_df[
-        work_df["arrival_type"] == "EMT"
+    df = df[
+        df["arrival_type"] == "EMT"
     ]
 
-    work_df = work_df[
-        work_df["esi"].isin([1, 2, 3, 4, 5])
+    df = df[
+        df["esi"].isin([1, 2, 3, 4, 5])
     ]
 
-    work_df["has_triage"] = (
-        work_df["triage_start_dtm"].notna()
+    df["has_triage"] = (
+        df["triage_start_dtm"].notna()
     )
 
-    work_df["has_ed"] = (
-        work_df["ed_start_dtm"].notna()
+    df["has_ed"] = (
+        df["tmt_start_dtm"].notna()
     )
 
-    work_df["disposition"] = (
-        work_df["disch_disp_desc"]
+    df["disposition"] = (
+        df["disch_disp_desc"]
         .apply(_map_disposition)
     )
 
@@ -275,13 +290,13 @@ def run(
         )
     )
 
-    focused_df = work_df[
+    focused_df = df[
         (
-            work_df["esi"] >= esi_min
+            df["esi"] >= esi_min
         )
         &
         (
-            work_df["esi"] <= esi_max
+            df["esi"] <= esi_max
         )
     ].copy()
 
@@ -318,14 +333,14 @@ def run(
 
     totals = {}
 
-    totals["EMT Arrival"] = len(work_df)
+    totals["EMT Arrival"] = len(df)
 
     parent_totals = {}
     
     for esi in esi_levels:
 
-        subset = work_df[
-            work_df["esi"] == esi
+        subset = df[
+            df["esi"] == esi
         ]
 
         triage_df = subset[
@@ -407,8 +422,8 @@ def run(
 
     for esi in esi_levels:
 
-        esi_df = work_df[
-            work_df["esi"] == esi
+        esi_df = df[
+            df["esi"] == esi
         ]
 
         esi_count = len(esi_df)

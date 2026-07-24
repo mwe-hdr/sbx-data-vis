@@ -85,7 +85,7 @@ def _map_arrival_method(value):
     ]
 
     if any(term in txt for term in ambulance_terms):
-        return "Ambulance"
+        return "EMT"
 
     if (
         txt == "police"
@@ -274,7 +274,7 @@ def run(
         "arrival_method",
         "esi",
         "disch_disp_desc",
-        "start_dtm"
+        "arrival_dtm"
     ]
 
     missing_cols = [
@@ -288,14 +288,14 @@ def run(
             f"{VISUAL_ID}: Missing required columns: {missing_cols}"
         )
 
-    work_df = df.copy()
+    df = df.copy()
 
     # ============================================================
     # REPORTING PERIOD FILTER
     # ============================================================
 
-    work_df["start_dtm"] = pd.to_datetime(
-        work_df["start_dtm"],
+    df["arrival_dtm"] = pd.to_datetime(
+        df["arrival_dtm"],
         errors="coerce"
     )
 
@@ -313,34 +313,49 @@ def run(
             - pd.Timedelta(minutes=1)
         )
 
-    work_df = work_df[
-        (work_df["start_dtm"] >= report_start)
-        &
-        (work_df["start_dtm"] <= report_end)
-    ].copy()
+    # =========================
+    # DATE WINDOW FILTER
+    # =========================
+    if "tmt_stop_dtm" in df.columns:
+        # Include any record whose interval overlaps the requested window
+        df = df[
+            (df["arrival_dtm"] <= end_date) &
+            (df["tmt_stop_dtm"] >= start_date)
+        ].copy()
+    else:
+        # Fallback for datasets without tmt_stop_dtm:
+        # arrival_dtm must fall within the requested window
+        df = df[
+            (df["arrival_dtm"] >= start_date) &
+            (df["arrival_dtm"] <= end_date)
+        ].copy()
+
+    if df.empty:
+        logging.warning(f"{VISUAL_ID}: no data after date window filtering")
+        return
 
     logger.info(
         f"[{VISUAL_ID}] Rows after date filtering: "
-        f"{len(work_df):,}"
+        f"{len(df):,}"
     )
 
-    if work_df.empty:
+    if df.empty:
         logger.warning(
             f"[{VISUAL_ID}] No encounters after date filtering"
         )
         return
 
-    work_df["esi"] = pd.to_numeric(
-        work_df["esi"],
+    df["esi"] = pd.to_numeric(
+        df["esi"],
         errors="coerce"
     )
 
-    work_df = work_df[
-        work_df["esi"].isin([1, 2, 3, 4, 5])
+    df = df[
+        df["esi"].isin([1, 2, 3, 4, 5])
     ]
 
-    work_df["arrival_group"] = (
-        work_df["arrival_method"]
+    df["arrival_group"] = (
+        df["arrival_method"]
         .apply(_map_arrival_method)
     )
 
@@ -349,24 +364,24 @@ def run(
         for x in str(
             params.get(
                 "arrival_groups",
-                "Ambulance"
+                "EMT"
             )
         ).split("|")
         if x.strip()
     ]
 
-    work_df = work_df[
-        work_df["arrival_group"].isin(
+    df = df[
+        df["arrival_group"].isin(
             selected_arrivals
         )
     ]
 
-    work_df["disposition_group"] = (
-        work_df["disch_disp_desc"]
+    df["disposition_group"] = (
+        df["disch_disp_desc"]
         .apply(_map_disposition)
     )
 
-    total_encounters = len(work_df)
+    total_encounters = len(df)
 
     esi_order = [1, 2, 3, 4, 5]
 
@@ -382,8 +397,8 @@ def run(
     ]
 
     counts = pd.crosstab(
-        work_df["esi"],
-        work_df["disposition_group"]
+        df["esi"],
+        df["disposition_group"]
     )
 
     counts = counts.reindex(
@@ -561,20 +576,20 @@ def run(
         f"{title_output_file}"
     )
 
-    total_encounters = len(work_df)
+    total_encounters = len(df)
 
     admit_rate_overall = (
-        (work_df["disposition_group"] == "Admit")
+        (df["disposition_group"] == "Admit")
         .mean()
     )
 
     obs_rate_overall = (
-        (work_df["disposition_group"] == "Observation")
+        (df["disposition_group"] == "Observation")
         .mean()
     )
 
     discharge_rate_overall = (
-        (work_df["disposition_group"] == "Discharge")
+        (df["disposition_group"] == "Discharge")
         .mean()
     )
 
@@ -815,7 +830,7 @@ def run(
             "metric": "total_admissions",
             "value": int(
                 (
-                    work_df["disposition_group"]
+                    df["disposition_group"]
                     == "Admit"
                 ).sum()
             )
@@ -828,7 +843,7 @@ def run(
             "metric": "total_observations",
             "value": int(
                 (
-                    work_df["disposition_group"]
+                    df["disposition_group"]
                     == "Observation"
                 ).sum()
             )
@@ -841,7 +856,7 @@ def run(
             "metric": "total_discharges",
             "value": int(
                 (
-                    work_df["disposition_group"]
+                    df["disposition_group"]
                     == "Discharge"
                 ).sum()
             )
