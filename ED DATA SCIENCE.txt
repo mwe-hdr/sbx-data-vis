@@ -1,0 +1,364 @@
+ED DATA SCIENCE
+
+You’ve already built a **very strong foundation**: canonical timestamps → minute-level census → Tableau capacity modeling. The real opportunity now is to move from *descriptive capacity analytics* → *flow, bottleneck, and predictive system analytics*.
+
+Below is a structured roadmap tailored to your data + current Tableau model.
+
+***
+
+# 🔍 1. What You Already Have (High-Value Signals)
+
+From your pipeline + datasets:
+
+### Time-series census (operational backbone)
+
+* Minute-level ED occupancy by acuity
+* Enables utilization, peak detection, percentile planning [\[2025_rmc_e...ergency_ts \| Excel\]](https://hdrinc-my.sharepoint.com/personal/medwards_hdrinc_com/_layouts/15/Doc.aspx?sourcedoc=%7B5BCE4C53-0D50-483A-B9B1-ED4D9D0B51EC%7D&file=2025_rmc_emergency_ts.csv&action=default&mobileredirect=true)
+
+### Raw encounter data (rich feature space)
+
+Includes:
+
+* Full **patient journey timestamps** (visit → triage → ED → boarding)
+* **Disposition outcomes** (admit, discharge, LWBS, psych, etc.)
+* **Acuity + ESI + diagnosis + demographics** [\[2023_2025_...xtract.csv \| Excel\]](https://hdrinc-my.sharepoint.com/personal/medwards_hdrinc_com/_layouts/15/Doc.aspx?sourcedoc=%7B91EE1DEC-2A66-4354-B2D2-B613268698CD%7D&file=2023_2025_rmc_client_raw_extract.csv&action=default&mobileredirect=true)
+
+### Tableau model
+
+You already compute:
+
+* Percentiles (70/80/90)
+* Peak window logic
+* Capacity / utilization thresholds
+* Room need calculations [\[hdrinc-my....epoint.com\]](https://hdrinc-my.sharepoint.com/personal/medwards_hdrinc_com/Documents/Microsoft%20Copilot%20Chat%20Files/tableau_xml.xml)
+
+👉 This is a **capacity planning model**  
+➡️ Next step: **flow optimization + predictive forecasting**
+
+***
+
+# 🚀 2. High-Impact Analytics You Should Add
+
+## A. Patient Flow + Throughput Modeling (MOST IMPORTANT)
+
+### 🔹 New metrics to engineer in Python
+
+From timestamps:
+
+```text
+Door-to-triage = triage_start - visit_dtm
+Triage-to-provider = ed_start - triage_stop
+Provider-to-disposition = ed_end - ed_start
+Boarding time = boarding_end - boarding_start
+Total LOS = end_dtm - start_dtm
+```
+
+### 🔹 Visualizations (Tableau)
+
+* **Sankey diagram or flow funnel**  
+  Visit → Triage → ED → Admission / Discharge
+* **Boxplots by acuity**
+  * LOS distribution by acuity
+* **Waterfall / decomposition chart**
+  * Where time is spent in the ED journey
+
+👉 Why this matters:
+
+* Identifies *operational bottlenecks* (triage vs provider vs boarding)
+* More actionable than census alone
+
+***
+
+## B. Boarding + Admission Pressure Analytics
+
+You already have boarding timestamps — this is huge.
+
+### Build:
+
+* % of ED census that is **boarded patients**
+* Boarding duration per patient
+* Boarding contribution to peak occupancy
+
+### Visuals:
+
+* Stacked area chart:
+  * ED patients vs boarding patients
+* Heatmap:
+  * Boarding duration by hour/day
+
+👉 This directly ties to **inpatient bed constraints → ED overcrowding**
+
+***
+
+## C. Arrival Pattern Modeling (Demand Side)
+
+### Features already present:
+
+* Arrival timestamp
+* Arrival method (car, ambulance, police) [\[2023_2025_...aw_extract \| Excel\]](https://hdrinc-my.sharepoint.com/personal/medwards_hdrinc_com/_layouts/15/Doc.aspx?sourcedoc=%7B91EE1DEC-2A66-4354-B2D2-B613268698CD%7D&file=2023_2025_rmc_client_raw_extract.csv&action=default&mobileredirect=true)
+
+### Build:
+
+* Arrivals per:
+  * Hour of day
+  * Day of week
+  * Month/season
+
+### Visualizations:
+
+* **Calendar heatmap (hour x day)**
+* **Ridgeline plots by day-of-week**
+* **Arrival vs census overlay**
+
+👉 Insight:
+
+* Demand misalignment vs staffing = biggest driver of crowding
+
+***
+
+## D. Acuity Mix + Case-Mix Drift
+
+You already normalized acuity — leverage it further.
+
+### Analytics:
+
+* Acuity distribution over time
+* % high-acuity (ESI 1–2) by day/hour
+* Acuity vs LOS
+* Acuity vs admission rate
+
+### Visuals:
+
+* 100% stacked area chart (acuity composition over time)
+* Heatmap of acuity by hour/day
+
+👉 Key planning insight:
+
+* Not all volume growth = same capacity need
+
+***
+
+## E. Disposition & LWBS (Leakage + Quality)
+
+You have:
+
+* LWBS
+* AMA / eloped
+* admits vs discharges [\[2023_2025_...xtract.csv \| Excel\]](https://hdrinc-my.sharepoint.com/personal/medwards_hdrinc_com/_layouts/15/Doc.aspx?sourcedoc=%7B91EE1DEC-2A66-4354-B2D2-B613268698CD%7D&file=2023_2025_rmc_client_raw_extract.csv&action=default&mobileredirect=true)
+
+### Build:
+
+* LWBS rate vs:
+  * wait time
+  * census
+* Admission rate by:
+  * acuity
+  * time of day
+* Psych vs non-psych flow
+
+### Visuals:
+
+* Scatter:
+  * census vs LWBS rate
+* Time series:
+  * admission rate trend
+
+👉 This ties directly to:
+
+* **patient satisfaction + revenue leakage**
+
+***
+
+## F. Demographic + Geographic Insights
+
+From:
+
+* Age, gender, zip code [\[2023_2025_...xtract.csv \| Excel\]](https://hdrinc-my.sharepoint.com/personal/medwards_hdrinc_com/_layouts/15/Doc.aspx?sourcedoc=%7B91EE1DEC-2A66-4354-B2D2-B613268698CD%7D&file=2023_2025_rmc_client_raw_extract.csv&action=default&mobileredirect=true)
+
+### Build:
+
+* Volume by geography (zip clusters)
+* LOS by age group
+* Arrival pattern by demographic
+
+### Visuals:
+
+* Map: ED catchment area
+* Layered histograms: age vs acuity
+
+👉 This supports:
+
+* **future facility siting + expansion strategy**
+
+***
+
+## G. Diagnosis / Service Line Analytics
+
+You have ICD codes.
+
+### Build:
+
+* Top diagnosis categories (group ICD → CCS categories)
+* LOS by diagnosis group
+* Admission likelihood per diagnosis
+
+### Visuals:
+
+* Pareto chart (top conditions)
+* Heatmap: diagnosis vs acuity
+
+👉 Helps:
+
+* Design **specialized treatment zones** (fast-track, psych, trauma)
+
+***
+
+## H. Peak Load & Surge Analysis (Extend Your Existing Model)
+
+You already calculate:
+
+* Peak periods
+* Percentiles
+* Capacity thresholds [\[hdrinc-my....epoint.com\]](https://hdrinc-my.sharepoint.com/personal/medwards_hdrinc_com/Documents/Microsoft%20Copilot%20Chat%20Files/tableau_xml.xml)
+
+### Extend:
+
+* Duration of time above capacity threshold
+* Frequency of surge events
+* Consecutive high-load intervals
+
+### Visuals:
+
+* “Surge timeline” (binary overcrowding)
+* Histogram of surge durations
+
+👉 This directly informs:
+
+* “How often do we break?”
+
+***
+
+## I. Predictive Modeling (Next-Level Value)
+
+### 1. Short-term forecasting
+
+* Predict next 24–72 hours of:
+  * arrivals
+  * census
+
+Models:
+
+* SARIMA / Prophet
+* Gradient boosting (with time features)
+
+### 2. LOS prediction (per patient)
+
+* Features:
+  * acuity
+  * age
+  * arrival method
+  * diagnosis
+* Output:
+  * expected LOS
+
+### 3. Admission probability model
+
+* Predict:
+  * probability of admit at triage
+
+👉 These unlock:
+
+* **real-time decision support dashboards**
+
+***
+
+## J. Simulation (Highest ROI for Building Projects)
+
+Use your distributions to simulate:
+
+### Discrete Event Simulation
+
+* Inputs:
+  * arrival distributions
+  * LOS distributions
+  * acuity mix
+* Outputs:
+  * required beds
+  * wait times
+  * overflow risk
+
+👉 This is GOLD for:
+
+* capital planning
+* “What if we add 10 rooms?”
+
+***
+
+# 🧠 3. Advanced Tableau Ideas
+
+Based on your XML model:
+
+### Add:
+
+* Parameterized:
+  * **arrival growth scenarios**
+  * **acuity mix shifts**
+* Toggle:
+  * Include/exclude boarding
+* Animation:
+  * “Day in the life” playback of ED
+
+### New dashboards:
+
+1. **Flow dashboard**
+2. **Demand vs capacity**
+3. **Bottleneck explorer**
+4. **Scenario simulator**
+
+***
+
+# 🧭 4. Priority Roadmap (What to Do First)
+
+### Phase 1 (Quick Wins)
+
+✅ LOS decomposition  
+✅ Arrival patterns  
+✅ Boarding analytics
+
+### Phase 2 (Core Value)
+
+✅ LWBS + admit modeling  
+✅ Acuity mix trends  
+✅ Surge duration analysis
+
+### Phase 3 (Advanced)
+
+✅ Forecasting  
+✅ LOS prediction  
+✅ Simulation
+
+***
+
+# 💡 Final Thought
+
+What you’ve built answers:
+
+> “How many beds do we need?”
+
+The next layer answers:
+
+> “**Why do we need them, and when will things break?**”
+
+That shift—from capacity to *system dynamics*—is what clients will pay for.
+
+***
+
+If you want, I can:
+
+* Write Python feature-engineering code for LOS + flow metrics
+* Design a full Tableau dashboard structure
+* Or build a forecasting model starter template using your data
+
+---- 
+
+

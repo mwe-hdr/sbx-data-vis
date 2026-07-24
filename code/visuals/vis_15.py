@@ -48,8 +48,8 @@ def run(
 
         required_cols = [
             "esi",
-            "ed_start_dtm",
-            "ed_stop_dtm"
+            "start_dtm",
+            "stop_dtm"
         ]
 
         missing = [
@@ -210,15 +210,15 @@ def run(
                 - pd.Timedelta(minutes=1)
             )
 
-        df["ed_start_dtm"] = pd.to_datetime(
-            df["ed_start_dtm"],
+        df["start_dtm"] = pd.to_datetime(
+            df["start_dtm"],
             errors="coerce"
         )
 
         df = df[
-            (df["ed_start_dtm"] >= report_start)
+            (df["start_dtm"] >= report_start)
             &
-            (df["ed_start_dtm"] <= report_end)
+            (df["start_dtm"] <= report_end)
         ].copy()
 
         logger.info(
@@ -232,20 +232,20 @@ def run(
             )
             return
 
-        df["ed_start_dtm"] = pd.to_datetime(
-            df["ed_start_dtm"],
+        df["start_dtm"] = pd.to_datetime(
+            df["start_dtm"],
             errors="coerce"
         )
 
-        df["ed_stop_dtm"] = pd.to_datetime(
-            df["ed_stop_dtm"],
+        df["stop_dtm"] = pd.to_datetime(
+            df["stop_dtm"],
             errors="coerce"
         )
 
         df = df.dropna(
             subset=[
-                "ed_start_dtm",
-                "ed_stop_dtm"
+                "start_dtm",
+                "stop_dtm"
             ]
         )
 
@@ -268,8 +268,8 @@ def run(
 
         los_hours = (
             (
-                df["ed_stop_dtm"] -
-                df["ed_start_dtm"]
+                df["stop_dtm"] -
+                df["start_dtm"]
             )
             .dt.total_seconds()
             / 3600

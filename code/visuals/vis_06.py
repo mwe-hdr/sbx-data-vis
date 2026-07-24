@@ -1,10 +1,9 @@
 # =============================================================================
-# Domain      : ED (Emergency Department)
-# Report Name : Weekday Arrival Distribution
+# Report Name : Facility Weekday Arrival Distribution
 #
 # Description :
-# Generates a distribution analysis of Emergency Department arrivals by
-# day of week. ED arrival timestamps are assigned to weekday categories
+# Generates a distribution analysis of Facility arrivals by
+# day of week. Facility arrival timestamps are assigned to weekday categories
 # and aggregated to determine the proportion of total arrivals occurring
 # on each day.
 #
@@ -20,7 +19,7 @@
 #   - Operational workload assessment
 #
 # Inputs :
-#   - ed_start_dtm : ED arrival/start datetime
+#   - start_dtm : Facility arrival/start datetime
 #   - start_date   : Reporting period start date
 #   - end_date     : Reporting period end date
 #
@@ -34,7 +33,7 @@
 #       * Weekday distribution metrics for downstream reporting
 #
 # Key Metrics :
-#   - Total ED arrivals
+#   - Total Facility arrivals
 #   - Arrivals by weekday
 #   - Percent of arrivals by weekday
 #   - Weekly arrival distribution pattern
@@ -147,7 +146,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # =============================
         # VALIDATION
         # =============================
-        required_cols = ["ed_start_dtm"]
+        required_cols = ["start_dtm"]
         missing_cols = [col for col in required_cols if col not in df.columns]
 
         if missing_cols:
@@ -159,12 +158,12 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # =============================
         # DATETIME HANDLING
         # =============================
-        df["ed_start_dtm"] = pd.to_datetime(df["ed_start_dtm"], errors="coerce")
+        df["start_dtm"] = pd.to_datetime(df["start_dtm"], errors="coerce")
 
-        df = df.dropna(subset=["ed_start_dtm"])
+        df = df.dropna(subset=["start_dtm"])
 
         if df.empty:
-            logging.warning(f"{VISUAL_ID}: No valid ed_start_dtm after conversion")
+            logging.warning(f"{VISUAL_ID}: No valid start_dtm after conversion")
             return
 
         # =============================
@@ -175,8 +174,8 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             end_dt = pd.to_datetime(end_date)
 
             df = df[
-                (df["ed_start_dtm"] >= start_dt) &
-                (df["ed_start_dtm"] <= end_dt)
+                (df["start_dtm"] >= start_dt) &
+                (df["start_dtm"] <= end_dt)
             ]
 
         except Exception as e:
@@ -191,7 +190,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # =============================
         # DERIVE WEEKDAY
         # =============================
-        df["weekday_num"] = df["ed_start_dtm"].dt.dayofweek
+        df["weekday_num"] = df["start_dtm"].dt.dayofweek
 
         weekday_map = {
             0: "Mon",

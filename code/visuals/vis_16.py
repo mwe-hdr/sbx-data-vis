@@ -1,14 +1,12 @@
 # =============================================================================
-# Domain      : ED (Emergency Department)
-#
-# Report Name : Low-Acuity Ambulance Patient Origin Map
+# Report Name : Low-Acuity EMT Patient Origin Map
 #
 # Description :
 #
-# Identifies geographic origin patterns for ambulatory low-acuity ED visits.
+# Identifies geographic origin patterns for EMT low-acuity Facility visits.
 #
 # Population:
-#   - Ambulance Arrivals
+#   - EMT Arrivals
 #   - ESI 4
 #   - ESI 5
 #
@@ -120,7 +118,7 @@ def _map_arrival_method(value):
     ]
 
     if any(term in txt for term in ambulance_terms):
-        return "Ambulance"
+        return "EMT"
 
     if (
         txt == "police"
@@ -344,7 +342,7 @@ def run(
         "patient_zipcode",
         "arrival_method",
         "esi",
-        "ed_start_dtm"
+        "start_dtm"
     ]
 
     for col in required_cols:
@@ -636,10 +634,10 @@ def run(
     # DATE FILTER
     # ============================================================
 
-    if "ed_start_dtm" in subset.columns:
+    if "start_dtm" in subset.columns:
 
-        subset["ed_start_dtm"] = pd.to_datetime(
-            subset["ed_start_dtm"],
+        subset["start_dtm"] = pd.to_datetime(
+            subset["start_dtm"],
             errors="coerce"
         )
 
@@ -658,9 +656,9 @@ def run(
             )
 
         subset = subset[
-            (subset["ed_start_dtm"] >= report_start)
+            (subset["start_dtm"] >= report_start)
             &
-            (subset["ed_start_dtm"] <= report_end)
+            (subset["start_dtm"] <= report_end)
         ].copy()
 
         logging.info(
@@ -705,7 +703,7 @@ def run(
 
     subset = subset[
         subset["arrival_group"]
-        == "Ambulance"
+        == "EMT"
     ]
 
     subset = subset[

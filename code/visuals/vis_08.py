@@ -1,13 +1,12 @@
 # =============================================================================
-# Domain      : ED (Emergency Department)
-# Report Name : ED Census Trend
+# Report Name : Facility Census Trend
 #
 # Description :
-# Calculates and visualizes Emergency Department census levels over time
+# Calculates and visualizes Facility census levels over time
 # using patient arrival and departure timestamps. The program constructs a
 # minute-by-minute census timeline by identifying all encounters active
 # during each reporting interval and computing the concurrent patient
-# count within the ED.
+# count within the Facility.
 #
 # Results are produced as both a detailed census dataset and a trend
 # visualization. The report optionally highlights periods where census
@@ -15,7 +14,7 @@
 # reference lines for average census and operational capacity.
 #
 # This report supports:
-#   - ED census monitoring
+#   - Facility census monitoring
 #   - Capacity management
 #   - Throughput analysis
 #   - Overcrowding assessment
@@ -23,13 +22,13 @@
 #   - Operational performance review
 #
 # Inputs :
-#   - ed_start_dtm : ED arrival/start datetime
-#   - ed_stop_dtm  : ED departure/stop datetime
+#   - start_dtm : Facility arrival/start datetime
+#   - stop_dtm  : Facility departure/stop datetime
 #   - start_date   : Reporting period start date/time
 #   - end_date     : Reporting period end date/time
 #
 # Outputs :
-#   - PNG line chart displaying ED census over time
+#   - PNG line chart displaying Facility census over time
 #       * Census trend by minute
 #       * Optional capacity threshold line
 #       * Optional average census line
@@ -41,7 +40,7 @@
 #       * Time-based census metrics for downstream reporting
 #
 # Key Metrics :
-#   - Concurrent ED census
+#   - Concurrent Facility census
 #   - Average census
 #   - Peak census periods
 #   - Capacity utilization
@@ -74,26 +73,26 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # =========================================================
         # VALIDATION
         # =========================================================
-        if not all(col in df.columns for col in ["ed_start_dtm", "ed_stop_dtm"]):
+        if not all(col in df.columns for col in ["start_dtm", "stop_dtm"]):
             logging.error(f"[{VISUAL_ID}] Missing required columns")
             return
 
         # =========================================================
         # DATETIME PREP
         # =========================================================
-        df["ed_start_dtm"] = pd.to_datetime(df["ed_start_dtm"], errors="coerce")
-        df["ed_stop_dtm"] = pd.to_datetime(df["ed_stop_dtm"], errors="coerce")
+        df["start_dtm"] = pd.to_datetime(df["start_dtm"], errors="coerce")
+        df["stop_dtm"] = pd.to_datetime(df["stop_dtm"], errors="coerce")
 
-        df = df.dropna(subset=["ed_start_dtm", "ed_stop_dtm"])
+        df = df.dropna(subset=["start_dtm", "stop_dtm"])
 
-        invalid_mask = df["ed_stop_dtm"] < df["ed_start_dtm"]
-        zero_mask = df["ed_stop_dtm"] == df["ed_start_dtm"]
+        invalid_mask = df["stop_dtm"] < df["start_dtm"]
+        zero_mask = df["stop_dtm"] == df["start_dtm"]
 
-        df.loc[invalid_mask, "ed_stop_dtm"] = (
-            df.loc[invalid_mask, "ed_start_dtm"] + pd.Timedelta(minutes=1)
+        df.loc[invalid_mask, "stop_dtm"] = (
+            df.loc[invalid_mask, "start_dtm"] + pd.Timedelta(minutes=1)
         )
-        df.loc[zero_mask, "ed_stop_dtm"] = (
-            df.loc[zero_mask, "ed_start_dtm"] + pd.Timedelta(minutes=1)
+        df.loc[zero_mask, "stop_dtm"] = (
+            df.loc[zero_mask, "start_dtm"] + pd.Timedelta(minutes=1)
         )
 
         if "row_id" in df.columns:
@@ -112,8 +111,8 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # FILTER
         # =========================================================
         df = df[
-            (df["ed_start_dtm"] <= end_date) &
-            (df["ed_stop_dtm"] >= start_date)
+            (df["start_dtm"] <= end_date) &
+            (df["stop_dtm"] >= start_date)
         ].copy()
 
         if df.empty:
@@ -123,8 +122,8 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # =========================================================
         # VISIT WINDOWS
         # =========================================================
-        df["start"] = df["ed_start_dtm"]
-        df["end"] = df["ed_stop_dtm"]
+        df["start"] = df["start_dtm"]
+        df["end"] = df["stop_dtm"]
 
         df["end"] = df["end"].clip(lower=start_date, upper=end_date)
         df["end"] = df["end"] + pd.Timedelta(minutes=1)
@@ -164,8 +163,8 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         ts["delta"] = ts["delta"].fillna(0)
 
         initial_count = df[
-            (df["ed_start_dtm"] < start_date) &
-            (df["ed_stop_dtm"] >= start_date)
+            (df["start_dtm"] < start_date) &
+            (df["stop_dtm"] >= start_date)
         ].shape[0]
 
         ts["census"] = ts["delta"].cumsum()
@@ -221,7 +220,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
         capacity_value = _get_float(params, "capacity_value", None)
         include_avg_line = _get_bool(params, "include_avg_line", True)
-        chart_title = _get_str(params, "chart_title", "ED Census Trend")
+        chart_title = _get_str(params, "chart_title", "Facility Census Trend")
         capacity_threshold_pct = _get_float(params, "capacity_threshold_pct", 0.8)
         below_color = params.get("below_color", "black")
         above_color = params.get("above_color", "red")
@@ -487,7 +486,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         y_label = _get_str(
             params,
             "y_label",
-            "ED Census"
+            "Facility Census"
         )
 
         plt.ylabel(

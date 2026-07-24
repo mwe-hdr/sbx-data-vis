@@ -1,9 +1,8 @@
 # =============================================================================
-# Domain      : ED (Emergency Department)
-# Report Name : ED Geographic Catchment
+# Report Name : Facility Geographic Catchment
 #
 # Description :
-# Visualizes the geographic distribution of Emergency Department utilization
+# Visualizes the geographic distribution of Facility utilization
 # by mapping patient residence ZIP codes to corresponding ZIP Code Tabulation
 # Areas (ZCTAs). Patient encounter volumes are aggregated by ZIP code and
 # displayed as a thematic catchment map to illustrate the geographic service
@@ -22,7 +21,7 @@
 #
 # Key planning metrics include:
 #   - Patient volume by ZIP code
-#   - Geographic distribution of ED utilization
+#   - Geographic distribution of Facility utilization
 #   - Primary service area identification
 #   - Secondary service area identification
 #   - Regional demand concentration patterns
@@ -46,7 +45,7 @@
 #
 # Outputs :
 #   - PNG map displaying:
-#       * ED patient volume by ZIP code geography
+#       * Facility patient volume by ZIP code geography
 #       * Graduated utilization intensity by ZIP code
 #       * Geographic service area distribution
 #       * Optional county boundaries and labels
@@ -56,7 +55,7 @@
 #       * None currently generated
 #
 # Key Metrics :
-#   - ED visits by ZIP code
+#   - Facility visits by ZIP code
 #   - Geographic catchment distribution
 #   - Service area concentration
 #   - Primary market utilization
@@ -1583,7 +1582,7 @@ def run(
     )
 
     save_title_png(
-        title="ED Geographic Catchment",
+        title="Facility Geographic Catchment",
         subtitle=date_range,
         output_file=title_output_file,
         width=title_width,

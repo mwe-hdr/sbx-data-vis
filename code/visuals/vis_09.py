@@ -13,8 +13,8 @@
 #   - Arrival
 #   - Triage
 #   - No Triage
-#   - ED Treatment
-#   - Left Before ED Evaluation
+#   - Treatment
+#   - Left Before Treatment 
 #   - Final Disposition
 #
 # ED treatment encounters are further categorized by disposition:
@@ -31,27 +31,27 @@
 # and operational planning.
 #
 # Inputs :
-#   - visit_dtm         : ED arrival/visit datetime
+#   - arrival_dtm         : Facility arrival/visit datetime
 #   - triage_start_dtm  : Triage start datetime
-#   - ed_start_dtm      : ED treatment start datetime
-#   - disch_disp_desc   : ED discharge/disposition description
+#   - ed_start_dtm      : Facility treatment start datetime
+#   - disch_disp_desc   : Facility discharge/disposition description
 #   - start_date        : Reporting period start date
 #   - end_date          : Reporting period end date
 #
 # Outputs :
-#   - PNG Sankey diagram illustrating patient flow through the ED
+#   - PNG Sankey diagram illustrating patient flow through the Facility
 #   - RDB records containing:
 #       * Arrival-to-triage flow counts
 #       * Triage-to-treatment flow counts
 #       * Left-before-treatment counts
-#       * ED disposition counts
+#       * Facility disposition counts
 #       * Patient flow stage transitions
 #
 # Key Metrics :
 #   - Total arrivals
 #   - Patients triaged
 #   - Patients not triaged
-#   - Patients reaching ED treatment
+#   - Patients reaching Facility treatment
 #   - Patients leaving before treatment
 #   - Discharge outcomes
 #   - Inpatient admissions
@@ -94,7 +94,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         "fig_width": 1200,
         "fig_height": 900,
 
-        "title": "ED Patient Flow Sankey",
+        "title": "Facility Patient Flow Sankey",
 
         "font_family": "Arial",
         "node_font_size": 16,
@@ -124,7 +124,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     p = {**default_params, **(params or {})}
 
     required_cols = {
-        "visit_dtm",
+        "arrival_dtm",
         "triage_start_dtm",
         "ed_start_dtm",
         "disch_disp_desc"
@@ -150,15 +150,15 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     # BASIC PREP
     # -----------------------------
     df = df.copy()
-    df["visit_dtm"] = pd.to_datetime(df["visit_dtm"], errors="coerce")
+    df["arrival_dtm"] = pd.to_datetime(df["arrival_dtm"], errors="coerce")
     df["triage_start_dtm"] = pd.to_datetime(df["triage_start_dtm"], errors="coerce")
     df["ed_start_dtm"] = pd.to_datetime(df["ed_start_dtm"], errors="coerce")
 
-    df = df.dropna(subset=["visit_dtm"])
+    df = df.dropna(subset=["arrival_dtm"])
 
     df = df[
-        (df["visit_dtm"] >= pd.to_datetime(start_date)) &
-        (df["visit_dtm"] <= pd.to_datetime(end_date))
+        (df["arrival_dtm"] >= pd.to_datetime(start_date)) &
+        (df["arrival_dtm"] <= pd.to_datetime(end_date))
     ]
 
     total_arrivals = len(df)
@@ -232,8 +232,8 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         label("Arrival", total_arrivals),
         label("Triage", triage_count),
         label("No Triage", no_triage_count),
-        label("ED Treatment", ed_from_triage),
-        label("Left Before ED", left_before_ed),
+        label("Treatment", ed_from_triage),
+        label("Left Before Treatment", left_before_ed),
     ]
 
     for c in categories:
@@ -241,7 +241,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
     idx = {name: i for i, name in enumerate([
         "Arrival", "Triage", "No Triage",
-        "ED Treatment", "Left Before ED",
+        "Treatment", "Left Before Treatment",
         *categories
     ])}
 
@@ -267,14 +267,14 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     ordered_flow = [
         "Arrival",
         "Triage",
-        "ED Treatment",
+        "Treatment",
         "Discharge",
         "Inpatient",
         "Observation",
         "Transfer",
         "Exit Without Care",
         "Expired",
-        "Left Before ED",
+        "Left Before Treatment",
         "No Triage"
     ]
 
@@ -302,11 +302,11 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     values += [triage_count, no_triage_count]
 
     sources += [idx["Triage"], idx["Triage"]]
-    targets += [idx["ED Treatment"], idx["Left Before ED"]]
+    targets += [idx["Treatment"], idx["Left Before Treatment"]]
     values += [ed_from_triage, left_before_ed]
 
     for c in categories:
-        sources.append(idx["ED Treatment"])
+        sources.append(idx["Treatment"])
         targets.append(idx[c])
         values.append(disp_counts[c])
 
@@ -317,8 +317,8 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         "Arrival": 0.05,
         "Triage": 0.30,
         "No Triage": 0.30,
-        "ED Treatment": 0.55,
-        "Left Before ED": 0.45,
+        "Treatment": 0.55,
+        "Left Before Treatment": 0.45,
         "Discharge": 0.85,
         "Inpatient": 0.85,
         "Observation": 0.85,
@@ -338,12 +338,12 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     node_y = [0.5] * n_nodes
 
     # Top spine (HARD LOCK)
-    for node in ["Arrival", "Triage", "ED Treatment", categories[0]]:
+    for node in ["Arrival", "Triage", "Treatment", categories[0]]:
         node_y[idx[node]] = TOP_Y
 
     # Middle nodes
     node_y[idx["No Triage"]] = TOP_Y + 0.45
-    node_y[idx["Left Before ED"]] = TOP_Y + 0.40
+    node_y[idx["Left Before Treatment"]] = TOP_Y + 0.40
 
     # ---------------------------------
     # RIGHT-SIDE CASCADE (EVEN SPACING)
@@ -608,8 +608,8 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         flow_rows = [
             ("Arrival", "Triage", triage_count),
             ("Arrival", "No Triage", no_triage_count),
-            ("Triage", "ED Treatment", ed_from_triage),
-            ("Triage", "Left Before ED", left_before_ed)
+            ("Triage", "Treatment", ed_from_triage),
+            ("Triage", "Left Before Treatment", left_before_ed)
         ]
 
         for source_node, target_node, value in flow_rows:
@@ -656,8 +656,8 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                     f"{params.get('domain')}.{params.get('cohort_id')}",
 
                 "dimension": "flow_stage",
-                "dimension_value": "ED Treatment",
-                "dimension_value_label": "ED Treatment",
+                "dimension_value": "Treatment",
+                "dimension_value_label": "Treatment",
 
                 "secondary_dimension": "disposition",
                 "secondary_dimension_value": disposition,

@@ -1,0 +1,330 @@
+SANKEY
+
+Great—this is one of the **highest ROI visuals** you can build, because it transforms your dataset from *counts* → *patient journey understanding*.
+
+We’ll walk through this like a build plan:
+
+***
+
+# 🧭 Goal: ED Flow Visualization
+
+You want to show:
+
+```
+Arrival → Triage → ED Treatment → Outcome
+```
+
+Using your data:
+
+```
+visit_dtm → triage_start/stop → ed_start → ed_end → disch_disp_desc
+```
+
+From your dataset, this flow is explicitly available via timestamps and disposition
+
+***
+
+# 🔷 Step 1: Define the Flow Stages
+
+### Recommended stages (clean + explainable)
+
+| Stage                     | Definition                  |
+| ------------------------- | --------------------------- |
+| Arrival                   | visit\_dtm                  |
+| Triage                    | triage\_start\_dtm exists   |
+| ED Treatment              | ed\_start\_dtm exists       |
+| Boarding (optional stage) | boarding\_start\_dtm exists |
+| Outcome                   | disch\_disp\_desc           |
+
+***
+
+## 🔥 Key design decision
+
+You have two options:
+
+### Option A (Simpler → recommended first)
+
+**Single path per patient:**
+
+```
+Arrival → Triage → ED → Disposition
+```
+
+### Option B (Advanced)
+
+Include:
+
+* Boarding
+* LWBS early exits
+* OB triage / psych flows
+
+👉 Start with **Option A** to validate logic.
+
+***
+
+# 🔷 Step 2: Normalize Outcomes
+
+From your data:
+
+Examples:
+
+* Admit
+* Discharge
+* LWBS
+* Observation
+* Psych transfer [\[2023_2025_...xtract.csv \| Excel\]](https://hdrinc-my.sharepoint.com/personal/medwards_hdrinc_com/_layouts/15/Doc.aspx?sourcedoc=%7B91EE1DEC-2A66-4354-B2D2-B613268698CD%7D&file=2023_2025_rmc_client_raw_extract.csv&action=default&mobileredirect=true)
+
+### Collapse into clean categories:
+
+```python
+def simplify_disposition(x):
+    x = str(x).lower()
+    if "admit" in x:
+        return "Admit"
+    elif "discharge" in x:
+        return "Discharge"
+    elif "lwbs" in x:
+        return "LWBS"
+    elif "psych" in x:
+        return "Psych"
+    elif "ob" in x:
+        return "OB"
+    else:
+        return "Other"
+```
+
+***
+
+# 🔷 Step 3: Create Flow Transitions (Python)
+
+A Sankey requires:
+
+* `source`
+* `target`
+* `value`
+
+### Build transitions
+
+```python
+import pandas as pd
+
+df_flow = df.copy()
+
+# Flags for stage completion
+df_flow["has_triage"] = df_flow["triage_start_dtm"].notna()
+df_flow["has_ed"]     = df_flow["ed_start_dtm"].notna()
+
+# Simplify disposition
+df_flow["disposition_simple"] = df_flow["disch_disp_desc"].apply(simplify_disposition)
+
+links = []
+
+# ----------------------------------------
+# 1. Arrival → Triage / No Triage
+# ----------------------------------------
+links.append({
+    "source": "Arrival",
+    "target": "Triage",
+    "value": df_flow["has_triage"].sum()
+})
+
+links.append({
+    "source": "Arrival",
+    "target": "No Triage",
+    "value": (~df_flow["has_triage"]).sum()
+})
+
+# ----------------------------------------
+# 2. Triage → ED or Exit
+# ----------------------------------------
+triage_df = df_flow[df_flow["has_triage"]]
+
+links.append({
+    "source": "Triage",
+    "target": "ED Treatment",
+    "value": triage_df["has_ed"].sum()
+})
+
+links.append({
+    "source": "Triage",
+    "target": "Left Before ED",
+    "value": (~triage_df["has_ed"]).sum()
+})
+
+# ----------------------------------------
+# 3. ED → Disposition
+# ----------------------------------------
+ed_df = df_flow[df_flow["has_ed"]]
+
+disp_counts = ed_df["disposition_simple"].value_counts()
+
+for disp, count in disp_counts.items():
+    links.append({
+        "source": "ED Treatment",
+        "target": disp,
+        "value": count
+    })
+
+links_df = pd.DataFrame(links)
+```
+
+***
+
+# 🔷 Step 4: Build Sankey (Python Visualization)
+
+### Using Plotly
+
+```python
+import plotly.graph_objects as go
+
+labels = list(set(links_df["source"]).union(set(links_df["target"])))
+label_map = {label: i for i, label in enumerate(labels)}
+
+fig = go.Figure(data=[go.Sankey(
+    node = dict(
+        pad=15,
+        thickness=20,
+        label=labels
+    ),
+    link = dict(
+        source=links_df["source"].map(label_map),
+        target=links_df["target"].map(label_map),
+        value=links_df["value"]
+    )
+)])
+
+fig.show()
+```
+
+***
+
+# 🔷 Step 5: Build in Tableau (Alternative)
+
+### Tableau doesn’t natively support Sankey → but workaround exists:
+
+You need:
+
+* A **link dataset** (like we created)
+* Use:
+  * Path table
+  * Densification
+  * Sigmoid curves
+
+👉 Honestly:
+
+* Build Sankey in Python → embed in dashboard  
+  OR
+* Use Tableau only for funnel (simpler & cleaner)
+
+***
+
+# 🔷 Step 6: Funnel Chart (Much Easier + Often Better)
+
+Instead of Sankey, create:
+
+### Funnel:
+
+| Stage   | Count       |
+| ------- | ----------- |
+| Arrival | total rows  |
+| Triage  | has\_triage |
+| ED      | has\_ed     |
+| Admit   | admitted    |
+
+### Python:
+
+```python
+funnel = pd.DataFrame({
+    "stage": ["Arrival", "Triage", "ED Treatment", "Admit"],
+    "count": [
+        len(df),
+        df["has_triage"].sum(),
+        df["has_ed"].sum(),
+        (df["disposition_simple"] == "Admit").sum()
+    ]
+})
+```
+
+### Tableau:
+
+* Use bar chart
+* Sort descending
+* Add % conversion labels
+
+***
+
+# 🔷 Step 7: Extend (Where This Gets Powerful)
+
+### Slice by:
+
+* Acuity
+* Hour of day
+* Arrival method (ambulance vs car)
+* Age group
+
+Example:
+
+```python
+df.groupby(["acuity_name","has_ed"]).size()
+```
+
+***
+
+### Add time metrics into flow
+
+You can layer:
+
+* Avg LOS per step
+* Median wait time between nodes
+
+👉 This turns your Sankey into:
+
+> “Where do we lose time AND patients?”
+
+***
+
+# 🧠 Key Insights This Will Reveal
+
+From your dataset:
+
+### 1. Leakage points
+
+* LWBS before triage
+* Exit after triage
+
+### 2. Throughput issues
+
+* Large drop from triage → ED = bottleneck
+
+### 3. Admission pressure
+
+* % flowing to admission vs discharge
+
+### 4. Special populations
+
+* Psych / OB separate pathways
+
+***
+
+# ✅ What I Recommend You Do Next
+
+1. Build the **basic Sankey (Option A)**
+2. Validate numbers vs totals
+3. Add:
+   * LOS overlays
+   * Acuity segmentation
+4. Then evolve into:
+
+👉**“ED System Flow Dashboard”**
+
+***
+
+# 🚀 If you want next step
+
+I can:
+
+* Add **LOS per segment into Sankey hover**
+* Build a **Tableau-ready dataset**
+* Or extend this into a **bottleneck detection model**
+
+Just say 👍

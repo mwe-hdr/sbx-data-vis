@@ -1,14 +1,13 @@
 # =============================================================================
-# Domain      : ED (Emergency Department)
-# Report Name : ESI Level Distribution
+# Report Name : Facility ESI Level Distribution
 #
 # Description :
-# Generates a distribution analysis of Emergency Department encounters by
+# Generates a distribution analysis of Facility encounters by
 # Emergency Severity Index (ESI) acuity level. Encounters are categorized
 # into standard ESI classifications and summarized as a percentage of total
-# ED volume for the selected reporting period.
+# Facility volume for the selected reporting period.
 #
-# The visualization displays the relative acuity mix of ED patients across
+# The visualization displays the relative acuity mix of Facility patients across
 # the following categories:
 #   - 1 - Immediate
 #   - 2 - Emergent
@@ -19,10 +18,10 @@
 #
 # This report supports patient acuity analysis, operational planning,
 # resource allocation, staffing evaluation, and monitoring of changes in
-# ED case mix over time.
+# Facility case mix over time.
 #
 # Inputs :
-#   - ed_start_dtm : ED arrival/start datetime
+#   - start_dtm    : Facility arrival/start datetime
 #   - esi          : Emergency Severity Index score
 #   - start_date   : Reporting period start date
 #   - end_date     : Reporting period end date
@@ -35,10 +34,10 @@
 #       * ESI distribution metrics for downstream reporting
 #
 # Key Metrics :
-#   - Total ED encounters
+#   - Total Facility encounters
 #   - Encounter count by ESI level
 #   - Percent of encounters by ESI level
-#   - Overall ED acuity mix
+#   - Overall Facility acuity mix
 # =============================================================================
 
 import os
@@ -162,7 +161,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
 
 
-    required_columns = ["ed_start_dtm", "esi"]
+    required_columns = ["start_dtm", "esi"]
     params = params or {}
 
     # ======================================================
@@ -179,9 +178,9 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     # DATE HANDLING
     # ======================================================
     try:
-        df["ed_start_dtm"] = pd.to_datetime(df["ed_start_dtm"], errors="coerce")
-        mask = (df["ed_start_dtm"] >= pd.to_datetime(start_date)) & \
-               (df["ed_start_dtm"] <= pd.to_datetime(end_date))
+        df["start_dtm"] = pd.to_datetime(df["start_dtm"], errors="coerce")
+        mask = (df["start_dtm"] >= pd.to_datetime(start_date)) & \
+               (df["start_dtm"] <= pd.to_datetime(end_date))
         df = df.loc[mask]
     except Exception as e:
         logging.error(f"[{VISUAL_ID}] Date filtering failed: {str(e)}")

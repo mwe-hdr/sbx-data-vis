@@ -1,13 +1,11 @@
 ## =============================================================================
 ##
-## Domain      : ED (Emergency Department)
-##
 ## Report Name : EMT Arrival Disposition by ESI
 ##
 ## Description :
 ##
 ## Evaluates disposition outcomes across ESI levels for EMT
-## Emergency Department patients.
+## Facility patients.
 ##
 ## Arrival methods are standardized using the same arrival grouping
 ## logic implemented in vis_13.
@@ -276,7 +274,7 @@ def run(
         "arrival_method",
         "esi",
         "disch_disp_desc",
-        "ed_start_dtm"
+        "start_dtm"
     ]
 
     missing_cols = [
@@ -296,8 +294,8 @@ def run(
     # REPORTING PERIOD FILTER
     # ============================================================
 
-    work_df["ed_start_dtm"] = pd.to_datetime(
-        work_df["ed_start_dtm"],
+    work_df["start_dtm"] = pd.to_datetime(
+        work_df["start_dtm"],
         errors="coerce"
     )
 
@@ -316,9 +314,9 @@ def run(
         )
 
     work_df = work_df[
-        (work_df["ed_start_dtm"] >= report_start)
+        (work_df["start_dtm"] >= report_start)
         &
-        (work_df["ed_start_dtm"] <= report_end)
+        (work_df["start_dtm"] <= report_end)
     ].copy()
 
     logger.info(

@@ -1,13 +1,11 @@
 ## =============================================================================
 ##
-## Domain      : ED (Emergency Department)
-##
-## Report Name : Ambulatory Arrival Time Heatmap
+## Report Name : EMT Arrival Time Heatmap
 ##
 ## Description :
 ##
 ## Generates a day-of-week by hour-of-day heatmap for ambulatory,
-## low-acuity Emergency Department encounters.
+## low-acuity Facility encounters.
 ##
 ## Population:
 ##
@@ -77,7 +75,7 @@ def _map_arrival_method(value):
     ]
 
     if any(term in txt for term in ambulance_terms):
-        return "Ambulance"
+        return "EMT"
 
     if (
         txt == "police"
@@ -223,7 +221,7 @@ def run(
     required_cols = [
         "arrival_method",
         "esi",
-        "ed_start_dtm"
+        "start_dtm"
     ]
 
     missing_cols = [
@@ -242,8 +240,8 @@ def run(
     # REPORTING PERIOD FILTER
     # =====================================================
 
-    work_df["ed_start_dtm"] = pd.to_datetime(
-        work_df["ed_start_dtm"],
+    work_df["start_dtm"] = pd.to_datetime(
+        work_df["start_dtm"],
         errors="coerce"
     )
 
@@ -262,9 +260,9 @@ def run(
         )
 
     work_df = work_df[
-        (work_df["ed_start_dtm"] >= report_start)
+        (work_df["start_dtm"] >= report_start)
         &
-        (work_df["ed_start_dtm"] <= report_end)
+        (work_df["start_dtm"] <= report_end)
     ].copy()
 
     logger.info(
@@ -317,7 +315,7 @@ def run(
 
 
     work_df = work_df[
-        work_df["ed_start_dtm"].notna()
+        work_df["start_dtm"].notna()
     ]
 
     weekday_order = [
@@ -331,11 +329,11 @@ def run(
     ]
 
     work_df["hour_of_day"] = (
-        work_df["ed_start_dtm"].dt.hour
+        work_df["start_dtm"].dt.hour
     )
 
     work_df["day_of_week"] = (
-        work_df["ed_start_dtm"]
+        work_df["start_dtm"]
         .dt.day_name()
     )
 
@@ -613,7 +611,7 @@ def run(
     )
 
     save_title_png(
-        title="Ambulatory Low-Acuity Arrival Time Heatmap",
+        title="EMT Low-Acuity Arrival Time Heatmap",
         subtitle=date_range,
         output_file=title_output_file,
         width=title_width,
@@ -730,7 +728,7 @@ def run(
             "cohort_id": params.get("cohort_id"),
             "domain_cohort": params.get("domain_cohort"),
             "visual_id": VISUAL_ID,
-            "report_title": "Ambulatory Arrival Time Heatmap",
+            "report_title": "EMT Arrival Time Heatmap",
             "start_date": start_date,
             "end_date": end_date,
             "metric": "summary",
@@ -769,7 +767,7 @@ def run(
                     "cohort_id": params.get("cohort_id"),
                     "domain_cohort": params.get("domain_cohort"),
                     "visual_id": VISUAL_ID,
-                    "report_title": "Ambulatory Arrival Time Heatmap",
+                    "report_title": "EMT Arrival Time Heatmap",
                     "start_date": start_date,
                     "end_date": end_date,
                     "day_of_week": day,

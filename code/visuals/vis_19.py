@@ -1,12 +1,10 @@
 # =============================================================================
 #
-# Domain      : ED (Emergency Department)
-#
 # Report Name : LOS by Arrival Method and ESI
 #
 # Description :
 #
-# Compares Emergency Department LOS across:
+# Compares Facility LOS across:
 #
 #     Arrival Method
 #     x
@@ -94,7 +92,7 @@ def _map_arrival_method(value):
     ]
 
     if any(term in txt for term in ambulance_terms):
-        return "Ambulance"
+        return "EMT"
 
     if (
         txt == "police"
@@ -143,8 +141,8 @@ def run(
     required_cols = [
         "arrival_method",
         "esi",
-        "ed_start_dtm",
-        "ed_stop_dtm"
+        "start_dtm",
+        "stop_dtm"
     ]
 
     missing_cols = [
@@ -299,7 +297,7 @@ def run(
     )
 
     colors = {
-        "Ambulance":
+        "EMT":
             params.get(
                 "ambulance_color",
                 "#E15759"
@@ -328,20 +326,20 @@ def run(
 
     work_df = df.copy()
 
-    work_df["ed_start_dtm"] = pd.to_datetime(
-        work_df["ed_start_dtm"],
+    work_df["start_dtm"] = pd.to_datetime(
+        work_df["start_dtm"],
         errors="coerce"
     )
 
-    work_df["ed_stop_dtm"] = pd.to_datetime(
-        work_df["ed_stop_dtm"],
+    work_df["stop_dtm"] = pd.to_datetime(
+        work_df["stop_dtm"],
         errors="coerce"
     )
 
     work_df = work_df.dropna(
         subset=[
-            "ed_start_dtm",
-            "ed_stop_dtm"
+            "start_dtm",
+            "stop_dtm"
         ]
     )
 
@@ -349,9 +347,9 @@ def run(
     end_dt = pd.to_datetime(end_date)
 
     work_df = work_df[
-        (work_df["ed_start_dtm"] >= start_dt)
+        (work_df["start_dtm"] >= start_dt)
         &
-        (work_df["ed_start_dtm"] <= end_dt)
+        (work_df["start_dtm"] <= end_dt)
     ]
 
     logger.info(
@@ -370,9 +368,9 @@ def run(
 
     work_df["los_hours"] = (
         (
-            work_df["ed_stop_dtm"]
+            work_df["stop_dtm"]
             -
-            work_df["ed_start_dtm"]
+            work_df["start_dtm"]
         ).dt.total_seconds()
         / 3600
     )
@@ -395,7 +393,7 @@ def run(
     )
 
     arrival_order = [
-        "Ambulance",
+        "EMT",
         "Car / Walk-in",
         "Wheelchair",
         "Police",

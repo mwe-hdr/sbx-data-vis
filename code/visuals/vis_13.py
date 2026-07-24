@@ -1,17 +1,15 @@
-## =============================================================================
+## ============================================================================
 ##
-## Domain      : ED (Emergency Department)
-##
-## Report Name : Arrival Method vs ESI Heatmap
+## Report Name : Facility Arrival Method vs ESI Heatmap
 ##
 ## Description :
 ##
-## Generates a heatmap showing Emergency Department encounters by
+## Generates a heatmap showing Facility encounters by
 ## Arrival Method and Emergency Severity Index (ESI).
 ##
 ## Raw arrival methods are standardized into operational categories:
 ##
-## - Ambulance
+## - EMT
 ## - Car / Walk-in
 ## - Wheelchair
 ## - Other
@@ -72,7 +70,7 @@ def _map_arrival_method(value):
     ]
 
     if any(term in txt for term in ambulance_terms):
-        return "Ambulance"
+        return "EMT"
 
     if (
         txt == "police"
@@ -248,7 +246,7 @@ def run(
     )
 
     arrival_order = [
-        "Ambulance",
+        "EMT",
         "Car / Walk-in",
         "Wheelchair",
         "Police",

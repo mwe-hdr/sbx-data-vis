@@ -1,11 +1,10 @@
 # =============================================================================
-# Domain      : ED (Emergency Department)
-# Report Name : ED ESI Mix Scenario Simulator
+# Report Name : Facility ESI Mix Scenario Simulator
 #
 # Description :
 # Scenario planning model that evaluates operational impacts of changes
 # in Emergency Severity Index (ESI) distribution while preserving
-# observed ED LOS characteristics.
+# observed Facility LOS characteristics.
 #
 # Generates:
 #   1. Detailed ESI census comparison table
@@ -57,44 +56,44 @@ def _generate_census(df, start_date, end_date):
 
         if not all(
             c in df.columns
-            for c in ["ed_start_dtm", "ed_stop_dtm"]
+            for c in ["start_dtm", "stop_dtm"]
         ):
             return pd.DataFrame()
 
-        df["ed_start_dtm"] = pd.to_datetime(
-            df["ed_start_dtm"],
+        df["start_dtm"] = pd.to_datetime(
+            df["start_dtm"],
             errors="coerce"
         )
 
-        df["ed_stop_dtm"] = pd.to_datetime(
-            df["ed_stop_dtm"],
+        df["stop_dtm"] = pd.to_datetime(
+            df["stop_dtm"],
             errors="coerce"
         )
 
         df = df.dropna(
             subset=[
-                "ed_start_dtm",
-                "ed_stop_dtm"
+                "start_dtm",
+                "stop_dtm"
             ]
         )
 
         invalid_mask = (
-            df["ed_stop_dtm"]
-            < df["ed_start_dtm"]
+            df["stop_dtm"]
+            < df["start_dtm"]
         )
 
         zero_mask = (
-            df["ed_stop_dtm"]
-            == df["ed_start_dtm"]
+            df["stop_dtm"]
+            == df["start_dtm"]
         )
 
-        df.loc[invalid_mask, "ed_stop_dtm"] = (
-            df.loc[invalid_mask, "ed_start_dtm"]
+        df.loc[invalid_mask, "stop_dtm"] = (
+            df.loc[invalid_mask, "start_dtm"]
             + pd.Timedelta(minutes=1)
         )
 
-        df.loc[zero_mask, "ed_stop_dtm"] = (
-            df.loc[zero_mask, "ed_start_dtm"]
+        df.loc[zero_mask, "stop_dtm"] = (
+            df.loc[zero_mask, "start_dtm"]
             + pd.Timedelta(minutes=1)
         )
 
@@ -118,16 +117,16 @@ def _generate_census(df, start_date, end_date):
             )
 
         df = df[
-            (df["ed_start_dtm"] <= end_date)
+            (df["start_dtm"] <= end_date)
             &
-            (df["ed_stop_dtm"] >= start_date)
+            (df["stop_dtm"] >= start_date)
         ].copy()
 
         if df.empty:
             return pd.DataFrame()
 
-        df["start"] = df["ed_start_dtm"]
-        df["end"] = df["ed_stop_dtm"]
+        df["start"] = df["start_dtm"]
+        df["end"] = df["stop_dtm"]
 
         df["end"] = df["end"].clip(
             lower=start_date,
@@ -188,9 +187,9 @@ def _generate_census(df, start_date, end_date):
         )
 
         initial_count = df[
-            (df["ed_start_dtm"] < start_date)
+            (df["start_dtm"] < start_date)
             &
-            (df["ed_stop_dtm"] >= start_date)
+            (df["stop_dtm"] >= start_date)
         ].shape[0]
 
         ts["census"] = (
@@ -701,7 +700,7 @@ def run(
         )
 
         save_title_png(
-            title="ED ESI Mix Scenario Simulator",
+            title="Facility ESI Mix Scenario Simulator",
             subtitle=date_range,
             output_file=title_output_file,
             width=title_width,
@@ -952,7 +951,7 @@ def run(
         if int(params.get("write_rdb", 0)) == 1:
 
             report_title = (
-                "ED ESI Mix Scenario Simulator"
+                "Facility ESI Mix Scenario Simulator"
             )
 
             for esi, factor in factor_map.items():

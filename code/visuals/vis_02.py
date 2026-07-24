@@ -1,12 +1,11 @@
 # =============================================================================
-# Domain      : ED (Emergency Department)
-# Report Name : Length of Stay Distribution (Hours)
+# Report Name : Facility Length of Stay Distribution (Hours)
 #
 # Description :
 # Generates a histogram-style visualization showing the distribution of
-# Emergency Department length of stay (LOS) measured in hourly intervals.
-# Length of stay is calculated as the elapsed time between ED arrival and
-# ED departure timestamps and grouped into whole-hour buckets.
+# Facility length of stay (LOS) measured in hourly intervals.
+# Length of stay is calculated as the elapsed time between Facility arrival and
+# Facility departure timestamps and grouped into whole-hour buckets.
 #
 # The report displays the percentage of encounters falling within each
 # LOS bucket, allowing users to evaluate patient throughput patterns,
@@ -15,20 +14,20 @@
 # and percentage denominators for each LOS interval.
 #
 # This report supports:
-#   - ED throughput monitoring
+#   - Facility throughput monitoring
 #   - Length-of-stay benchmarking
 #   - Operational performance assessment
 #   - Capacity and staffing planning
 #   - Patient flow analysis
 #
 # Inputs :
-#   - ed_start_dtm : ED arrival/start datetime
-#   - ed_stop_dtm  : ED departure/stop datetime
+#   - start_dtm : Facility arrival/start datetime
+#   - stop_dtm  : Facility departure/stop datetime
 #   - start_date   : Reporting period start date
 #   - end_date     : Reporting period end date
 #
 # Outputs :
-#   - PNG histogram of ED Length of Stay distribution by hour
+#   - PNG histogram of Facility Length of Stay distribution by hour
 #   - RDB records containing:
 #       * Total encounter count (denominator)
 #       * Encounter count by LOS hour bucket (numerator)
@@ -58,7 +57,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     Visualization 02: Length of Stay Distribution (Hours)
 
     Generates a histogram-style bar chart showing the distribution of
-    ED Length of Stay (LOS) in hourly buckets as percentages.
+    Facility Length of Stay (LOS) in hourly buckets as percentages.
     """
 
     logging.info("Starting vis_02: Length of Stay Distribution")
@@ -151,7 +150,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # --------------------------------------------------
         # REQUIRED COLUMNS CHECK
         # --------------------------------------------------
-        required_cols = ["ed_start_dtm", "ed_stop_dtm"]
+        required_cols = ["start_dtm", "stop_dtm"]
         for col in required_cols:
             if col not in df.columns:
                 logging.error(f"Missing required column: {col}")
@@ -160,11 +159,11 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # --------------------------------------------------
         # DATETIME HANDLING
         # --------------------------------------------------
-        df["ed_start_dtm"] = pd.to_datetime(df["ed_start_dtm"], errors="coerce")
-        df["ed_stop_dtm"] = pd.to_datetime(df["ed_stop_dtm"], errors="coerce")
+        df["start_dtm"] = pd.to_datetime(df["start_dtm"], errors="coerce")
+        df["stop_dtm"] = pd.to_datetime(df["stop_dtm"], errors="coerce")
 
         # Drop null timestamps
-        df = df.dropna(subset=["ed_start_dtm", "ed_stop_dtm"])
+        df = df.dropna(subset=["start_dtm", "stop_dtm"])
 
         # --------------------------------------------------
         # DATE FILTERING
@@ -176,7 +175,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             logging.error("Invalid start_date or end_date")
             return
 
-        df = df[(df["ed_start_dtm"] >= start_dt) & (df["ed_start_dtm"] <= end_dt)]
+        df = df[(df["start_dtm"] >= start_dt) & (df["start_dtm"] <= end_dt)]
 
         if df.empty:
             logging.warning("vis_02: No data after filtering")
@@ -186,7 +185,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # LOS CALCULATION (HOURS)
         # --------------------------------------------------
         df["los_hours"] = (
-            (df["ed_stop_dtm"] - df["ed_start_dtm"])
+            (df["stop_dtm"] - df["start_dtm"])
             .dt.total_seconds() / 3600.0
         )
 

@@ -1,6 +1,5 @@
 # =============================================================================
-# Domain      : ED (Emergency Department)
-# Report Name : ED Hourly Census with Peak Period and Capacity Benchmarks
+# Report Name : Facility Hourly Census with Peak Period and Capacity Benchmarks
 #
 # Description :
 # Calculates Emergency Department census levels from patient arrival and
@@ -22,7 +21,7 @@
 #   - Growth-adjusted demand forecasts
 #
 # This report supports:
-#   - ED capacity planning
+#   - Facility capacity planning
 #   - Space and room requirement analysis
 #   - Throughput and occupancy monitoring
 #   - Growth forecasting
@@ -30,8 +29,8 @@
 #   - Strategic operational planning
 #
 # Inputs :
-#   - ed_start_dtm            : ED arrival/start datetime
-#   - ed_stop_dtm             : ED departure/stop datetime
+#   - start_dtm            : Facility arrival/start datetime
+#   - stop_dtm             : Facility departure/stop datetime
 #   - start_date              : Reporting period start date/time
 #   - end_date                : Reporting period end date/time
 #   - variable_10_year_growth : Projected growth adjustment factor
@@ -109,30 +108,27 @@ def _generate_census(df, start_date, end_date):
         # =========================================================
         # VALIDATION
         # =========================================================
-        if not all(col in df.columns for col in ["ed_start_dtm", "ed_stop_dtm"]):
+        if not all(col in df.columns for col in ["start_dtm", "stop_dtm"]):
             logging.error(f"[{VISUAL_ID}] Missing required columns")
             return pd.DataFrame()
 
         # =========================================================
         # DATETIME PREP
         # =========================================================
-        df["ed_start_dtm"] = pd.to_datetime(df["ed_start_dtm"], errors="coerce")
-        df["ed_stop_dtm"] = pd.to_datetime(df["ed_stop_dtm"], errors="coerce")
+        df["start_dtm"] = pd.to_datetime(df["start_dtm"], errors="coerce")
+        df["stop_dtm"] = pd.to_datetime(df["stop_dtm"], errors="coerce")
 
-        df = df.dropna(subset=["ed_start_dtm", "ed_stop_dtm"])
+        df = df.dropna(subset=["start_dtm", "stop_dtm"])
 
-        invalid_mask = df["ed_stop_dtm"] < df["ed_start_dtm"]
-        zero_mask = df["ed_stop_dtm"] == df["ed_start_dtm"]
+        invalid_mask = df["stop_dtm"] < df["start_dtm"]
+        zero_mask = df["stop_dtm"] == df["start_dtm"]
 
-        df.loc[invalid_mask, "ed_stop_dtm"] = (
-            df.loc[invalid_mask, "ed_start_dtm"] + pd.Timedelta(minutes=1)
+        df.loc[invalid_mask, "stop_dtm"] = (
+            df.loc[invalid_mask, "start_dtm"] + pd.Timedelta(minutes=1)
         )
-        df.loc[zero_mask, "ed_stop_dtm"] = (
-            df.loc[zero_mask, "ed_start_dtm"] + pd.Timedelta(minutes=1)
+        df.loc[zero_mask, "stop_dtm"] = (
+            df.loc[zero_mask, "start_dtm"] + pd.Timedelta(minutes=1)
         )
-
-        if "encounter_id" in df.columns:
-            df = df.drop_duplicates(subset=["encounter_id"])
 
         # =========================================================
         # DATE RANGE
@@ -147,8 +143,8 @@ def _generate_census(df, start_date, end_date):
         # FILTER
         # =========================================================
         df = df[
-            (df["ed_start_dtm"] <= end_date) &
-            (df["ed_stop_dtm"] >= start_date)
+            (df["start_dtm"] <= end_date) &
+            (df["stop_dtm"] >= start_date)
         ].copy()
 
         if df.empty:
@@ -158,8 +154,8 @@ def _generate_census(df, start_date, end_date):
         # =========================================================
         # VISIT WINDOWS
         # =========================================================
-        df["start"] = df["ed_start_dtm"]
-        df["end"] = df["ed_stop_dtm"]
+        df["start"] = df["start_dtm"]
+        df["end"] = df["stop_dtm"]
 
         df["end"] = df["end"].clip(lower=start_date, upper=end_date)
         df["end"] = df["end"] + pd.Timedelta(minutes=1)
@@ -199,8 +195,8 @@ def _generate_census(df, start_date, end_date):
         ts["delta"] = ts["delta"].fillna(0)
 
         initial_count = df[
-            (df["ed_start_dtm"] < start_date) &
-            (df["ed_stop_dtm"] >= start_date)
+            (df["start_dtm"] < start_date) &
+            (df["stop_dtm"] >= start_date)
         ].shape[0]
 
         ts["census"] = ts["delta"].cumsum()
@@ -530,7 +526,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             fontfamily=font_family
         )
         ax.set_ylabel(
-            "ED Census",
+            "Facility Census",
             fontfamily=font_family
         )
 
@@ -636,7 +632,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         )
 
         save_title_png(
-            title="ED Hourly Census with Peak Period and Capacity Benchmarks",
+            title="Facility Hourly Census with Peak Period and Capacity Benchmarks",
             subtitle=date_range_str,
             output_file=title_output_file,
             width=title_width,
@@ -685,7 +681,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         if write_rdb == 1:
 
             report_title = (
-                "ED Hourly Census with Peak Period and Capacity Benchmarks"
+                "Facility Hourly Census with Peak Period and Capacity Benchmarks"
             )
 
             # ----------------------------------

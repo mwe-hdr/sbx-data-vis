@@ -1,22 +1,21 @@
 # =============================================================================
-# Domain      : ED (Emergency Department)
-# Report Name : Hourly Arrivals Distribution by ESI
+# Report Name : Facility Hourly Arrivals Distribution by ESI
 #
 # Description :
-# Generates a stacked bar chart showing Emergency Department arrivals by
+# Generates a stacked bar chart showing Facility arrivals by
 # hour of day and Emergency Severity Index (ESI) acuity level. Patient
 # arrival timestamps are grouped into hourly buckets and categorized into
 # ESI levels 1–5 to display either arrival counts or percentage
 # distribution by hour.
 #
 # The visualization is intended to identify daily arrival patterns,
-# evaluate changes in patient acuity throughout the day, and support ED
+# evaluate changes in patient acuity throughout the day, and support Facility
 # staffing and operational planning. An optional reporting dataset (RDB)
 # is also produced containing hourly arrival totals and hourly arrivals
 # by ESI category for downstream reporting and analytics.
 #
 # Inputs :
-#   - ed_start_dtm : ED arrival datetime
+#   - start_dtm : Facility arrival datetime
 #   - esi          : Emergency Severity Index (1-5)
 #   - start_date   : Reporting period start date
 #   - end_date     : Reporting period end date
@@ -52,7 +51,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     # =========================
     # DEFENSIVE CHECKS
     # =========================
-    required_cols = ["ed_start_dtm", "esi"]
+    required_cols = ["start_dtm", "esi"]
     for col in required_cols:
         if col not in df.columns:
             logging.error(f"vis_01: missing required column '{col}'")
@@ -146,8 +145,8 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     # FILTER
     # =========================
     subset = df[
-        (df["ed_start_dtm"] >= start_date) &
-        (df["ed_start_dtm"] <= end_date)
+        (df["start_dtm"] >= start_date) &
+        (df["start_dtm"] <= end_date)
     ].copy()
 
     if subset.empty:
@@ -157,16 +156,16 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     # =========================
     # DATA PREP
     # =========================
-    subset["ed_start_dtm"] = pd.to_datetime(
-    subset["ed_start_dtm"],
+    subset["start_dtm"] = pd.to_datetime(
+    subset["start_dtm"],
     errors="coerce"
     )
 
     subset = subset[
-        subset["ed_start_dtm"].notna()
+        subset["start_dtm"].notna()
     ].copy()
     
-    subset["arrival_hour"] = subset["ed_start_dtm"].dt.hour
+    subset["arrival_hour"] = subset["start_dtm"].dt.hour
 
     subset["esi"] = pd.to_numeric(
         subset["esi"],

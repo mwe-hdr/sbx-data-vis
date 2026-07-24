@@ -1,20 +1,18 @@
 # =============================================================================
-# Domain      : ED (Emergency Department)
-#
 # Report Name : EMS Arrival Funnel by ESI
 #
 # Description :
 #
-# Extends the ED Patient Flow Sankey by focusing on ambulatory arrivals and
+# Extends the Facility Patient Flow Sankey by focusing on ambulatory arrivals and
 # stratifying patient progression by ESI level.
 #
 # Flow:
 #
-#     Ambulance Arrival
+#     EMT Arrival
 #         ->
 #     Triage
 #         ->
-#     ED Evaluation
+#     Facility Evaluation
 #         ->
 #     Disposition
 #
@@ -30,7 +28,7 @@
 # Ambulatory arrivals are defined using the arrival-method grouping logic
 # established in vis_19:
 #
-#     Ambulance Arrival
+#     EMT Arrival
 #
 # Outputs:
 #
@@ -81,7 +79,7 @@ def _map_arrival_method(value):
     ]
 
     if any(term in txt for term in ambulance_terms):
-        return "Ambulance"
+        return "EMT"
 
     if (
         txt == "police"
@@ -243,7 +241,7 @@ def run(
     )
 
     work_df = work_df[
-        work_df["arrival_type"] == "Ambulance"
+        work_df["arrival_type"] == "EMT"
     ]
 
     work_df = work_df[
@@ -310,7 +308,7 @@ def run(
         node_names.append(f"ESI {esi} Triage")
 
     for esi in esi_levels:
-        node_names.append(f"ESI {esi} ED")
+        node_names.append(f"ESI {esi} Treatment")
 
     for esi in esi_levels:
         for disp in dispositions:
@@ -346,16 +344,16 @@ def run(
 
         totals[f"ESI {esi} Triage"] = triage_count
 
-        totals[f"ESI {esi} ED"] = ed_count
+        totals[f"ESI {esi} Treatment"] = ed_count
 
         parent_totals[f"ESI {esi}"] = totals["EMT Arrival"]
 
         parent_totals[f"ESI {esi} Triage"] = totals[f"ESI {esi}"]
 
-        parent_totals[f"ESI {esi} ED"] = totals[f"ESI {esi} Triage"]
+        parent_totals[f"ESI {esi} Treatment"] = totals[f"ESI {esi} Triage"]
 
         for disp in dispositions:
-            parent_totals[f"ESI {esi} {disp}"] = totals[f"ESI {esi} ED"]
+            parent_totals[f"ESI {esi} {disp}"] = totals[f"ESI {esi} Treatment"]
         
         for disp in dispositions:
 
@@ -439,7 +437,7 @@ def run(
 
         if ed_count > 0:
             sources.append(idx[f"ESI {esi} Triage"])
-            targets.append(idx[f"ESI {esi} ED"])
+            targets.append(idx[f"ESI {esi} Treatment"])
             values.append(int(ed_count))
 
         for disp in dispositions:
@@ -451,7 +449,7 @@ def run(
             if disp_count > 0:
 
                 sources.append(
-                    idx[f"ESI {esi} ED"]
+                    idx[f"ESI {esi} Treatment"]
                 )
 
                 targets.append(
@@ -609,7 +607,7 @@ def run(
     node_names_focused = [
         f"EMT ESI {esi_min}-{esi_max}",
         "Triage",
-        "ED",
+        "Treatment",
         "Discharge",
         "Inpatient",
         "Observation",
@@ -641,11 +639,11 @@ def run(
             else "<b>Triage</b><br>0"
         ),
         (
-            f"<b>ED</b><br>"
+            f"<b>Treatment</b><br>"
             f"{ed_count:,} "
             f"({ed_count/triage_count:.1%})"
             if triage_count > 0
-            else "<b>ED</b><br>0"
+            else "<b>Treatment</b><br>0"
         )
     ]
 
@@ -680,7 +678,7 @@ def run(
 
     targetsfocused = [
         idxfocused["Triage"],
-        idxfocused["ED"]
+        idxfocused["Treatment"]
     ]
 
     valuesfocused = [
@@ -695,7 +693,7 @@ def run(
         if count > 0:
 
             sourcesfocused.append(
-                idxfocused["ED"]
+                idxfocused["Treatment"]
             )
 
             targetsfocused.append(

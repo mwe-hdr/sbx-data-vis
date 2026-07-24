@@ -1,0 +1,4107 @@
+CENSUS ENHANCEMENT
+
+## Reporting Framework Context (Enhancement Mode)
+
+I am attaching one or more files from a custom reporting framework.
+These files may include:
+- main.py
+- processing_helpers.py
+- visual report files (vis_xx.py)
+- parameter files (vis_xx.csv)
+- user-defined functions (UDFs)
+- supporting utilities
+
+### Purpose
+
+The attached files represent the current production state of the reporting framework.
+Before proposing enhancements, review all attached files and use them as the primary source of truth.
+Do not assume framework behavior when the implementation can be inferred from the attached files.
+
+### FRAMEWORK OVERVIEW
+
+The reporting framework operates in two stages.
+
+Stage 1
+PROCESSING_MODE = parameters_only
+Produces parameterized report definitions.
+
+Typical flow:
+vis_driver.csv
++
+visual parameter csv files
++
+cohort definitions
+→ processing_driver.csv
+
+Stage 2
+PROCESSING_MODE = full_reports
+Produces final reports.
+
+Typical flow:
+processing_driver.csv
+→ main.py
+→ row_to_params()
+→ run(
+    df,
+    params,
+    start_date,
+    end_date,
+    output_dir,
+    generate_output_name
+)
+→ PNG outputs
+→ parameter outputs
+→ legend outputs
+→ RDB outputs
+
+### REVIEW REQUIREMENTS
+
+Before recommending enhancements, review all attached files.
+Use the files to understand:
+
+Framework Integration
+- execution flow
+- report lifecycle
+- run() expectations
+- return contracts
+- output generation conventions
+
+Parameters
+- normalize_params() behavior
+- parameter naming conventions
+- parameter retrieval conventions
+- safe parameter handling patterns
+
+Outputs
+- PNG generation
+- parameter image generation
+- legend generation
+- file naming conventions
+- generate_output_name() usage
+
+RDB
+- schema conventions
+- metadata conventions
+- dimension conventions
+- aggregation conventions
+- output structure
+
+Coding Style
+- logging patterns
+- error handling patterns
+- helper usage patterns
+- chart construction conventions
+- report organization conventions
+
+### ENHANCEMENT INSTRUCTIONS
+
+Assume the attached files are authoritative.
+When reviewing the implementation:
+- Trace current behavior against the actual framework implementation.
+- Identify opportunities to improve functionality, reliability, maintainability, usability, performance, and framework compliance.
+- Reference specific code locations when possible.
+- Preserve existing framework conventions and architectural patterns.
+- Prefer incremental, production-safe enhancements before larger redesigns.
+- Highlight enhancements that improve consistency with existing framework standards.
+
+When proposing enhancements:
+- Distinguish between required improvements and optional improvements.
+- Explain expected benefits and tradeoffs.
+- Call out any framework-wide implications.
+
+### AREAS TO EVALUATE
+
+Review the implementation for:
+
+Functionality
+- missing capabilities
+- incomplete workflows
+- opportunities to improve outputs
+- opportunities to improve user value
+
+Parameters
+- parameter validation
+- parameter safety
+- parameter defaults
+- parameter discoverability
+- parameter consistency with framework standards
+
+Outputs
+- PNG quality
+- table readability
+- legend quality
+- parameter documentation outputs
+- file naming consistency
+
+RDB
+- completeness of records
+- metadata quality
+- dimensional consistency
+- downstream analytics usefulness
+- alignment with framework RDB patterns
+
+Performance
+- computational efficiency
+- memory usage
+- scalability concerns
+- census-generation efficiency
+- aggregation efficiency
+
+Maintainability
+- code organization
+- helper reuse opportunities
+- defensive programming
+- logging quality
+- clarity and readability
+
+Framework Compliance
+- run() contract compliance
+- output contract compliance
+- return contract compliance
+- parameter normalization compliance
+- naming convention compliance
+
+### DESIRED OUTPUT
+
+For each enhancement identified provide:
+
+Enhancement Opportunity
+Describe the improvement.
+
+Recommended Enhancement
+Provide the specific production-ready change.  You always provide very specific guidance on exactly where, in the current codeset, to add, remove or change existing code, being sure there is zero ambiguity regarding where the recommended changes are to take place.  You do this by citing the code blocks that surround your recommended change and/or citing specific code line numbers.
+
+Validation
+Describe how the enhancement should be tested.
+
+### IMPORTANT
+
+Treat the attached files as the source of truth.
+Prefer observed implementation behavior over assumptions.
+When framework behavior is unclear:
+- state the uncertainty explicitly
+- identify which file or function requires verification
+
+Do not redesign the framework unless explicitly requested.
+Focus on maintaining compatibility with the existing production reporting environment.
+
+### ENHANCEMENT REQUEST
+
+The primary file(s) I want assistance with is:
+
+===== FILE START: C:\lwf\sbx-data-vis\code\visuals\vis_08.py =====
+# =============================================================================
+# Domain      : ED (Emergency Department)
+# Report Name : ED Census Trend
+#
+# Description :
+# Calculates and visualizes Emergency Department census levels over time
+# using patient arrival and departure timestamps. The program constructs a
+# minute-by-minute census timeline by identifying all encounters active
+# during each reporting interval and computing the concurrent patient
+# count within the ED.
+#
+# Results are produced as both a detailed census dataset and a trend
+# visualization. The report optionally highlights periods where census
+# exceeds a configurable percentage of department capacity and can display
+# reference lines for average census and operational capacity.
+#
+# This report supports:
+#   - ED census monitoring
+#   - Capacity management
+#   - Throughput analysis
+#   - Overcrowding assessment
+#   - Staffing and resource planning
+#   - Operational performance review
+#
+# Inputs :
+#   - ed_start_dtm : ED arrival/start datetime
+#   - ed_stop_dtm  : ED departure/stop datetime
+#   - start_date   : Reporting period start date/time
+#   - end_date     : Reporting period end date/time
+#
+# Outputs :
+#   - PNG line chart displaying ED census over time
+#       * Census trend by minute
+#       * Optional capacity threshold line
+#       * Optional average census line
+#   - CSV file containing:
+#       * Interval timestamp
+#       * Census count
+#   - RDB records containing:
+#       * Census count by reporting interval
+#       * Time-based census metrics for downstream reporting
+#
+# Key Metrics :
+#   - Concurrent ED census
+#   - Average census
+#   - Peak census periods
+#   - Capacity utilization
+#   - Census trend across the reporting period
+# =============================================================================
+
+import os
+import logging
+import pandas as pd
+import matplotlib.pyplot as plt
+from utils.vis_helpers import (
+    normalize_params,
+    format_date_range,
+    apply_axis_range,
+    apply_yaxis_format,
+    save_legend_png,
+    format_display_value,
+    get_display_parameters,
+    save_parameter_table_png,
+    save_title_png
+)
+VISUAL_ID = "vis_08"
+
+
+def run(df, params, start_date, end_date, output_dir, generate_output_name):
+    logging.info(f"[{VISUAL_ID}] Starting census generation")
+    params = normalize_params(params)
+
+    try:
+        # =========================================================
+        # VALIDATION
+        # =========================================================
+        if not all(col in df.columns for col in ["ed_start_dtm", "ed_stop_dtm"]):
+            logging.error(f"[{VISUAL_ID}] Missing required columns")
+            return
+
+        # =========================================================
+        # DATETIME PREP
+        # =========================================================
+        df["ed_start_dtm"] = pd.to_datetime(df["ed_start_dtm"], errors="coerce")
+        df["ed_stop_dtm"] = pd.to_datetime(df["ed_stop_dtm"], errors="coerce")
+
+        df = df.dropna(subset=["ed_start_dtm", "ed_stop_dtm"])
+
+        invalid_mask = df["ed_stop_dtm"] < df["ed_start_dtm"]
+        zero_mask = df["ed_stop_dtm"] == df["ed_start_dtm"]
+
+        df.loc[invalid_mask, "ed_stop_dtm"] = (
+            df.loc[invalid_mask, "ed_start_dtm"] + pd.Timedelta(minutes=1)
+        )
+        df.loc[zero_mask, "ed_stop_dtm"] = (
+            df.loc[zero_mask, "ed_start_dtm"] + pd.Timedelta(minutes=1)
+        )
+
+        if "row_id" in df.columns:
+            df = df.drop_duplicates(subset=["row_id"])
+
+        # =========================================================
+        # DATE RANGE
+        # =========================================================
+        start_date = pd.to_datetime(start_date)
+        end_date = pd.to_datetime(end_date)
+
+        if end_date.hour == 0 and end_date.minute == 0 and end_date.second == 0:
+            end_date = end_date + pd.Timedelta(days=1) - pd.Timedelta(minutes=1)
+
+        # =========================================================
+        # FILTER
+        # =========================================================
+        df = df[
+            (df["ed_start_dtm"] <= end_date) &
+            (df["ed_stop_dtm"] >= start_date)
+        ].copy()
+
+        if df.empty:
+            logging.warning(f"[{VISUAL_ID}] No data after filtering")
+            return
+
+        # =========================================================
+        # VISIT WINDOWS
+        # =========================================================
+        df["start"] = df["ed_start_dtm"]
+        df["end"] = df["ed_stop_dtm"]
+
+        df["end"] = df["end"].clip(lower=start_date, upper=end_date)
+        df["end"] = df["end"] + pd.Timedelta(minutes=1)
+
+        # =========================================================
+        # TIME GRID
+        # =========================================================
+        intervals = pd.date_range(start=start_date, end=end_date, freq="min")
+        base = pd.DataFrame({"interval": intervals})
+
+        # =========================================================
+        # EVENTS
+        # =========================================================
+        start_events = df[["start"]].rename(columns={"start": "interval"})
+        start_events["delta"] = 1
+
+        end_events = df[["end"]].rename(columns={"end": "interval"})
+        end_events["delta"] = -1
+
+        events = pd.concat([start_events, end_events])
+
+        events = events[
+            (events["interval"] >= start_date) &
+            (events["interval"] <= end_date)
+        ]
+
+        events = (
+            events.groupby("interval", as_index=False)["delta"]
+            .sum()
+            .sort_values("interval")
+        )
+
+        # =========================================================
+        # MERGE + CENSUS
+        # =========================================================
+        ts = base.merge(events, on="interval", how="left")
+        ts["delta"] = ts["delta"].fillna(0)
+
+        initial_count = df[
+            (df["ed_start_dtm"] < start_date) &
+            (df["ed_stop_dtm"] >= start_date)
+        ].shape[0]
+
+        ts["census"] = ts["delta"].cumsum()
+        ts["census"] += initial_count
+
+        ts["census"] = (
+            pd.to_numeric(ts["census"], errors="coerce")
+            .round()
+            .astype("Int64")
+        )
+
+        enable_rdb = int(params.get("rdb_write", 0))
+        rdb_rows = []
+
+        # =========================================================
+        # OUTPUT CSV
+        # =========================================================
+        filename = generate_output_name(
+            visual_id=VISUAL_ID,
+            start_date=start_date,
+            end_date=end_date,
+            cohort_id=params.get("cohort_id"),
+            ext="csv"
+        )
+        output_path = os.path.join(output_dir, filename)
+
+        ts[["interval", "census"]].to_csv(output_path, index=False)
+
+        # =========================================================
+        # VISUALIZATION
+        # =========================================================
+        def _get_float(params, key, default=None):
+            try:
+                val = params.get(key, default)
+                return float(val) if val not in [None, "", "None"] else None
+            except:
+                return default
+
+
+        def _get_bool(params, key, default=False):
+            val = str(params.get(key, default)).strip().lower()
+            if val in ["true", "1", "yes"]:
+                return True
+            if val in ["false", "0", "no"]:
+                return False
+            return default
+
+
+        def _get_str(params, key, default=""):
+            val = params.get(key, default)
+            return str(val) if val is not None else default
+
+
+        capacity_value = _get_float(params, "capacity_value", None)
+        include_avg_line = _get_bool(params, "include_avg_line", True)
+        chart_title = _get_str(params, "chart_title", "ED Census Trend")
+        capacity_threshold_pct = _get_float(params, "capacity_threshold_pct", 0.8)
+        below_color = params.get("below_color", "black")
+        above_color = params.get("above_color", "red")
+        font_family = _get_str(
+            params,
+            "font_family",
+            "Segoe UI"
+        )
+        plt.rcParams["font.family"] = font_family
+
+        figure_width = _get_float(
+            params,
+            "figure_width",
+            14
+        )
+
+        figure_height = _get_float(
+            params,
+            "figure_height",
+            6
+        )
+
+        plt.figure(
+            figsize=(figure_width, figure_height)
+        )
+
+        title_height = float(
+            params.get("title_height", 0.6) or 0.6
+        )
+
+        title_width = float(
+            params.get("title_width", 6.25) or 6.25
+        )
+
+        subtitle_fontsize = int(
+            params.get("subtitle_fontsize", 12) or 12
+        )
+
+        title_background_color = str(
+            params.get(
+                "title_background_color",
+                "#d9d9d9"
+            )
+        )
+
+        title_weight = str(
+            params.get(
+                "title_weight",
+                "bold"
+            )
+        )
+
+        tick_fontsize = _get_float(
+            params,
+            "tick_fontsize",
+            10
+        )
+
+        legend_fontsize = _get_float(
+            params,
+            "legend_fontsize",
+            10
+        )
+
+        dpi = _get_float(
+            params,
+            "dpi",
+            300
+        )
+
+        legend_width = _get_float(
+            params,
+            "legend_width",
+            10
+        )
+
+        legend_height = _get_float(
+            params,
+            "legend_height",
+            10
+        )
+
+        line_width = _get_float(
+        params,
+        "line_width",
+        0.8
+        )
+
+        capacity_linestyle = _get_str(
+            params,
+            "capacity_linestyle",
+            "--"
+        )
+
+        capacity_linewidth = _get_float(
+            params,
+            "capacity_linewidth",
+            1.5
+        )
+
+        avg_linestyle = _get_str(
+            params,
+            "avg_linestyle",
+            ":"
+        )
+
+        avg_linewidth = _get_float(
+            params,
+            "avg_linewidth",
+            1.5
+        )
+
+        avg_line_color = _get_str(
+            params,
+            "avg_line_color",
+            "black"
+        )
+
+        y_axis_mode = _get_str(
+            params,
+            "y_axis_mode",
+            "count"
+        )
+
+        y_axis_decimals = int(
+            _get_float(
+                params,
+                "y_axis_decimals",
+                0
+            )
+        )
+
+        y_axis_multiplier = _get_float(
+            params,
+            "y_axis_multiplier",
+            1
+        )
+
+        y_axis_suffix = _get_str(
+            params,
+            "y_axis_suffix",
+            ""
+        )
+
+        # -----------------------------------------------------
+        # THRESHOLD LOGIC 
+        # -----------------------------------------------------
+        if capacity_value is not None:
+            threshold = capacity_value * capacity_threshold_pct
+
+            below = ts["census"] <= threshold
+            above = ts["census"] > threshold
+        else:
+            below = pd.Series(True, index=ts.index)
+            above = pd.Series(False, index=ts.index)
+
+        # # -----------------------------------------------------
+        # # MAIN LINE 
+        # # -----------------------------------------------------
+        # below_line, = plt.plot(
+        #     ts["interval"],
+        #     ts["census"].where(below),
+        #     color=below_color,
+        #     linewidth=line_width,
+        #     label=f"Census (â‰¤{int(capacity_threshold_pct*100)}%)"
+        # )
+
+        # above_line = None
+
+        # if capacity_value is not None:
+
+        #     above_line, = plt.plot(
+        #         ts["interval"],
+        #         ts["census"].where(above),
+        #         color=above_color,
+        #         linewidth=line_width,
+        #         label=f"Census (>{int(capacity_threshold_pct*100)}%)"
+        #     )
+
+        # -----------------------------------------------------
+        # MAIN LINE (CONTINUOUS)
+        # -----------------------------------------------------
+        below_line, = plt.plot(
+            ts["interval"],
+            ts["census"],
+            color=below_color,
+            linewidth=line_width,
+            label="Census",
+            zorder=2
+        )
+
+        above_line = None
+
+        # -----------------------------------------------------
+        # ABOVE-THRESHOLD OVERLAY
+        # -----------------------------------------------------
+        if capacity_value is not None:
+
+            above_line, = plt.plot(
+                ts["interval"],
+                ts["census"].where(above),
+                color=above_color,
+                linewidth=line_width + 0.3,
+                label=f"Census (>{int(capacity_threshold_pct*100)}%)",
+                zorder=3
+            )
+
+        # -----------------------------------------------------
+        # CAPACITY LINE
+        # -----------------------------------------------------
+        if capacity_value is not None:
+            capacity_line = None
+
+            if capacity_value is not None:
+
+                capacity_line = plt.axhline(
+                    y=capacity_value,
+                    linestyle=capacity_linestyle,
+                    linewidth=capacity_linewidth,
+                    label=f"Capacity ({capacity_value})"
+                )
+        # -----------------------------------------------------
+        # AVERAGE LINE
+        # -----------------------------------------------------
+        avg_line = None
+
+        if include_avg_line:
+
+            avg_census = ts["census"].mean()
+
+            avg_line = plt.axhline(
+                y=avg_census,
+                color=avg_line_color,
+                linestyle=avg_linestyle,
+                linewidth=avg_linewidth,
+                label=f"Average ({round(avg_census,1)})"
+            )
+
+        # Labels
+        title_fontsize = _get_float(
+            params,
+            "title_fontsize",
+            16
+        )
+
+        label_fontsize = _get_float(
+            params,
+            "label_fontsize",
+            12
+        )
+
+        x_label = _get_str(
+            params,
+            "x_label",
+            "Time"
+        )
+
+        plt.xlabel(
+            x_label,
+            fontsize=label_fontsize,
+            fontfamily=font_family
+        )
+        y_label = _get_str(
+            params,
+            "y_label",
+            "ED Census"
+        )
+
+        plt.ylabel(
+            y_label,
+            fontsize=label_fontsize,
+            fontfamily=font_family
+        )
+
+        # Improve x-axis readability
+        plt.gcf().autofmt_xdate()
+
+        ax = plt.gca()
+
+        apply_yaxis_format(
+            ax,
+            mode=y_axis_mode,
+            decimals=y_axis_decimals,
+            multiplier=y_axis_multiplier,
+            suffix=y_axis_suffix
+        )
+
+        for tick in ax.get_xticklabels():
+            tick.set_fontfamily(font_family)
+            tick.set_fontsize(tick_fontsize)
+
+        for tick in ax.get_yticklabels():
+            tick.set_fontfamily(font_family)
+            tick.set_fontsize(tick_fontsize)
+
+        plt.tight_layout()
+
+        # Save PNG
+        png_filename = generate_output_name(
+            visual_id=VISUAL_ID,
+            start_date=start_date,
+            end_date=end_date,
+            cohort_id=params.get("cohort_id"),
+            ext="png"
+        )
+        png_path = os.path.join(output_dir, png_filename)
+
+        plt.savefig(
+            png_path,
+            dpi=int(dpi)
+        )
+
+        date_range = format_date_range(
+            start_date,
+            end_date
+        )
+
+        title_output_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=f"{VISUAL_ID}_title",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
+        )
+
+        save_title_png(
+            title=chart_title,
+            subtitle=date_range,
+            output_file=title_output_file,
+            width=title_width,
+            height=title_height,
+            dpi=int(dpi),
+            font_family=font_family,
+            title_fontsize=int(title_fontsize),
+            subtitle_fontsize=subtitle_fontsize,
+            background_color=title_background_color,
+            title_weight=title_weight
+        )
+
+        legend_handles = [
+            below_line
+        ]
+
+        legend_labels = [
+            below_line.get_label()
+        ]
+
+        if above_line is not None:
+
+            legend_handles.append(
+                above_line
+            )
+
+            legend_labels.append(
+                above_line.get_label()
+            )
+
+        if capacity_line is not None:
+
+            legend_handles.append(
+                capacity_line
+            )
+
+            legend_labels.append(
+                capacity_line.get_label()
+            )
+
+        if avg_line is not None:
+
+            legend_handles.append(
+                avg_line
+            )
+
+            legend_labels.append(
+                avg_line.get_label()
+            )
+
+        legend_output_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=f"{VISUAL_ID}_legend",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
+        )
+
+        save_legend_png(
+            handles=legend_handles,
+            labels=legend_labels,
+            output_file=legend_output_file,
+            ncol=1,
+            font_family=font_family,
+            font_size=legend_fontsize,
+            width=legend_width,
+            height=legend_height
+        )
+
+        plt.close()
+
+        write_rdb = int(params.get("write_rdb", 0))
+
+        if write_rdb == 1:
+            for _, row in ts.iterrows():
+
+                census_value = row["census"]
+
+                if pd.isna(census_value):
+                    continue
+
+                rdb_rows.append({
+                    "run_id": params.get("run_id"),
+                    "visual_id": VISUAL_ID,
+                    "client_name": params.get("client_name"),
+
+                    "domain": params.get("domain"),
+                    "cohort_id": params.get("cohort_id"),
+
+                    "domain_cohort":
+                        f"{params.get('domain')}.{params.get('cohort_id')}",
+
+                    "dimension": "interval",
+                    "dimension_value": row["interval"],
+                    "dimension_value_label":
+                        row["interval"].strftime("%Y-%m-%d %H:%M"),
+
+                    "secondary_dimension": None,
+                    "secondary_dimension_value": None,
+
+                    "metric": "ed_census",
+                    "metric_type": "count",
+                    "value": int(census_value),
+
+                    "start_date": start_date,
+                    "end_date": end_date,
+
+                    "report_title": chart_title
+                })        
+
+        logging.info(f"[{VISUAL_ID}] Outputs saved: CSV and PNG")
+
+        return {
+            "output_path": png_path,
+            "rdb": rdb_rows
+        }
+
+    except Exception as e:
+        logging.error(f"[{VISUAL_ID}] Failed: {str(e)}")
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\code\visuals\vis_10.py =====
+# =============================================================================
+# Domain      : ED (Emergency Department)
+# Report Name : ED Hourly Census with Peak Period and Capacity Benchmarks
+#
+# Description :
+# Calculates Emergency Department census levels from patient arrival and
+# departure timestamps and summarizes average census by hour of day. The
+# report applies optional growth assumptions to projected census volumes,
+# identifies user-defined peak operating periods, and evaluates capacity
+# requirements based on target utilization thresholds.
+#
+# Hourly census profiles are generated from a minute-level census model
+# and aggregated into average hourly occupancy values. The visualization
+# highlights peak and off-peak periods and overlays percentile benchmarks
+# to demonstrate expected census variation throughout the day.
+#
+# Key planning metrics include:
+#   - Average hourly census
+#   - Peak-period census
+#   - 70th, 80th, and 90th percentile census levels
+#   - Projected room requirements based on target utilization
+#   - Growth-adjusted demand forecasts
+#
+# This report supports:
+#   - ED capacity planning
+#   - Space and room requirement analysis
+#   - Throughput and occupancy monitoring
+#   - Growth forecasting
+#   - Peak demand assessment
+#   - Strategic operational planning
+#
+# Inputs :
+#   - ed_start_dtm            : ED arrival/start datetime
+#   - ed_stop_dtm             : ED departure/stop datetime
+#   - start_date              : Reporting period start date/time
+#   - end_date                : Reporting period end date/time
+#   - variable_10_year_growth : Projected growth adjustment factor
+#   - utilization             : Target operational utilization rate
+#   - peak_period_start       : Beginning hour of peak period
+#   - peak_period_length_hours: Duration of peak period
+#
+# Outputs :
+#   - PNG chart displaying:
+#       * Average hourly census
+#       * Peak and off-peak periods
+#       * P70, P80, and P90 census benchmarks
+#       * Peak census benchmark
+#       * Estimated room need benchmark
+#   - RDB records containing:
+#       * Average hourly census values
+#       * Hourly percentile benchmarks
+#       * Peak census capacity benchmarks
+#       * Estimated room need calculations
+#
+# Key Metrics :
+#   - Average census by hour
+#   - Peak census
+#   - P70 census
+#   - P80 census
+#   - P90 census
+#   - Peak-period occupancy
+#   - Estimated room requirement
+#   - Capacity utilization benchmark
+# =============================================================================
+
+import os
+import logging
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from utils.vis_helpers import (
+    normalize_params,
+    format_date_range,
+    apply_axis_range,
+    apply_yaxis_format,
+    save_legend_png,
+    format_display_value,
+    get_display_parameters,
+    save_parameter_table_png,
+    save_title_png
+)
+from utils.io_helpers import (
+    load_data,
+    load_driver,
+    load_params,
+    load_cohort_params
+)
+
+VISUAL_ID = "vis_10"
+logger = logging.getLogger(__name__)
+
+
+def _safe_param(params, key, default, cast_type=None):
+    try:
+        val = params.get(key, default)
+        return cast_type(val) if cast_type else val
+    except Exception:
+        logger.warning(f"Invalid param for {key}; using default {default}")
+        return default
+
+def _generate_census(df, start_date, end_date):
+    """
+    Minimal vis_08-equivalent census generation.
+    Builds hourly time-series census from encounter windows.
+    """
+    try:
+        df = df.copy()
+
+        # =========================================================
+        # VALIDATION
+        # =========================================================
+        if not all(col in df.columns for col in ["ed_start_dtm", "ed_stop_dtm"]):
+            logging.error(f"[{VISUAL_ID}] Missing required columns")
+            return pd.DataFrame()
+
+        # =========================================================
+        # DATETIME PREP
+        # =========================================================
+        df["ed_start_dtm"] = pd.to_datetime(df["ed_start_dtm"], errors="coerce")
+        df["ed_stop_dtm"] = pd.to_datetime(df["ed_stop_dtm"], errors="coerce")
+
+        df = df.dropna(subset=["ed_start_dtm", "ed_stop_dtm"])
+
+        invalid_mask = df["ed_stop_dtm"] < df["ed_start_dtm"]
+        zero_mask = df["ed_stop_dtm"] == df["ed_start_dtm"]
+
+        df.loc[invalid_mask, "ed_stop_dtm"] = (
+            df.loc[invalid_mask, "ed_start_dtm"] + pd.Timedelta(minutes=1)
+        )
+        df.loc[zero_mask, "ed_stop_dtm"] = (
+            df.loc[zero_mask, "ed_start_dtm"] + pd.Timedelta(minutes=1)
+        )
+
+        if "encounter_id" in df.columns:
+            df = df.drop_duplicates(subset=["encounter_id"])
+
+        # =========================================================
+        # DATE RANGE
+        # =========================================================
+        start_date = pd.to_datetime(start_date)
+        end_date = pd.to_datetime(end_date)
+
+        if end_date.hour == 0 and end_date.minute == 0 and end_date.second == 0:
+            end_date = end_date + pd.Timedelta(days=1) - pd.Timedelta(minutes=1)
+
+        # =========================================================
+        # FILTER
+        # =========================================================
+        df = df[
+            (df["ed_start_dtm"] <= end_date) &
+            (df["ed_stop_dtm"] >= start_date)
+        ].copy()
+
+        if df.empty:
+            logging.warning(f"[{VISUAL_ID}] No data after filtering")
+            return
+
+        # =========================================================
+        # VISIT WINDOWS
+        # =========================================================
+        df["start"] = df["ed_start_dtm"]
+        df["end"] = df["ed_stop_dtm"]
+
+        df["end"] = df["end"].clip(lower=start_date, upper=end_date)
+        df["end"] = df["end"] + pd.Timedelta(minutes=1)
+
+        # =========================================================
+        # TIME GRID
+        # =========================================================
+        intervals = pd.date_range(start=start_date, end=end_date, freq="min")
+        base = pd.DataFrame({"interval": intervals})
+
+        # =========================================================
+        # EVENTS
+        # =========================================================
+        start_events = df[["start"]].rename(columns={"start": "interval"})
+        start_events["delta"] = 1
+
+        end_events = df[["end"]].rename(columns={"end": "interval"})
+        end_events["delta"] = -1
+
+        events = pd.concat([start_events, end_events])
+
+        events = events[
+            (events["interval"] >= start_date) &
+            (events["interval"] <= end_date)
+        ]
+
+        events = (
+            events.groupby("interval", as_index=False)["delta"]
+            .sum()
+            .sort_values("interval")
+        )
+
+        # =========================================================
+        # MERGE + CENSUS
+        # =========================================================
+        ts = base.merge(events, on="interval", how="left")
+        ts["delta"] = ts["delta"].fillna(0)
+
+        initial_count = df[
+            (df["ed_start_dtm"] < start_date) &
+            (df["ed_stop_dtm"] >= start_date)
+        ].shape[0]
+
+        ts["census"] = ts["delta"].cumsum()
+        ts["census"] += initial_count
+
+        ts["census"] = (
+            pd.to_numeric(ts["census"], errors="coerce")
+            .round()
+            .astype("Int64")
+        )
+
+        return ts
+
+    except Exception as e:
+        logger.error(f"Census generation failed: {e}")
+        return pd.DataFrame()
+
+
+def run(df, params, start_date, end_date, output_dir, generate_output_name):
+    logger.info(f"[{VISUAL_ID}] Starting run")
+    params = normalize_params(params)
+
+    try:
+        if df is None or df.empty:
+            logger.warning("Input dataframe is empty")
+            return
+
+        # =========================
+        # PARAMETERS
+        # =========================
+        growth = _safe_param(params, "variable_10_year_growth", 0.0, float)
+        peak_start = _safe_param(params, "peak_period_start", 15, int)
+        peak_len = _safe_param(params, "peak_period_length_hours", 8, int)
+        utilization = _safe_param(params, "utilization", 0.85, float)
+
+        fig_width = _safe_param(params, "fig_width", 14, float)
+        fig_height = _safe_param(params, "fig_height", 7, float)
+        dpi = _safe_param(params, "dpi", 100, int)
+        font_family = _safe_param(
+            params,
+            "font_family",
+            "Segoe UI",
+            str
+        )
+        # ==================================
+        # TITLE IMAGE PARAMETERS
+        # ==================================
+
+        title_width = _safe_param(
+            params,
+            "title_width",
+            6.40,
+            float
+        )
+
+        title_height = _safe_param(
+            params,
+            "title_height",
+            0.25,
+            float
+        )
+
+        title_fontsize = _safe_param(
+            params,
+            "title_fontsize",
+            10,
+            int
+        )
+
+        subtitle_fontsize = _safe_param(
+            params,
+            "subtitle_fontsize",
+            8,
+            int
+        )
+
+        title_background_color = params.get(
+            "title_background_color",
+            "#d9d9d9"
+        )
+
+        title_weight = params.get(
+            "title_weight",
+            "bold"
+        )
+
+        # ==================================
+        # LEGEND PARAMETERS
+        # ==================================
+
+        legend_width = _safe_param(
+            params,
+            "legend_width",
+            6,
+            float
+        )
+
+        legend_height = _safe_param(
+            params,
+            "legend_height",
+            1,
+            float
+        )
+
+        legend_fontsize = _safe_param(
+            params,
+            "legend_fontsize",
+            8,
+            int
+        )
+
+        legend_ncol = _safe_param(
+            params,
+            "legend_ncol",
+            4,
+            int
+        )
+
+        # ==================================
+        # TICK FORMATTING
+        # ==================================
+
+        tick_fontsize = _safe_param(
+            params,
+            "tick_fontsize",
+            8,
+            int
+        )
+
+        colors = {
+            "peak": params.get("peak_bar_color", "teal"),
+            "offpeak": params.get("offpeak_bar_color", "gray"),
+            "p70": params.get("p70_color", "green"),
+            "p80": params.get("p80_color", "yellow"),
+            "p90": params.get("p90_color", "orange"),
+            "peak_line": params.get("peak_line_color", "darkblue"),
+            "room_need": params.get("room_need_color", "magenta"),
+        }
+
+        # =========================
+        # STEP 1: Census 
+        # =========================
+        ts = _generate_census(df, start_date, end_date)
+
+        if ts.empty:
+            logger.warning("Census dataset empty after generation")
+            return
+
+        # =========================
+        # STEP 2: ADS Construction
+        # =========================
+        ts["interval"] = pd.to_datetime(ts["interval"], errors="coerce")
+        ts = ts.dropna(subset=["interval", "census"])
+        ts = ts[ts["census"] >= 0]
+
+        start_date = pd.to_datetime(start_date)
+        end_date = pd.to_datetime(end_date)
+
+        ts = ts[(ts["interval"] >= start_date) & (ts["interval"] <= end_date)]
+
+        if ts.empty:
+            logger.warning("Dataset empty after date filtering")
+            return
+
+        # Growth adjustment
+        ts["adj_census"] = ts["census"] * (1 + growth)
+
+        # Hour extraction
+        ts["hour"] = ts["interval"].dt.hour
+
+        # Hourly aggregation
+        hourly = (
+            ts.groupby("hour")["adj_census"]
+            .mean()
+            .reindex(range(24), fill_value=0)
+            .reset_index()
+        )
+
+        hourly.columns = ["hour", "hourly_census"]
+
+        # Validate 24 hours
+        if len(hourly) != 24:
+            logger.warning("Hourly completeness issue; enforced 24 hours")
+
+        # =========================
+        # Peak classification
+        # =========================
+        def is_peak(hour):
+            end = peak_start + peak_len
+            if end <= 24:
+                return peak_start <= hour < end
+            else:
+                return (hour >= peak_start) or (hour < (end - 24))
+
+        hourly["peak_flag"] = hourly["hour"].apply(
+            lambda h: "Peak" if is_peak(h) else "Off-Peak"
+        )
+
+        graph_start_hour = _safe_param(
+            params,
+            "graph_start_hour",
+            0,
+            int
+        )
+
+        graph_start_hour = min(max(graph_start_hour, 0), 23)
+
+        # =========================
+        # Percentiles
+        # =========================
+        percentiles = (
+            ts.groupby("hour")["adj_census"]
+            .agg(
+                p70=lambda x: np.percentile(x, 70),
+                p80=lambda x: np.percentile(x, 80),
+                p90=lambda x: np.percentile(x, 90),
+            )
+            .reindex(range(24))
+            .reset_index()
+        )
+
+        hourly = hourly.merge(percentiles, on="hour", how="left")
+
+        display_hours = list(range(graph_start_hour, 24)) + \
+                        list(range(0, graph_start_hour))
+
+        hourly["display_order"] = pd.Categorical(
+            hourly["hour"],
+            categories=display_hours,
+            ordered=True
+        )
+
+        hourly = (
+            hourly.sort_values("display_order")
+            .reset_index(drop=True)
+        )
+
+        hourly["plot_position"] = range(len(hourly))
+
+        # =========================
+        # Capacity metrics
+        # =========================
+        peak_values = hourly.loc[hourly["peak_flag"] == "Peak", "hourly_census"]
+        peak_census = peak_values.max()
+
+        room_need = peak_census / utilization if utilization > 0 else peak_census
+
+        if utilization < 1:
+            room_need = max(room_need, peak_census)
+
+        logger.info(
+            f"[{VISUAL_ID}] Capacity Metrics | "
+            f"Peak Census: {round(peak_census, 2)} | "
+            f"Room Need: {round(room_need, 2)} | "
+            f"Utilization: {utilization}"
+        )
+
+        # =========================
+        # Plot
+        # =========================
+        plt.rcParams["font.family"] = font_family
+
+        fig, ax = plt.subplots(
+            figsize=(fig_width, fig_height),
+            dpi=dpi
+        )
+
+        # Bars
+        peak_mask = hourly["peak_flag"] == "Peak"
+
+        ax.bar(
+            hourly.loc[~peak_mask, "plot_position"],
+            hourly.loc[~peak_mask, "hourly_census"],
+            color=colors["offpeak"],
+            label="Off-Peak",
+        )
+
+        ax.bar(
+            hourly.loc[peak_mask, "plot_position"],
+            hourly.loc[peak_mask, "hourly_census"],
+            color=colors["peak"],
+            label="Peak",
+        )
+
+        # Percentiles
+        ax.plot(hourly["plot_position"], hourly["p70"], linestyle="--", color=colors["p70"], label="P70")
+        ax.plot(hourly["plot_position"], hourly["p80"], linestyle="--", color=colors["p80"], label="P80")
+        ax.plot(hourly["plot_position"], hourly["p90"], linestyle="--", color=colors["p90"], label="P90")
+
+        # Capacity lines
+        hourly["peak_line"] = np.nan
+        hourly["room_line"] = np.nan
+
+        hourly.loc[
+            hourly["peak_flag"] == "Peak",
+            "peak_line"
+        ] = peak_census
+
+        hourly.loc[
+            hourly["peak_flag"] == "Peak",
+            "room_line"
+        ] = room_need
+
+        ax.plot(
+            hourly["plot_position"],
+            hourly["peak_line"],
+            color=colors["peak_line"],
+            linewidth=2,
+            label="Peak Census",
+        )
+
+        ax.plot(
+            hourly["plot_position"],
+            hourly["room_line"],
+            color=colors["room_need"],
+            linestyle="-.",
+            linewidth=2,
+            label="Room Need",
+        )
+
+        # Labels
+        date_range_str = format_date_range(start_date, end_date)
+
+        ax.set_title("")
+        ax.set_xlabel(
+            "Hour of Day",
+            fontfamily=font_family
+        )
+        ax.set_ylabel(
+            "ED Census",
+            fontfamily=font_family
+        )
+
+        ax.set_xticks(hourly["plot_position"])
+        ax.set_xticklabels(hourly["hour"])
+        handles, labels = ax.get_legend_handles_labels()
+
+        plt.tight_layout()
+        for tick in ax.get_xticklabels():
+            tick.set_fontfamily(font_family)
+            tick.set_fontsize(tick_fontsize)
+
+        for tick in ax.get_yticklabels():
+            tick.set_fontfamily(font_family)
+            tick.set_fontsize(tick_fontsize)
+
+        y_axis_mode = params.get(
+            "y_axis_mode",
+            "raw"
+        )
+
+        y_axis_decimals = _safe_param(
+            params,
+            "y_axis_decimals",
+            0,
+            int
+        )
+
+        y_axis_multiplier = _safe_param(
+            params,
+            "y_axis_multiplier",
+            1,
+            float
+        )
+
+        y_axis_suffix = params.get(
+            "y_axis_suffix",
+            ""
+        )
+        apply_yaxis_format(
+            ax,
+            mode=y_axis_mode,
+            decimals=y_axis_decimals,
+            multiplier=y_axis_multiplier,
+            suffix=y_axis_suffix
+        )
+
+
+        # =========================
+        # Save output
+        # =========================
+        output_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=VISUAL_ID,
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
+        )
+
+        plt.savefig(output_file)
+        plt.close()
+
+        logger.info(f"[{VISUAL_ID}] Output saved to {output_file}")
+
+        legend_output_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=f"{VISUAL_ID}_legend",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
+        )
+
+        save_legend_png(
+            handles=handles,
+            labels=labels,
+            output_file=legend_output_file,
+            ncol=legend_ncol,
+            font_family=font_family,
+            font_size=legend_fontsize,
+            width=legend_width,
+            height=legend_height
+        )
+
+        # ==================================
+        # TITLE IMAGE
+        # ==================================
+
+        title_output_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=f"{VISUAL_ID}_title",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
+        )
+
+        save_title_png(
+            title="ED Hourly Census with Peak Period and Capacity Benchmarks",
+            subtitle=date_range_str,
+            output_file=title_output_file,
+            width=title_width,
+            height=title_height,
+            dpi=dpi,
+            font_family=font_family,
+            title_fontsize=title_fontsize,
+            subtitle_fontsize=subtitle_fontsize,
+            background_color=title_background_color,
+            title_weight=title_weight
+        )
+
+        logger.info(
+            f"[{VISUAL_ID}] Title image saved to "
+            f"{title_output_file}"
+        )
+
+        parameter_output_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=f"{VISUAL_ID}_parameters",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
+        )
+
+        save_parameter_table_png(
+            params=params,
+            output_file=parameter_output_file,
+            font_family=font_family
+        )
+
+        logger.info(
+            f"[{VISUAL_ID}] Parameter table saved to "
+            f"{parameter_output_file}"
+        )
+
+        # =========================
+        # RDB OUTPUT
+        # =========================
+        write_rdb = int(params.get("write_rdb", 0))
+        rdb_rows = []
+
+        if write_rdb == 1:
+
+            report_title = (
+                "ED Hourly Census with Peak Period and Capacity Benchmarks"
+            )
+
+            # ----------------------------------
+            # Hourly census values
+            # ----------------------------------
+            for _, row in hourly.iterrows():
+
+                hour_label = f"{int(row['hour']):02d}:00"
+
+                rdb_rows.append({
+                    "run_id": params.get("run_id"),
+                    "visual_id": VISUAL_ID,
+                    "client_name": params.get("client_name"),
+
+                    "domain": params.get("domain"),
+                    "cohort_id": params.get("cohort_id"),
+
+                    "domain_cohort":
+                        f"{params.get('domain')}.{params.get('cohort_id')}",
+
+                    "dimension": "hour",
+                    "dimension_value": int(row["hour"]),
+                    "dimension_value_label": hour_label,
+
+                    "secondary_dimension": "period_type",
+                    "secondary_dimension_value": row["peak_flag"],
+
+                    "metric": "hourly_census",
+                    "metric_type": "average",
+                    "value": float(row["hourly_census"]),
+
+                    "start_date": start_date,
+                    "end_date": end_date,
+
+                    "report_title": report_title
+                })
+
+            # ----------------------------------
+            # Percentiles
+            # ----------------------------------
+            for _, row in hourly.iterrows():
+
+                hour_label = f"{int(row['hour']):02d}:00"
+
+                for metric_name in ["p70", "p80", "p90"]:
+
+                    metric_value = row[metric_name]
+
+                    if pd.isna(metric_value):
+                        continue
+
+                    rdb_rows.append({
+                        "run_id": params.get("run_id"),
+                        "visual_id": VISUAL_ID,
+                        "client_name": params.get("client_name"),
+
+                        "domain": params.get("domain"),
+                        "cohort_id": params.get("cohort_id"),
+
+                        "domain_cohort":
+                            f"{params.get('domain')}.{params.get('cohort_id')}",
+
+                        "dimension": "hour",
+                        "dimension_value": int(row["hour"]),
+                        "dimension_value_label": hour_label,
+
+                        "secondary_dimension": "percentile",
+                        "secondary_dimension_value": metric_name.upper(),
+
+                        "metric": "hourly_census",
+                        "metric_type": metric_name,
+                        "value": float(metric_value),
+
+                        "start_date": start_date,
+                        "end_date": end_date,
+
+                        "report_title": report_title
+                    })
+
+            # ----------------------------------
+            # Peak Census Benchmark by Hour
+            # ----------------------------------
+            peak_hours_set = set(
+                hourly.loc[
+                    hourly["peak_flag"] == "Peak",
+                    "hour"
+                ]
+            )            
+            
+            for _, row in hourly.iterrows():
+
+                if row["hour"] not in peak_hours_set:
+                    continue
+
+                hour_label = f"{int(row['hour']):02d}:00"
+
+                rdb_rows.append({
+                    "run_id": params.get("run_id"),
+                    "visual_id": VISUAL_ID,
+                    "client_name": params.get("client_name"),
+
+                    "domain": params.get("domain"),
+                    "cohort_id": params.get("cohort_id"),
+
+                    "domain_cohort":
+                        f"{params.get('domain')}.{params.get('cohort_id')}",
+
+                    "dimension": "hour",
+                    "dimension_value": int(row["hour"]),
+                    "dimension_value_label": hour_label,
+
+                    "secondary_dimension": "benchmark",
+                    "secondary_dimension_value": "Peak Census",
+
+                    "metric": "capacity",
+                    "metric_type": "peak_census",
+                    "value": float(peak_census),
+
+                    "start_date": start_date,
+                    "end_date": end_date,
+
+                    "report_title": report_title
+                })
+
+            # ----------------------------------
+            # Room Need Benchmark by Hour
+            # ----------------------------------
+            for _, row in hourly.iterrows():
+
+                hour_label = f"{int(row['hour']):02d}:00"
+
+                rdb_rows.append({
+                    "run_id": params.get("run_id"),
+                    "visual_id": VISUAL_ID,
+                    "client_name": params.get("client_name"),
+
+                    "domain": params.get("domain"),
+                    "cohort_id": params.get("cohort_id"),
+
+                    "domain_cohort":
+                        f"{params.get('domain')}.{params.get('cohort_id')}",
+
+                    "dimension": "hour",
+                    "dimension_value": int(row["hour"]),
+                    "dimension_value_label": hour_label,
+
+                    "secondary_dimension": "benchmark",
+                    "secondary_dimension_value": "Room Need",
+
+                    "metric": "capacity",
+                    "metric_type": "room_need",
+                    "value": float(room_need),
+
+                    "start_date": start_date,
+                    "end_date": end_date,
+
+                    "report_title": report_title
+                })            
+
+        return {
+            "output_path": output_file,
+            "rdb": rdb_rows
+        }
+
+    except Exception as e:
+        logger.error(f"[{VISUAL_ID}] Execution failed: {e}")
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\code\visuals\vis_11.py =====
+# =============================================================================
+# Domain      : ED (Emergency Department)
+# Report Name : ED Peak Census and Room Need by Acuity
+#
+# Description :
+# Calculates Emergency Department peak census levels and estimated room
+# requirements by Emergency Severity Index (ESI) acuity category.
+# Patient census is derived from ED arrival and departure timestamps and
+# grouped according to ESI classification levels to evaluate capacity
+# requirements for distinct patient acuity populations.
+#
+# Census profiles are generated independently for each acuity category
+# using a minute-level occupancy model. Average census by hour is calculated
+# for each group and the highest hourly census value is identified as the
+# peak operating census. Optional growth assumptions may be applied to
+# projected demand volumes before capacity calculations are performed.
+#
+# Estimated room requirements are calculated by adjusting peak census
+# values according to a user-defined target utilization rate, providing
+# a planning benchmark for treatment space allocation across acuity levels.
+#
+# Key planning metrics include:
+#   - Peak census by acuity
+#   - Growth-adjusted peak census
+#   - Estimated room need by acuity
+#   - Total ED peak census
+#   - Total ED room requirement
+#
+# This report supports:
+#   - ED capacity planning
+#   - Treatment room allocation analysis
+#   - Acuity-specific demand assessment
+#   - Space programming and facility planning
+#   - Operational capacity benchmarking
+#   - Growth forecasting and scenario planning
+#
+# Inputs :
+#   - ed_start_dtm            : ED arrival/start datetime
+#   - ed_stop_dtm             : ED departure/stop datetime
+#   - esi                     : Emergency Severity Index acuity level
+#   - start_date              : Reporting period start date/time
+#   - end_date                : Reporting period end date/time
+#   - variable_10_year_growth : Projected growth adjustment factor
+#   - utilization             : Target operational utilization rate
+#
+# Outputs :
+#   - PNG table displaying:
+#       * Acuity category
+#       * Peak census by acuity
+#       * Estimated room need by acuity
+#       * Grand total peak census
+#       * Grand total room need
+#
+#   - RDB records containing:
+#       * Peak census values by acuity
+#       * Room need values by acuity
+#       * Total ED benchmarks
+#
+# Key Metrics :
+#   - Peak census by ESI level
+#   - Growth-adjusted peak census
+#   - Room need by acuity
+#   - Total ED peak census
+#   - Total ED room requirement
+#   - Capacity utilization benchmark
+# =============================================================================
+
+import os
+import logging
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
+from PIL import Image
+
+from utils.vis_helpers import (
+    format_date_range,
+    normalize_params,
+    save_title_png,
+    save_legend_png
+)
+
+VISUAL_ID = "vis_11"
+logger = logging.getLogger(__name__)
+
+
+def _safe_param(params, key, default, cast_type=None):
+    try:
+        val = params.get(key, default)
+        return cast_type(val) if cast_type else val
+    except Exception:
+        logger.warning(f"Invalid param for {key}; using default {default}")
+        return default
+
+
+def _generate_census(df, start_date, end_date):
+    """
+    Minimal vis_08-equivalent census generation.
+    Builds hourly time-series census from encounter windows.
+    """
+    try:
+        df = df.copy()
+
+        # =========================================================
+        # VALIDATION
+        # =========================================================
+        if not all(col in df.columns for col in ["ed_start_dtm", "ed_stop_dtm"]):
+            logging.error(f"[{VISUAL_ID}] Missing required columns")
+            return pd.DataFrame()
+
+        # =========================================================
+        # DATETIME PREP
+        # =========================================================
+        df["ed_start_dtm"] = pd.to_datetime(df["ed_start_dtm"], errors="coerce")
+        df["ed_stop_dtm"] = pd.to_datetime(df["ed_stop_dtm"], errors="coerce")
+
+        df = df.dropna(subset=["ed_start_dtm", "ed_stop_dtm"])
+
+        invalid_mask = df["ed_stop_dtm"] < df["ed_start_dtm"]
+        zero_mask = df["ed_stop_dtm"] == df["ed_start_dtm"]
+
+        df.loc[invalid_mask, "ed_stop_dtm"] = (
+            df.loc[invalid_mask, "ed_start_dtm"] + pd.Timedelta(minutes=1)
+        )
+        df.loc[zero_mask, "ed_stop_dtm"] = (
+            df.loc[zero_mask, "ed_start_dtm"] + pd.Timedelta(minutes=1)
+        )
+
+        if "encounter_id" in df.columns:
+            df = df.drop_duplicates(subset=["encounter_id"])
+
+        # =========================================================
+        # DATE RANGE
+        # =========================================================
+        start_date = pd.to_datetime(start_date)
+        end_date = pd.to_datetime(end_date)
+
+        if end_date.hour == 0 and end_date.minute == 0 and end_date.second == 0:
+            end_date = end_date + pd.Timedelta(days=1) - pd.Timedelta(minutes=1)
+
+        # =========================================================
+        # FILTER
+        # =========================================================
+        df = df[
+            (df["ed_start_dtm"] <= end_date) &
+            (df["ed_stop_dtm"] >= start_date)
+        ].copy()
+
+        if df.empty:
+            logging.warning(f"[{VISUAL_ID}] No data after filtering")
+            return
+
+        # =========================================================
+        # VISIT WINDOWS
+        # =========================================================
+        df["start"] = df["ed_start_dtm"]
+        df["end"] = df["ed_stop_dtm"]
+
+        df["end"] = df["end"].clip(lower=start_date, upper=end_date)
+        df["end"] = df["end"] + pd.Timedelta(minutes=1)
+
+        # =========================================================
+        # TIME GRID
+        # =========================================================
+        intervals = pd.date_range(start=start_date, end=end_date, freq="min")
+        base = pd.DataFrame({"interval": intervals})
+
+        # =========================================================
+        # EVENTS
+        # =========================================================
+        start_events = df[["start"]].rename(columns={"start": "interval"})
+        start_events["delta"] = 1
+
+        end_events = df[["end"]].rename(columns={"end": "interval"})
+        end_events["delta"] = -1
+
+        events = pd.concat([start_events, end_events])
+
+        events = events[
+            (events["interval"] >= start_date) &
+            (events["interval"] <= end_date)
+        ]
+
+        events = (
+            events.groupby("interval", as_index=False)["delta"]
+            .sum()
+            .sort_values("interval")
+        )
+
+        # =========================================================
+        # MERGE + CENSUS
+        # =========================================================
+        ts = base.merge(events, on="interval", how="left")
+        ts["delta"] = ts["delta"].fillna(0)
+
+        initial_count = df[
+            (df["ed_start_dtm"] < start_date) &
+            (df["ed_stop_dtm"] >= start_date)
+        ].shape[0]
+
+        ts["census"] = ts["delta"].cumsum()
+        ts["census"] += initial_count
+
+        ts["census"] = (
+            pd.to_numeric(ts["census"], errors="coerce")
+            .round()
+            .astype("Int64")
+        )
+
+        return ts
+
+    except Exception as e:
+        logger.error(f"Census generation failed: {e}")
+        return pd.DataFrame()
+    
+def run(df, params, start_date, end_date, output_dir, generate_output_name):
+    logger.info(f"[{VISUAL_ID}] Starting run")
+    params = normalize_params(params)
+
+    try:
+        if df is None or df.empty:
+            logger.warning("Input dataframe is empty")
+            return
+        
+        ESI_LABELS = {
+            0: "0-Unknown",
+            1: "1-Immediate",
+            2: "2-Emergent",
+            3: "3-Urgent",
+            4: "4-Less Urgent",
+            5: "5-Non-Urgent"
+        }
+
+        # =========================
+        # PARAMETERS
+        # =========================
+        utilization = _safe_param(params, "utilization", 0.85, float)
+        growth = _safe_param(params, "variable_10_year_growth", 0.0, float)
+        fig_width = _safe_param(params, "fig_width", 14, float)
+        fig_height = _safe_param(params, "fig_height", 7, float)
+        dpi = _safe_param(params, "dpi", 100, int)
+
+        # ==================================
+        # TITLE / LEGEND PARAMETERS
+        # ==================================
+
+        font_family = str(
+            params.get("font_family", "Segoe UI")
+        ).strip()
+
+        title_width = float(
+            params.get("title_width", 6.25) or 6.25
+        )
+
+        title_height = float(
+            params.get("title_height", 0.60) or 0.60
+        )
+
+        subtitle_fontsize = int(
+            params.get("subtitle_fontsize", 12) or 12
+        )
+
+        title_fontsize = int(
+            params.get("title_fontsize", 14) or 14
+        )
+
+        title_background_color = str(
+            params.get(
+                "title_background_color",
+                "#d9d9d9"
+            )
+        )
+
+        title_weight = str(
+            params.get(
+                "title_weight",
+                "bold"
+            )
+        )
+
+        legend_width = float(
+            params.get("legend_width", 4) or 4
+        )
+
+        legend_height = float(
+            params.get("legend_height", 1) or 1
+        )
+
+        legend_fontsize = int(
+            params.get("legend_fontsize", 9) or 9
+        )
+
+        tick_fontsize = int(
+            params.get("tick_fontsize", 10) or 10
+        )
+
+        if "esi" not in df.columns:
+            logger.error(f"[{VISUAL_ID}] Missing required column: esi")
+            return
+
+        df["esi"] = pd.to_numeric(df["esi"], errors="coerce")
+        df["esi"] = df["esi"].fillna(0).astype(int)
+        df["acuity_name"] = df["esi"].map(ESI_LABELS).fillna("0-Unknown")
+
+        results = []
+
+        for esi_value, group_df in df.groupby("acuity_name"):
+
+            ts = _generate_census(
+                group_df,
+                start_date,
+                end_date
+            )
+
+            if ts is None or ts.empty:
+                continue
+
+            ts["interval"] = pd.to_datetime(ts["interval"])
+
+            ts["adj_census"] = ts["census"] * (1 + growth)
+
+            ts["hour"] = ts["interval"].dt.hour
+
+            hourly = (
+                ts.groupby("hour")["adj_census"]
+                .mean()
+                .reindex(range(24), fill_value=0)
+                .reset_index()
+            )
+
+            peak_census = hourly["adj_census"].max()
+
+            room_need = (
+                peak_census / utilization
+                if utilization > 0
+                else peak_census
+            )
+
+            results.append({
+                "acuity_name": esi_value,
+                "peak_census": peak_census,
+                "room_need": room_need
+            })
+
+        ts_total = _generate_census(
+            df,
+            start_date,
+            end_date
+        )
+
+        ts_total["adj_census"] = (
+            ts_total["census"] * (1 + growth)
+        )
+
+        ts_total["hour"] = ts_total["interval"].dt.hour
+
+        hourly_total = (
+            ts_total.groupby("hour")["adj_census"]
+            .mean()
+            .reset_index()
+        )
+
+        grand_peak = hourly_total["adj_census"].max()
+
+        grand_room_need = (
+            grand_peak / utilization
+            if utilization > 0
+            else grand_peak
+        )
+
+        results.append({
+            "acuity_name": "Grand Total",
+            "peak_census": grand_peak,
+            "room_need": grand_room_need
+        })
+
+        table_df = pd.DataFrame(results)
+
+        scenario_factors = {
+            "1-Immediate": _safe_param(
+                params,
+                "esi1_volume_factor",
+                1.0,
+                float
+            ),
+            "2-Emergent": _safe_param(
+                params,
+                "esi2_volume_factor",
+                1.0,
+                float
+            ),
+            "3-Urgent": _safe_param(
+                params,
+                "esi3_volume_factor",
+                1.0,
+                float
+            ),
+            "4-Less Urgent": _safe_param(
+                params,
+                "esi4_volume_factor",
+                1.0,
+                float
+            ),
+            "5-Non-Urgent": _safe_param(
+                params,
+                "esi5_volume_factor",
+                1.0,
+                float
+            )
+        }
+
+        scenario_df = table_df.copy()
+
+        scenario_df["scenario_factor"] = (
+            scenario_df["acuity_name"]
+            .map(scenario_factors)
+            .fillna(1.0)
+        )
+
+        scenario_df["scenario_peak_census"] = (
+            scenario_df["peak_census"]
+            * scenario_df["scenario_factor"]
+        )
+
+        scenario_df["scenario_room_need"] = (
+            scenario_df["room_need"]
+            * scenario_df["scenario_factor"]
+        )
+
+        grand_mask = (
+            scenario_df["acuity_name"]
+            == "Grand Total"
+        )
+
+        scenario_df.loc[
+            grand_mask,
+            "scenario_factor"
+        ] = np.nan
+
+        scenario_total_peak = (
+            scenario_df.loc[
+                ~grand_mask,
+                "scenario_peak_census"
+            ].sum()
+        )
+
+        scenario_total_room = (
+            scenario_df.loc[
+                ~grand_mask,
+                "scenario_room_need"
+            ].sum()
+        )
+
+        scenario_df.loc[
+            grand_mask,
+            "scenario_peak_census"
+        ] = scenario_total_peak
+
+        scenario_df.loc[
+            grand_mask,
+            "scenario_room_need"
+        ] = scenario_total_room
+
+        scenario_display_df = scenario_df[
+            [
+                "acuity_name",
+                "scenario_factor",
+                "scenario_peak_census",
+                "scenario_room_need"
+            ]
+        ].copy()
+
+        scenario_display_df["scenario_factor"] = (
+            scenario_display_df["scenario_factor"]
+            .apply(
+                lambda x:
+                ""
+                if pd.isna(x)
+                else f"{x:.0%}"
+            )
+        )
+
+        scenario_display_df[
+            "scenario_peak_census"
+        ] = scenario_display_df[
+            "scenario_peak_census"
+        ].round(1)
+
+        scenario_display_df[
+            "scenario_room_need"
+        ] = scenario_display_df[
+            "scenario_room_need"
+        ].round(1)
+
+        visit_df = df.copy()
+
+        visit_df["ed_start_dtm"] = pd.to_datetime(
+            visit_df["ed_start_dtm"],
+            errors="coerce"
+        )
+
+        visit_df["ed_stop_dtm"] = pd.to_datetime(
+            visit_df["ed_stop_dtm"],
+            errors="coerce"
+        )
+
+        visit_df = visit_df.dropna(
+            subset=["ed_start_dtm", "ed_stop_dtm"]
+        )
+
+        visit_df = visit_df[
+            (visit_df["ed_start_dtm"] <= pd.to_datetime(end_date)) &
+            (visit_df["ed_stop_dtm"] >= pd.to_datetime(start_date))
+        ]
+
+        visit_count = len(visit_df)
+
+        sort_order = {
+            "0-Unknown": 0,
+            "1-Immediate": 1,
+            "2-Emergent": 2,
+            "3-Urgent": 3,
+            "4-Less Urgent": 4,
+            "5-Non-Urgent": 5,
+            "Grand Total": 99
+        }
+
+        table_df["sort"] = table_df["acuity_name"].map(sort_order)
+
+        table_df = (
+            table_df
+            .sort_values("sort")
+            .drop(columns="sort")
+        )
+
+        fig, ax = plt.subplots(figsize=(fig_width, fig_height), dpi=dpi)
+
+        ax.axis("off")
+
+        display_df = table_df.copy()
+
+        display_df["peak_census"] = (
+            display_df["peak_census"]
+            .round(1)
+        )
+
+        display_df["room_need"] = (
+            display_df["room_need"]
+            .round(1)
+        )
+
+        col_widths = [
+            float(params.get("table_col_width_acuity", 0.40)),
+            float(params.get("table_col_width_peak", 0.25)),
+            float(params.get("table_col_width_room", 0.25))
+        ]
+
+        tbl = ax.table(
+            cellText=display_df.values,
+            colLabels=[
+                "Acuity Name",
+                "Peak\nCensus",
+                "Room\nNeed"
+            ],
+            colWidths=col_widths,
+            loc="center"
+        )
+
+        header_row_height = float(
+            params.get(
+                "table_header_row_height",
+                0.16
+            )
+        )
+
+        for col in range(len(display_df.columns)):
+            tbl[(0, col)].set_height(header_row_height)
+
+        tbl.auto_set_font_size(False)
+        tbl.set_fontsize(
+            _safe_param(
+                params,
+                "table_font_size",
+                10,
+                int
+            )
+        )
+
+        tbl.scale(
+            float(params.get("table_scale_x", 1.2)),
+            float(params.get("table_scale_y", 1.5))
+        )
+
+        table_font_family = params.get(
+            "table_font_family",
+            font_family
+        )
+
+        for cell in tbl.get_celld().values():
+            cell.get_text().set_fontfamily(table_font_family)
+
+        header_color = params.get(
+            "table_header_color",
+            "#e8e8e8"
+        )
+        header_font_size = _safe_param(
+            params,
+            "table_header_font_size",
+            12,
+            int
+        )
+        for col in range(len(display_df.columns)):
+
+            cell = tbl[(0, col)]
+
+            cell.set_facecolor(header_color)
+
+            cell.get_text().set_weight("bold")
+
+            cell.get_text().set_fontsize(
+                header_font_size
+            )
+
+        band_color = params.get(
+            "table_band_color",
+            "#f2f2f2"
+        )
+
+        grand_total_row = len(display_df)
+
+        for row in range(1, grand_total_row):
+
+            if row % 2 == 1:
+
+                for col in range(len(display_df.columns)):
+
+                    tbl[(row, col)].set_facecolor(
+                        band_color
+                    )
+
+        grand_total_color = params.get(
+            "table_grand_total_color",
+            "#e6e6e6"
+        )
+
+        grand_total_row = len(display_df)
+
+        for col in range(len(display_df.columns)):
+
+            cell = tbl[(grand_total_row, col)]
+
+            cell.set_facecolor(grand_total_color)
+
+            cell.set_linewidth(1.0)
+
+            cell.get_text().set_weight("bold")
+
+        tbl[(0, 0)].get_text().set_ha("left")
+
+        tbl[(0, 1)].get_text().set_ha("right")
+
+        tbl[(0, 2)].get_text().set_ha("right")
+
+        for row in range(1, len(display_df) + 1):
+
+            tbl[(row, 0)].get_text().set_ha("left")
+
+            tbl[(row, 1)].get_text().set_ha("right")
+
+            tbl[(row, 2)].get_text().set_ha("right")
+
+        border_color = params.get(
+            "table_border_color",
+            "#cccccc"
+        )
+
+        border_width = float(
+            params.get(
+                "table_border_width",
+                0.4
+            )
+        )
+
+        grand_total_border_width = float(
+            params.get(
+                "table_grand_total_border_width",
+                1.0
+            )
+        )
+
+        for cell in tbl.get_celld().values():
+
+            cell.set_edgecolor(border_color)
+
+            cell.set_linewidth(border_width)
+
+        output_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=VISUAL_ID,
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
+        )
+
+        # ==================================
+        # TICK LABEL FORMATTING
+        # ==================================
+
+        for tick in ax.get_xticklabels():
+            tick.set_fontfamily(font_family)
+            tick.set_fontsize(tick_fontsize)
+
+        for tick in ax.get_yticklabels():
+            tick.set_fontfamily(font_family)
+            tick.set_fontsize(tick_fontsize)
+
+        plt.tight_layout(pad=0.25)
+        plt.savefig(output_file, bbox_inches="tight")
+        plt.close()
+
+        fig, ax = plt.subplots(figsize=(fig_width, fig_height), dpi=dpi)
+
+        ax.axis("off")
+
+        scenario_col_widths = [
+            0.23,
+            0.12,
+            0.15,
+            0.15
+        ]
+
+        tbl = ax.table(
+            cellText=scenario_display_df.values,
+            colLabels=[
+                "Acuity Name",
+                "Factor",
+                "Scenario\nPeak\nCensus",
+                "Scenario\nRoom\nNeed"
+            ],
+            colWidths=scenario_col_widths,
+            loc="center"
+        )
+
+        header_row_height = float(
+            params.get(
+                "table_header_row_height",
+                0.16
+            )
+        )
+
+        for col in range(len(scenario_display_df.columns)):
+            tbl[(0, col)].set_height(header_row_height)
+
+        tbl.auto_set_font_size(False)
+        tbl.set_fontsize(
+            _safe_param(
+                params,
+                "table_font_size",
+                10,
+                int
+            )
+        )
+
+        tbl.scale(
+            float(params.get("table_scale_x", 1.2)),
+            float(params.get("table_scale_y", 1.5))
+        )
+
+        table_font_family = params.get(
+            "table_font_family",
+            font_family
+        )
+
+        for cell in tbl.get_celld().values():
+            cell.get_text().set_fontfamily(table_font_family)
+
+        header_color = params.get(
+            "table_header_color",
+            "#e8e8e8"
+        )
+        header_font_size = _safe_param(
+            params,
+            "table_header_font_size",
+            12,
+            int
+        )
+        for col in range(len(scenario_display_df.columns)):
+
+            cell = tbl[(0, col)]
+
+            cell.set_facecolor(header_color)
+
+            cell.get_text().set_weight("bold")
+
+            cell.get_text().set_fontsize(
+                header_font_size
+            )
+
+        band_color = params.get(
+            "table_band_color",
+            "#f2f2f2"
+        )
+
+        grand_total_row = len(scenario_display_df)
+
+        for row in range(1, grand_total_row):
+
+            if row % 2 == 1:
+
+                for col in range(len(scenario_display_df.columns)):
+
+                    tbl[(row, col)].set_facecolor(
+                        band_color
+                    )
+
+        grand_total_color = params.get(
+            "table_grand_total_color",
+            "#e6e6e6"
+        )
+
+        grand_total_row = len(scenario_display_df)
+
+        for col in range(len(scenario_display_df.columns)):
+
+            cell = tbl[(grand_total_row, col)]
+
+            cell.set_facecolor(grand_total_color)
+
+            cell.set_linewidth(1.0)
+
+            cell.get_text().set_weight("bold")
+
+        tbl[(0, 0)].get_text().set_ha("left")
+
+        tbl[(0, 1)].get_text().set_ha("right")
+
+        tbl[(0, 2)].get_text().set_ha("right")
+
+        tbl[(0, 3)].get_text().set_ha("right")
+
+        for row in range(1, len(scenario_display_df) + 1):
+
+            tbl[(row, 0)].get_text().set_ha("left")
+
+            tbl[(row, 1)].get_text().set_ha("right")
+
+            tbl[(row, 2)].get_text().set_ha("right")
+
+            tbl[(row, 3)].get_text().set_ha("right")
+
+        border_color = params.get(
+            "table_border_color",
+            "#cccccc"
+        )
+
+        border_width = float(
+            params.get(
+                "table_border_width",
+                0.4
+            )
+        )
+
+        grand_total_border_width = float(
+            params.get(
+                "table_grand_total_border_width",
+                1.0
+            )
+        )
+
+        for cell in tbl.get_celld().values():
+
+            cell.set_edgecolor(border_color)
+
+            cell.set_linewidth(border_width)
+
+        scenario_output_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=f"{VISUAL_ID}_scenario",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
+        )
+
+        # ==================================
+        # TICK LABEL FORMATTING
+        # ==================================
+
+        for tick in ax.get_xticklabels():
+            tick.set_fontfamily(font_family)
+            tick.set_fontsize(tick_fontsize)
+
+        for tick in ax.get_yticklabels():
+            tick.set_fontfamily(font_family)
+            tick.set_fontsize(tick_fontsize)
+
+        plt.tight_layout(pad=0.25)
+        plt.savefig(scenario_output_file, bbox_inches="tight")
+        plt.close()
+
+        # ==================================
+        # IMAGE CROPPING
+        # ==================================
+
+        crop_top_pct = float(
+            params.get(
+                "crop_top_pct",
+                0
+            )
+        )
+
+        crop_bottom_pct = float(
+            params.get(
+                "crop_bottom_pct",
+                0
+            )
+        )
+
+        crop_left_pct = float(
+            params.get(
+                "crop_left_pct",
+                0
+            )
+        )
+
+        crop_right_pct = float(
+            params.get(
+                "crop_right_pct",
+                0
+            )
+        )
+
+        if any(
+            [
+                crop_top_pct,
+                crop_bottom_pct,
+                crop_left_pct,
+                crop_right_pct
+            ]
+        ):
+
+            img = Image.open(output_file)
+
+            width, height = img.size
+
+            left = int(
+                width *
+                (
+                    crop_left_pct / 100.0
+                )
+            )
+
+            right = int(
+                width *
+                (
+                    1 -
+                    crop_right_pct / 100.0
+                )
+            )
+
+            upper = int(
+                height *
+                (
+                    crop_top_pct / 100.0
+                )
+            )
+
+            lower = int(
+                height *
+                (
+                    1 -
+                    crop_bottom_pct / 100.0
+                )
+            )
+
+            img = img.crop(
+                (
+                    left,
+                    upper,
+                    right,
+                    lower
+                )
+            )
+
+            img.save(output_file)
+
+            logger.info(
+                f"[{VISUAL_ID}] Image cropped "
+                f"(top={crop_top_pct}%, "
+                f"bottom={crop_bottom_pct}%, "
+                f"left={crop_left_pct}%, "
+                f"right={crop_right_pct}%)"
+            )
+
+        # ==================================
+        # IMAGE CROPPING
+        # ==================================
+
+        if any(
+            [
+                crop_top_pct,
+                crop_bottom_pct,
+                crop_left_pct,
+                crop_right_pct
+            ]
+        ):
+
+            img = Image.open(scenario_output_file)
+
+            width, height = img.size
+
+            left = int(
+                width *
+                (
+                    crop_left_pct / 100.0
+                )
+            )
+
+            right = int(
+                width *
+                (
+                    1 -
+                    crop_right_pct / 100.0
+                )
+            )
+
+            upper = int(
+                height *
+                (
+                    crop_top_pct / 100.0
+                )
+            )
+
+            lower = int(
+                height *
+                (
+                    1 -
+                    crop_bottom_pct / 100.0
+                )
+            )
+
+            img = img.crop(
+                (
+                    left,
+                    upper,
+                    right,
+                    lower
+                )
+            )
+
+            img.save(scenario_output_file)
+
+            logger.info(
+                f"[{VISUAL_ID}] Image cropped "
+                f"(top={crop_top_pct}%, "
+                f"bottom={crop_bottom_pct}%, "
+                f"left={crop_left_pct}%, "
+                f"right={crop_right_pct}%)"
+            )
+
+        # ==================================
+        # LEGEND PNG
+        # ==================================
+
+        legend_handles = [
+            Patch(
+                facecolor="#4C78A8",
+                label="ED Peak Census (Growth Adjusted)"
+            ),
+            Patch(
+                facecolor="#F58518",
+                label="ED Room Need (Utilization Adjusted)"
+            )
+        ]
+
+        legend_labels = [
+            "ED Peak Census (Growth Adjusted)",
+            "ED Room Need (Utilization Adjusted)"
+        ]
+
+        legend_output_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=f"{VISUAL_ID}_legend",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
+        )
+
+        save_legend_png(
+            handles=legend_handles,
+            labels=legend_labels,
+            output_file=legend_output_file,
+            ncol=1,
+            font_family=font_family,
+            font_size=legend_fontsize,
+            width=legend_width,
+            height=legend_height
+        )
+
+        logger.info(
+            f"[{VISUAL_ID}] Legend written: "
+            f"{legend_output_file}"
+        )
+
+        # ==================================
+        # TITLE PNG
+        # ==================================
+
+        date_range = format_date_range(
+            start_date,
+            end_date
+        )
+
+        title_output_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=f"{VISUAL_ID}_title",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
+        )
+
+        save_title_png(
+            title="ED Peak Census and Room Need by Acuity - Scenarios",
+            subtitle=date_range,
+            output_file=title_output_file,
+            width=title_width,
+            height=title_height,
+            dpi=dpi,
+            font_family=font_family,
+            title_fontsize=title_fontsize,
+            subtitle_fontsize=subtitle_fontsize,
+            background_color=title_background_color,
+            title_weight=title_weight
+        )
+
+        logger.info(
+            f"[{VISUAL_ID}] Title written: "
+            f"{title_output_file}"
+        )
+
+        visit_output_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=f"{VISUAL_ID}_visits",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
+        )
+
+        visit_fig_width = _safe_param(
+            params,
+            "visit_tile_width",
+            2.5,
+            float
+        )
+
+        visit_fig_height = _safe_param(
+            params,
+            "visit_tile_height",
+            1.8,
+            float
+        )
+
+        visit_label_fontsize = _safe_param(
+            params,
+            "visit_label_fontsize",
+            12,
+            int
+        )
+
+        visit_value_fontsize = _safe_param(
+            params,
+            "visit_value_fontsize",
+            22,
+            int
+        )
+
+        visit_background_color = params.get(
+            "visit_tile_background_color",
+            "#d9d9d9"
+        )
+
+        visit_border_color = params.get(
+            "visit_tile_border_color",
+            "black"
+        )
+
+        fig, ax = plt.subplots(
+            figsize=(visit_fig_width, visit_fig_height)
+        )
+
+        ax.set_facecolor(visit_background_color)
+
+        for spine in ax.spines.values():
+            spine.set_visible(True)
+            spine.set_color(visit_border_color)
+
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+        ax.text(
+            0.03,
+            0.92,
+            "Visits",
+            ha="left",
+            va="top",
+            fontsize=visit_label_fontsize,
+            transform=ax.transAxes
+        )
+
+        ax.text(
+            0.5,
+            0.5,
+            f"{visit_count:,}",
+            ha="center",
+            va="center",
+            fontsize=visit_value_fontsize,
+            weight="bold",
+            transform=ax.transAxes
+        )
+
+        plt.tight_layout(pad=0.2)
+
+        plt.savefig(
+            visit_output_file,
+            bbox_inches="tight",
+            dpi=dpi
+        )
+
+        plt.close()
+
+        # =========================
+        # RDB OUTPUT
+        # =========================
+        write_rdb = int(params.get("write_rdb", 0))
+        rdb_rows = []
+
+        if write_rdb == 1:
+
+            report_title = "ED Peak Census and Room Need by Acuity"
+
+            for _, row in table_df.iterrows():
+
+                # Peak Census
+                rdb_rows.append({
+                    "run_id": params.get("run_id"),
+                    "visual_id": VISUAL_ID,
+                    "client_name": params.get("client_name"),
+
+                    "domain": params.get("domain"),
+                    "cohort_id": params.get("cohort_id"),
+
+                    "domain_cohort":
+                        f"{params.get('domain')}.{params.get('cohort_id')}",
+
+                    "dimension": "acuity",
+                    "dimension_value": row["acuity_name"],
+                    "dimension_value_label": row["acuity_name"],
+
+                    "secondary_dimension": None,
+                    "secondary_dimension_value": None,
+
+                    "metric": "peak_census",
+                    "metric_type": "value",
+                    "value": float(row["peak_census"]),
+
+                    "start_date": start_date,
+                    "end_date": end_date,
+
+                    "report_title": report_title
+                })
+
+                # Room Need
+                rdb_rows.append({
+                    "run_id": params.get("run_id"),
+                    "visual_id": VISUAL_ID,
+                    "client_name": params.get("client_name"),
+
+                    "domain": params.get("domain"),
+                    "cohort_id": params.get("cohort_id"),
+
+                    "domain_cohort":
+                        f"{params.get('domain')}.{params.get('cohort_id')}",
+
+                    "dimension": "acuity",
+                    "dimension_value": row["acuity_name"],
+                    "dimension_value_label": row["acuity_name"],
+
+                    "secondary_dimension": None,
+                    "secondary_dimension_value": None,
+
+                    "metric": "room_need",
+                    "metric_type": "value",
+                    "value": float(row["room_need"]),
+
+                    "start_date": start_date,
+                    "end_date": end_date,
+
+                    "report_title": report_title
+                })
+
+        logger.info(f"[{VISUAL_ID}] Output saved to {output_file}")
+
+        return {
+            "output_path": output_file,
+            "rdb": rdb_rows
+        }
+
+    except Exception as e:
+            logger.error(f"[{VISUAL_ID}] Execution failed: {e}")
+
+
+===== FILE END =====
+
+===== FILE START: C:\lwf\sbx-data-vis\code\visuals\vis_14.py =====
+# =============================================================================
+# Domain      : ED (Emergency Department)
+# Report Name : ED ESI Mix Scenario Simulator
+#
+# Description :
+# Scenario planning model that evaluates operational impacts of changes
+# in Emergency Severity Index (ESI) distribution while preserving
+# observed ED LOS characteristics.
+#
+# Generates:
+#   1. Detailed ESI census comparison table
+#   2. Scenario assumptions table
+#   3. Executive summary table
+#
+# Outputs:
+#   vis_14.png
+#   vis_14_parameters.png
+#   vis_14_summary.png
+#
+# =============================================================================
+
+import os
+import logging
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+from matplotlib.patches import Patch
+
+from utils.vis_helpers import (
+    normalize_params,
+    format_date_range,
+    save_title_png,
+    save_legend_png
+)
+VISUAL_ID = "vis_14"
+
+logger = logging.getLogger(__name__)
+
+
+def _safe_param(params, key, default, cast_type=None):
+    try:
+        val = params.get(key, default)
+        return cast_type(val) if cast_type else val
+    except Exception:
+        logger.warning(
+            f"Invalid param for {key}; using default {default}"
+        )
+        return default
+
+
+def _generate_census(df, start_date, end_date):
+
+    try:
+
+        df = df.copy()
+
+        if not all(
+            c in df.columns
+            for c in ["ed_start_dtm", "ed_stop_dtm"]
+        ):
+            return pd.DataFrame()
+
+        df["ed_start_dtm"] = pd.to_datetime(
+            df["ed_start_dtm"],
+            errors="coerce"
+        )
+
+        df["ed_stop_dtm"] = pd.to_datetime(
+            df["ed_stop_dtm"],
+            errors="coerce"
+        )
+
+        df = df.dropna(
+            subset=[
+                "ed_start_dtm",
+                "ed_stop_dtm"
+            ]
+        )
+
+        invalid_mask = (
+            df["ed_stop_dtm"]
+            < df["ed_start_dtm"]
+        )
+
+        zero_mask = (
+            df["ed_stop_dtm"]
+            == df["ed_start_dtm"]
+        )
+
+        df.loc[invalid_mask, "ed_stop_dtm"] = (
+            df.loc[invalid_mask, "ed_start_dtm"]
+            + pd.Timedelta(minutes=1)
+        )
+
+        df.loc[zero_mask, "ed_stop_dtm"] = (
+            df.loc[zero_mask, "ed_start_dtm"]
+            + pd.Timedelta(minutes=1)
+        )
+
+        if "encounter_id" in df.columns:
+            df = df.drop_duplicates(
+                subset=["encounter_id"]
+            )
+
+        start_date = pd.to_datetime(start_date)
+        end_date = pd.to_datetime(end_date)
+
+        if (
+            end_date.hour == 0
+            and end_date.minute == 0
+            and end_date.second == 0
+        ):
+            end_date = (
+                end_date
+                + pd.Timedelta(days=1)
+                - pd.Timedelta(minutes=1)
+            )
+
+        df = df[
+            (df["ed_start_dtm"] <= end_date)
+            &
+            (df["ed_stop_dtm"] >= start_date)
+        ].copy()
+
+        if df.empty:
+            return pd.DataFrame()
+
+        df["start"] = df["ed_start_dtm"]
+        df["end"] = df["ed_stop_dtm"]
+
+        df["end"] = df["end"].clip(
+            lower=start_date,
+            upper=end_date
+        )
+
+        df["end"] = (
+            df["end"]
+            + pd.Timedelta(minutes=1)
+        )
+
+        intervals = pd.date_range(
+            start=start_date,
+            end=end_date,
+            freq="min"
+        )
+
+        base = pd.DataFrame(
+            {"interval": intervals}
+        )
+
+        start_events = (
+            df[["start"]]
+            .rename(
+                columns={"start": "interval"}
+            )
+        )
+
+        start_events["delta"] = 1
+
+        end_events = (
+            df[["end"]]
+            .rename(
+                columns={"end": "interval"}
+            )
+        )
+
+        end_events["delta"] = -1
+
+        events = pd.concat(
+            [start_events, end_events]
+        )
+
+        events = events.groupby(
+            "interval",
+            as_index=False
+        )["delta"].sum()
+
+        ts = base.merge(
+            events,
+            how="left",
+            on="interval"
+        )
+
+        ts["delta"] = (
+            ts["delta"]
+            .fillna(0)
+        )
+
+        initial_count = df[
+            (df["ed_start_dtm"] < start_date)
+            &
+            (df["ed_stop_dtm"] >= start_date)
+        ].shape[0]
+
+        ts["census"] = (
+            ts["delta"].cumsum()
+            + initial_count
+        )
+
+        return ts
+
+    except Exception as e:
+
+        logger.error(
+            f"Census generation failed: {e}"
+        )
+
+        return pd.DataFrame()
+
+
+def _build_table(
+    dataframe,
+    output_file,
+    params,
+    col_widths,
+    fig_width=None,
+    fig_height=None
+):
+
+    if fig_width is None:
+
+        fig_width = _safe_param(
+            params,
+            "fig_width",
+            14,
+            float
+        )
+
+    if fig_height is None:
+
+        fig_height = _safe_param(
+            params,
+            "fig_height",
+            7,
+            float
+        )
+
+    dpi = _safe_param(
+        params,
+        "dpi",
+        100,
+        int
+    )
+
+    font_family = params.get(
+        "table_font_family",
+        "Segoe UI"
+    )
+
+    plt.rcParams["font.family"] = font_family
+
+    fig, ax = plt.subplots(
+        figsize=(fig_width, fig_height),
+        dpi=dpi
+    )
+
+    ax.axis("off")
+
+    tbl = ax.table(
+        cellText=dataframe.values,
+        colLabels=list(dataframe.columns),
+        colWidths=col_widths,
+        loc="center"
+    )
+
+    tbl.auto_set_font_size(False)
+
+    tbl.set_fontsize(
+        int(
+            params.get(
+                "table_font_size",
+                10
+            )
+        )
+    )
+
+    tbl.scale(
+        float(
+            params.get(
+                "table_scale_x",
+                1.2
+            )
+        ),
+        float(
+            params.get(
+                "table_scale_y",
+                1.5
+            )
+        )
+    )
+
+    for cell in tbl.get_celld().values():
+        cell.get_text().set_fontfamily(
+            font_family
+        )
+
+    header_color = params.get(
+        "table_header_color",
+        "#e8e8e8"
+    )
+
+    band_color = params.get(
+        "table_band_color",
+        "#f2f2f2"
+    )
+
+    grand_color = params.get(
+        "table_grand_total_color",
+        "#e6e6e6"
+    )
+
+    for col in range(len(dataframe.columns)):
+        cell = tbl[(0, col)]
+        cell.set_facecolor(header_color)
+        header_font_size = int(
+            params.get(
+                "table_header_font_size",
+                12
+            )
+        )
+
+        cell.get_text().set_weight("bold")
+        cell.get_text().set_fontsize(
+            header_font_size
+        )
+
+    grand_row = len(dataframe)
+
+    for row in range(1, grand_row):
+
+        if row % 2 == 1:
+
+            for col in range(len(dataframe.columns)):
+                tbl[(row, col)].set_facecolor(
+                    band_color
+                )
+
+    for col in range(len(dataframe.columns)):
+        tbl[(grand_row, col)].set_facecolor(
+            grand_color
+        )
+
+        tbl[(grand_row, col)].get_text().set_weight(
+            "bold"
+        )
+
+    border_color = params.get(
+        "table_border_color",
+        "#cccccc"
+    )
+
+    border_width = float(
+        params.get(
+            "table_border_width",
+            0.4
+        )
+    )
+
+    for cell in tbl.get_celld().values():
+        cell.set_edgecolor(border_color)
+        cell.set_linewidth(border_width)
+
+    grand_border_width = float(
+        params.get(
+            "table_grand_total_border_width",
+            1.0
+        )
+    )
+
+    tbl[(grand_row, col)].set_linewidth(
+        grand_border_width
+    )
+
+    plt.tight_layout(pad=0.25)
+
+    plt.savefig(
+        output_file,
+        bbox_inches="tight"
+    )
+
+    plt.close()
+
+
+def run(
+    df,
+    params,
+    start_date,
+    end_date,
+    output_dir,
+    generate_output_name
+):
+
+    logger.info(
+        f"[{VISUAL_ID}] Starting run"
+    )
+
+    params = normalize_params(params)
+
+    title_height = float(
+        params.get("title_height", 0.25) or 0.25
+    )
+
+    title_width = float(
+        params.get("title_width", 6.40) or 6.40
+    )
+
+    subtitle_fontsize = int(
+        params.get("subtitle_fontsize", 8) or 8
+    )
+
+    title_fontsize = int(
+        params.get("title_fontsize", 10) or 10
+    )
+
+    title_background_color = str(
+        params.get(
+            "title_background_color",
+            "#d9d9d9"
+        )
+    )
+
+    title_weight = str(
+        params.get(
+            "title_weight",
+            "bold"
+        )
+    )
+
+    try:
+
+        if df is None or df.empty:
+            return
+
+        if "esi" not in df.columns:
+            logger.error(
+                f"[{VISUAL_ID}] Missing esi column"
+            )
+            return
+
+        utilization = _safe_param(
+            params,
+            "utilization",
+            0.85,
+            float
+        )
+
+        growth = _safe_param(
+            params,
+            "variable_10_year_growth",
+            0.0,
+            float
+        )
+
+        factor_map = {
+            1: _safe_param(params, "esi1_volume_factor", 1.0, float),
+            2: _safe_param(params, "esi2_volume_factor", 1.0, float),
+            3: _safe_param(params, "esi3_volume_factor", 1.0, float),
+            4: _safe_param(params, "esi4_volume_factor", 1.0, float),
+            5: _safe_param(params, "esi5_volume_factor", 1.0, float)
+        }
+
+        ESI_LABELS = {
+            1: "1-Immediate",
+            2: "2-Emergent",
+            3: "3-Urgent",
+            4: "4-Less Urgent",
+            5: "5-Non-Urgent"
+        }
+
+        df["esi"] = pd.to_numeric(
+            df["esi"],
+            errors="coerce"
+        )
+
+        results = []
+
+        current_total = 0
+        scenario_total = 0
+
+        scenario_frames = []
+
+        for esi in [1, 2, 3, 4, 5]:
+
+            group_df = df[
+                df["esi"] == esi
+            ].copy()
+
+            if group_df.empty:
+
+                current_avg = 0
+                scenario_avg = 0
+                scenario_df = pd.DataFrame()
+
+            else:
+
+                ts_current = _generate_census(
+                    group_df,
+                    start_date,
+                    end_date
+                )
+
+                ts_current["adj_census"] = (
+                    ts_current["census"]
+                    * (1 + growth)
+                )
+
+                current_avg = (
+                    ts_current["adj_census"]
+                    .mean()
+                )
+
+                multiplier = factor_map[esi]
+
+                if multiplier <= 1:
+
+                    scenario_df = group_df.sample(
+                        frac=multiplier,
+                        replace=False,
+                        random_state=42
+                    )
+
+                else:
+
+                    extra = group_df.sample(
+                        n=int(
+                            len(group_df)
+                            * (multiplier - 1)
+                        ),
+                        replace=True,
+                        random_state=42
+                    )
+
+                    scenario_df = pd.concat(
+                        [group_df, extra],
+                        ignore_index=True
+                    )
+
+                scenario_ts = _generate_census(
+                    scenario_df,
+                    start_date,
+                    end_date
+                )
+
+                scenario_ts["adj_census"] = (
+                    scenario_ts["census"]
+                    * (1 + growth)
+                )
+
+                scenario_avg = (
+                    scenario_ts["adj_census"]
+                    .mean()
+                )
+
+                logger.info(
+                    f"ESI {esi} "
+                    f"multiplier={multiplier:.2f} "
+                    f"current_rows={len(group_df):,} "
+                    f"scenario_rows={len(scenario_df):,}"
+                )
+
+                scenario_frames.append(
+                    scenario_df
+                )
+
+            diff = (
+                scenario_avg
+                - current_avg
+            )
+
+            pct = (
+                diff / current_avg * 100
+                if current_avg > 0
+                else 0
+            )
+
+            current_total += current_avg
+            scenario_total += scenario_avg
+
+            results.append({
+                "ESI Category": ESI_LABELS[esi],
+                "Current Census": round(current_avg, 1),
+                "Scenario Census": round(scenario_avg, 1),
+                "Î” Census": round(diff, 1),
+                "Î” %": f"{pct:.1f}%"
+            })
+
+        total_diff = (
+            scenario_total
+            - current_total
+        )
+
+        total_pct = (
+            total_diff
+            / current_total
+            * 100
+            if current_total > 0
+            else 0
+        )
+
+        logger.info(
+            f"Census Totals | "
+            f"Current={current_total:.2f} | "
+            f"Scenario={scenario_total:.2f} | "
+            f"Difference={total_diff:.2f}"
+        )
+
+        results.append({
+            "ESI Category": "Grand Total",
+            "Current Census": round(current_total, 1),
+            "Scenario Census": round(scenario_total, 1),
+            "Î” Census": round(total_diff, 1),
+            "Î” %": f"{total_pct:.1f}%"
+        })
+
+        detail_df = pd.DataFrame(results)
+
+        full_current_ts = _generate_census(
+            df,
+            start_date,
+            end_date
+        )
+
+        current_peak = (
+            full_current_ts["census"]
+            * (1 + growth)
+        ).max()
+
+        scenario_all = pd.concat(
+            scenario_frames,
+            ignore_index=True
+        )
+
+        logger.info(
+            f"Current encounters: {len(df):,}"
+        )
+
+        logger.info(
+            f"Scenario encounters: {len(scenario_all):,}"
+        )
+
+        scenario_ts = _generate_census(
+            scenario_all,
+            start_date,
+            end_date
+        )
+
+        scenario_peak = (
+            scenario_ts["census"]
+            * (1 + growth)
+        ).max()
+
+        logger.info(
+            f"Peak Census | "
+            f"Current={current_peak:.2f} | "
+            f"Scenario={scenario_peak:.2f}"
+        )
+
+        current_room = (
+            current_peak
+            / utilization
+        )
+
+        scenario_room = (
+            scenario_peak
+            / utilization
+        )
+
+        logger.info(
+            f"Room Need | "
+            f"Current={current_room:.2f} | "
+            f"Scenario={scenario_room:.2f} | "
+            f"Utilization={utilization:.2%}"
+        )
+
+        output_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=VISUAL_ID,
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
+        )
+
+        date_range = format_date_range(
+            start_date,
+            end_date
+        )
+
+        title_output_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=f"{VISUAL_ID}_title",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
+        )
+
+        save_title_png(
+            title="ED ESI Mix Scenario Simulator",
+            subtitle=date_range,
+            output_file=title_output_file,
+            width=title_width,
+            height=title_height,
+            dpi=int(params.get("dpi", 100)),
+            font_family=params.get(
+                "table_font_family",
+                "Segoe UI"
+            ),
+            title_fontsize=title_fontsize,
+            subtitle_fontsize=subtitle_fontsize,
+            background_color=title_background_color,
+            title_weight=title_weight
+        )
+
+        logger.info(
+            f"[{VISUAL_ID}] Title image saved to "
+            f"{title_output_file}"
+        )
+
+        legend_width = float(
+            params.get("legend_width", 6)
+        )
+
+        legend_height = float(
+            params.get("legend_height", 1)
+        )
+
+        legend_fontsize = int(
+            params.get("legend_fontsize", 8)
+        )
+
+        legend_handles = [
+            Patch(
+                facecolor="#d9d9d9",
+                label="Current Census = Observed Average Census"
+            ),
+            Patch(
+                facecolor="#b3d9ff",
+                label="Scenario Census = Modeled Census"
+            ),
+            Patch(
+                facecolor="#ffd9b3",
+                label="Î” Census = Difference from Current"
+            )
+        ]
+
+        legend_labels = [
+            "Current Census = Observed Average Census",
+            "Scenario Census = Modeled Census",
+            "Î” Census = Scenario - Current"
+        ]
+
+        legend_output_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=f"{VISUAL_ID}_legend",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
+        )
+
+        save_legend_png(
+            handles=legend_handles,
+            labels=legend_labels,
+            output_file=legend_output_file,
+            ncol=1,
+            font_family=params.get(
+                "table_font_family",
+                "Segoe UI"
+            ),
+            font_size=legend_fontsize,
+            width=legend_width,
+            height=legend_height
+        )
+
+        logger.info(
+            f"[{VISUAL_ID}] Legend image saved to "
+            f"{legend_output_file}"
+        )
+
+        detail_col_widths = [
+            float(params.get("table_col_width_acuity", 0.35)),
+            float(params.get("table_col_width_current", 0.16)),
+            float(params.get("table_col_width_scenario", 0.16)),
+            float(params.get("table_col_width_difference", 0.16)),
+            float(params.get("table_col_width_percent", 0.17))
+        ]
+
+        _build_table(
+            detail_df,
+            output_file,
+            params,
+            detail_col_widths,
+            fig_width=float(
+                params.get(
+                    "detail_fig_width",
+                    14
+                )
+            ),
+            fig_height=float(
+                params.get(
+                    "detail_fig_height",
+                    7
+                )
+            )
+        )
+
+        parameter_output_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=f"{VISUAL_ID}_parameters",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
+        )
+
+        parameter_df = pd.DataFrame({
+            "Scenario Parameter": [
+                "ESI 1 Volume Multiplier",
+                "ESI 2 Volume Multiplier",
+                "ESI 3 Volume Multiplier",
+                "ESI 4 Volume Multiplier",
+                "ESI 5 Volume Multiplier",
+                "Growth Factor",
+                "Utilization Target"
+            ],
+            "Value": [
+                f"{factor_map[1] * 100:.0f}%",
+                f"{factor_map[2] * 100:.0f}%",
+                f"{factor_map[3] * 100:.0f}%",
+                f"{factor_map[4] * 100:.0f}%",
+                f"{factor_map[5] * 100:.0f}%",
+                f"{growth * 100:.0f}%",
+                f"{utilization * 100:.0f}%"
+            ]
+        })
+
+        parameter_col_widths = [
+            float(params.get(
+                "parameter_col_width_name",
+                0.70
+            )),
+            float(params.get(
+                "parameter_col_width_value",
+                0.30
+            ))
+        ]
+
+        _build_table(
+            parameter_df,
+            parameter_output_file,
+            params,
+            parameter_col_widths,
+            fig_width=float(
+                params.get(
+                    "parameter_fig_width",
+                    10
+                )
+            ),
+            fig_height=float(
+                params.get(
+                    "parameter_fig_height",
+                    5
+                )
+            )
+        )
+
+        logger.info(
+            f"[{VISUAL_ID}] Parameter table saved to "
+            f"{parameter_output_file}"
+        )
+
+        summary_df = pd.DataFrame({
+            "Metric": [
+                "Total Census",
+                "Peak Census",
+                "Room Need"
+            ],
+            "Current": [
+                round(current_total, 1),
+                round(current_peak, 1),
+                round(current_room, 1)
+            ],
+            "Scenario": [
+                round(scenario_total, 1),
+                round(scenario_peak, 1),
+                round(scenario_room, 1)
+            ]
+        })
+
+        summary_output_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=f"{VISUAL_ID}_summary",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
+        )
+
+        summary_col_widths = [
+            float(params.get(
+                "summary_col_width_metric",
+                0.50
+            )),
+            float(params.get(
+                "summary_col_width_current",
+                0.25
+            )),
+            float(params.get(
+                "summary_col_width_scenario",
+                0.25
+            ))
+        ]
+
+        _build_table(
+            summary_df,
+            summary_output_file,
+            params,
+            summary_col_widths,
+            fig_width=float(
+                params.get(
+                    "summary_fig_width",
+                    10
+                )
+            ),
+            fig_height=float(
+                params.get(
+                    "summary_fig_height",
+                    4
+                )
+            )
+        )
+
+        logger.info(
+            f"[{VISUAL_ID}] Exec Summary Table saved to "
+            f"{summary_output_file}"
+        )
+
+        rdb_rows = []
+
+        if int(params.get("write_rdb", 0)) == 1:
+
+            report_title = (
+                "ED ESI Mix Scenario Simulator"
+            )
+
+            for esi, factor in factor_map.items():
+
+                rdb_rows.append({
+                    "run_id": params.get("run_id"),
+                    "visual_id": VISUAL_ID,
+                    "metric": "scenario_multiplier",
+                    "dimension": "acuity",
+                    "dimension_value":
+                        ESI_LABELS[esi],
+                    "value": factor,
+                    "report_title":
+                        report_title
+                })
+
+            for _, row in detail_df.iterrows():
+
+                acuity = row["ESI Category"]
+
+                rdb_rows.extend([
+                    {
+                        "metric": "current_census",
+                        "dimension": "acuity",
+                        "dimension_value": acuity,
+                        "value": row["Current Census"]
+                    },
+                    {
+                        "metric": "scenario_census",
+                        "dimension": "acuity",
+                        "dimension_value": acuity,
+                        "value": row["Scenario Census"]
+                    },
+                    {
+                        "metric": "census_difference",
+                        "dimension": "acuity",
+                        "dimension_value": acuity,
+                        "value": row["Î” Census"]
+                    }
+                ])
+
+            summary_metrics = {
+                "total_census":
+                    scenario_total,
+                "peak_census":
+                    scenario_peak,
+                "room_need":
+                    scenario_room,
+                "utilization":
+                    utilization,
+                "growth_factor":
+                    growth
+            }
+
+            for metric, value in summary_metrics.items():
+
+                rdb_rows.append({
+                    "metric": metric,
+                    "value": float(value)
+                })
+
+        logger.info(
+            f"[{VISUAL_ID}] Scenario table saved to "
+            f"{output_file}"
+        )
+
+        return {
+            "output_path": output_file,
+            "rdb": rdb_rows
+        }
+
+    except Exception as e:
+
+        logger.error(
+            f"[{VISUAL_ID}] Execution failed: {e}"
+        )
+===== FILE END =====
+
+Please analyze the implementation in the context of the attached framework and assist me in implementing the following enhancement:
+
+Create a Shared Census Engine to be utilized in vis_08, vis_10, vis_11 and vis_14
+
+All of these build some variation of:
+
+encounter occupancy windows
+census timelines
+hourly aggregation
+peak census calculations
+growth projections
+room-need calculations
+
+Several files even contain their own _generate_census() implementation.
+
+I desire to move these functions into shared utilities.
+
+Then provide production-ready recommendations consistent with the framework conventions demonstrated in the attached files.

@@ -1,20 +1,19 @@
 # =============================================================================
-# Domain      : ED (Emergency Department)
-# Report Name : Encounters by Arrival Type
+# Report Name : Facility Encounters by Arrival Type
 #
 # Description :
-# Generates a distribution analysis of Emergency Department encounters by
+# Generates a distribution analysis of Facility encounters by
 # method of arrival. Raw arrival method values are standardized into major
 # transportation categories and displayed as a pie chart showing each
-# category's share of total ED encounters.
+# category's share of total Facility encounters.
 #
 # Arrival methods are grouped into:
-#   - Ambulance
+#   - EMT
 #   - Car / Private Vehicle
 #   - Wheelchair
 #   - Other
 #
-# The report highlights how patients access Emergency Department services
+# The report highlights how patients access Facility services
 # and provides insight into transportation patterns, emergency medical
 # services utilization, and overall patient arrival mix. Small categories
 # may optionally be consolidated into an "Other" group for improved
@@ -29,7 +28,7 @@
 #
 # Inputs :
 #   - arrival_method : Raw patient arrival method description
-#   - ed_start_dtm      : Encounter/visit datetime (optional date filtering)
+#   - start_dtm      : Encounter/visit datetime (optional date filtering)
 #   - start_date     : Reporting period start date
 #   - end_date       : Reporting period end date
 #
@@ -41,8 +40,8 @@
 #       * Arrival type distribution metrics for downstream reporting
 #
 # Key Metrics :
-#   - Total ED encounters
-#   - Encounters arriving by ambulance
+#   - Total Facility encounters
+#   - Encounters arriving by emt
 #   - Encounters arriving by private vehicle/car
 #   - Encounters arriving by wheelchair
 #   - Encounters in other arrival categories
@@ -93,7 +92,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         "dpi": 100,
 
         # colors
-        "color_ambulance": "#1f77b4",
+        "color_emt": "#1f77b4",
         "color_car": "#ff7f0e",
         "color_wheelchair": "#d62728",
         "color_other": "#7f7f7f",
@@ -188,24 +187,24 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             logging.error(f"{VISUAL_ID}: Missing required column '{col}'")
             return
 
-    # optional ed_start_dtm for filtering
-    if "ed_start_dtm" not in df.columns:
-        logging.warning(f"{VISUAL_ID}: 'ed_start_dtm' not found - skipping date filter")
+    # optional start_dtm for filtering
+    if "start_dtm" not in df.columns:
+        logging.warning(f"{VISUAL_ID}: 'start_dtm' not found - skipping date filter")
 
     df = df.copy()
 
     # =========================
     # DATETIME FILTERING
     # =========================
-    if "ed_start_dtm" in df.columns:
+    if "start_dtm" in df.columns:
         try:
-            df["ed_start_dtm"] = pd.to_datetime(df["ed_start_dtm"], errors="coerce")
+            df["start_dtm"] = pd.to_datetime(df["start_dtm"], errors="coerce")
             start = pd.to_datetime(start_date)
             end = pd.to_datetime(end_date)
 
             df = df[
-                (df["ed_start_dtm"] >= start) &
-                (df["ed_start_dtm"] <= end)
+                (df["start_dtm"] >= start) &
+                (df["start_dtm"] <= end)
             ]
         except Exception as e:
             logging.warning(f"{VISUAL_ID}: Date filtering failed: {str(e)}")
@@ -229,7 +228,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     # =========================
     def map_arrival(val):
         if "ambulance" in val or "ems" in val:
-            return "Ambulance"
+            return "EMT"
         elif any(x in val for x in ["walk", "self", "car", "vehicle", "private"]):
             return "Car"
         elif "wheelchair" in val:
@@ -291,7 +290,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     # =========================
     # ENSURE CATEGORY COMPLETENESS
     # =========================
-    base_categories = ["Ambulance", "Car", "Wheelchair"]
+    base_categories = ["EMT", "Car", "Wheelchair"]
     if include_other:
         base_categories.append("Other")
 
@@ -310,7 +309,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     # COLORS
     # =========================
     color_map = {
-        "Ambulance": p["color_ambulance"],
+        "EMT": p["color_emt"],
         "Car": p["color_car"],
         "Wheelchair": p["color_wheelchair"],
         "Other": p["color_other"],

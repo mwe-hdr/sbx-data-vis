@@ -1,30 +1,29 @@
 # =============================================================================
-# Domain      : ED (Emergency Department)
-# Report Name : ED Visits by Year
+# Report Name : Facility Visits by Year
 #
 # Description :
 # Generates a yearly volume trend report showing the total number of
-# Emergency Department visits by calendar year. ED visit dates are
+# Facility visits by calendar year. Facility visit dates are
 # extracted from encounter timestamps and aggregated into annual visit
 # counts for the selected reporting period.
 #
 # The visualization presents visit volume as a bar chart, allowing users
 # to evaluate long-term demand trends, identify year-over-year changes in
-# ED utilization, and support strategic planning, resource allocation,
+# Facility utilization, and support strategic planning, resource allocation,
 # and operational performance monitoring.
 #
 # Inputs :
-#   - ed_start_dtm  : ED visit/arrival datetime
+#   - start_dtm  : Facility visit/arrival datetime
 #   - start_date : Reporting period start date
 #   - end_date   : Reporting period end date
 #
 # Outputs :
-#   - PNG bar chart displaying total ED visits by year
+#   - PNG bar chart displaying total Facility visits by year
 #       * X-axis: Arrival Year
 #       * Y-axis: Number of Visits
 #
 # Key Metrics :
-#   - Total ED visits by year
+#   - Total Facility visits by year
 #   - Annual volume trends across the reporting period
 # =============================================================================
 
@@ -49,7 +48,7 @@ VISUAL_ID = "vis_03"
 
 def run(df, params, start_date, end_date, output_dir, generate_output_name):
     """
-    Visualization 03: ED Visits by Year
+    Visualization 03: Facility Visits by Year
     """
 
     logging.info(f"[{VISUAL_ID}] Starting visualization")
@@ -82,7 +81,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         "bar_color": "#1f77b4",
 
         # Title
-        "title": "ED Visits by Year",
+        "title": "Facility Visits by Year",
     }
 
     # Merge params (override defaults)
@@ -141,7 +140,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     # =========================
     # VALIDATION
     # =========================
-    required_columns = ["ed_start_dtm"]
+    required_columns = ["start_dtm"]
 
     for col in required_columns:
         if col not in df.columns:
@@ -154,10 +153,10 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     # DATA PREP
     # =========================
     try:
-        df["ed_start_dtm"] = pd.to_datetime(df["ed_start_dtm"], errors="coerce")
-        df = df.dropna(subset=["ed_start_dtm"])
+        df["start_dtm"] = pd.to_datetime(df["start_dtm"], errors="coerce")
+        df = df.dropna(subset=["start_dtm"])
     except Exception as e:
-        logging.error(f"[{VISUAL_ID}] Failed to process ed_start_dtm: {e}")
+        logging.error(f"[{VISUAL_ID}] Failed to process start_dtm: {e}")
         return
 
     # =========================
@@ -167,16 +166,16 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         if start_date:
             start_dt = pd.to_datetime(start_date, errors="coerce")
         else:
-            start_dt = df["ed_start_dtm"].min()
+            start_dt = df["start_dtm"].min()
 
         if end_date:
             end_dt = pd.to_datetime(end_date, errors="coerce")
         else:
-            end_dt = df["ed_start_dtm"].max()
+            end_dt = df["start_dtm"].max()
 
         df = df[
-            (df["ed_start_dtm"] >= start_dt) &
-            (df["ed_start_dtm"] <= end_dt)
+            (df["start_dtm"] >= start_dt) &
+            (df["start_dtm"] <= end_dt)
         ]
     except Exception as e:
         logging.warning(f"[{VISUAL_ID}] Date filtering failed: {e}")
@@ -189,7 +188,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     # FEATURE ENGINEERING
     # =========================
     try:
-        df["arrival_year"] = df["ed_start_dtm"].dt.year
+        df["arrival_year"] = df["start_dtm"].dt.year
     except Exception as e:
         logging.error(f"[{VISUAL_ID}] Failed to derive year: {e}")
         return
@@ -217,7 +216,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     # =========================
     rdb_rows = []
 
-    report_title = p.get("title", "ED Visits by Year")
+    report_title = p.get("title", "Facility Visits by Year")
 
     for _, row in yearly.iterrows():
 
@@ -279,12 +278,12 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     legend_handles = [
         Patch(
             facecolor=p["bar_color"],
-            label="ED Visits"
+            label="Facility Visits"
         )
     ]
 
     legend_labels = [
-        "ED Visits"
+        "Facility Visits"
     ]
 
     # =========================

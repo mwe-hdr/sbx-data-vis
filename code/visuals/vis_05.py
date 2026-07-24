@@ -1,10 +1,9 @@
 # =============================================================================
-# Domain      : ED (Emergency Department)
-# Report Name : Monthly ED Arrivals Trend
+# Report Name : Monthly Facility Arrivals Trend
 #
 # Description :
 # Generates a monthly trend analysis of Emergency Department arrival
-# volume over the selected reporting period. ED arrival timestamps are
+# volume over the selected reporting period. Facility arrival timestamps are
 # grouped by month and aggregated into encounter counts to display changes
 # in visit volume over time.
 #
@@ -18,19 +17,19 @@
 # continuity.
 #
 # This report supports:
-#   - ED volume trend analysis
+#   - Facility volume trend analysis
 #   - Seasonal utilization monitoring
 #   - Capacity and staffing planning
 #   - Demand forecasting
 #   - Operational performance assessment
 #
 # Inputs :
-#   - ed_start_dtm : ED arrival/start datetime
+#   - start_dtm : Facility arrival/start datetime
 #   - start_date   : Reporting period start date
 #   - end_date     : Reporting period end date
 #
 # Outputs :
-#   - PNG line chart displaying monthly ED arrival counts
+#   - PNG line chart displaying monthly Facility arrival counts
 #       * X-axis: Month
 #       * Y-axis: Number of Arrivals
 #   - RDB records containing:
@@ -39,7 +38,7 @@
 #       * Trend metrics for downstream reporting
 #
 # Key Metrics :
-#   - Monthly ED arrivals
+#   - Monthly Facility arrivals
 #   - Arrival volume trends over time
 #   - Month-to-month utilization patterns
 # =============================================================================
@@ -65,7 +64,7 @@ VISUAL_ID = "vis_05"
 
 def run(df, params, start_date, end_date, output_dir, generate_output_name):
     """
-    Visualization 05: Monthly ED Arrivals Trend
+    Visualization 05: Monthly Facility Arrivals Trend
     """
 
     logging.info(f"Starting {VISUAL_ID}")
@@ -103,7 +102,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         "y_max": None,
 
         # Title
-        "title": "Monthly ED Arrivals",
+        "title": "Monthly Facility Arrivals",
     }
 
     # Merge params
@@ -159,7 +158,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     # =========================
     # VALIDATION
     # =========================
-    required_cols = ["ed_start_dtm"]
+    required_cols = ["start_dtm"]
     for col in required_cols:
         if col not in df.columns:
             logging.error(f"{VISUAL_ID}: Missing required column '{col}'")
@@ -172,13 +171,13 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         df = df.copy()
 
         # Convert datetime
-        df["ed_start_dtm"] = pd.to_datetime(df["ed_start_dtm"], errors="coerce")
+        df["start_dtm"] = pd.to_datetime(df["start_dtm"], errors="coerce")
 
         # Drop invalid
-        df = df.dropna(subset=["ed_start_dtm"])
+        df = df.dropna(subset=["start_dtm"])
 
         if df.empty:
-            logging.warning(f"{VISUAL_ID}: No valid ed_start_dtm values")
+            logging.warning(f"{VISUAL_ID}: No valid start_dtm values")
             return
 
         # Filter by date range
@@ -186,9 +185,9 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         end_dt = pd.to_datetime(end_date, errors="coerce")
 
         if pd.notna(start_dt):
-            df = df[df["ed_start_dtm"] >= start_dt]
+            df = df[df["start_dtm"] >= start_dt]
         if pd.notna(end_dt):
-            df = df[df["ed_start_dtm"] <= end_dt]
+            df = df[df["start_dtm"] <= end_dt]
 
         if df.empty:
             logging.warning(f"{VISUAL_ID}: No data after date filtering")
@@ -202,7 +201,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     # FEATURE ENGINEERING
     # =========================
     try:
-        df["year_month"] = df["ed_start_dtm"].dt.to_period("M").dt.to_timestamp()
+        df["year_month"] = df["start_dtm"].dt.to_period("M").dt.to_timestamp()
 
     except Exception as e:
         logging.error(f"{VISUAL_ID}: Feature engineering failed - {str(e)}")
@@ -253,7 +252,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                     "start_date": start_date,
                     "end_date": end_date,
 
-                    "report_title": "Monthly ED Arrivals"
+                    "report_title": "Monthly Facility Arrivals"
                 })
 
         if monthly_counts.empty:
