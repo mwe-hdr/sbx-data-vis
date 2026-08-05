@@ -11,6 +11,7 @@ label_color,black,Label text color
 fig_width,3,Figure width
 fig_height,2.75,Figure height
 dpi,300,Image resolution
+visit_override_2025,75975
 
 ### ===== TITLE IMAGE =====
 

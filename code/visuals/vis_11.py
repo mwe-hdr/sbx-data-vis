@@ -76,7 +76,9 @@ from utils.vis_helpers import (
     format_date_range,
     normalize_params,
     save_title_png,
-    save_legend_png
+    save_legend_png,
+    generate_census,
+    crop_image
 )
 
 VISUAL_ID = "vis_11"
@@ -90,133 +92,6 @@ def _safe_param(params, key, default, cast_type=None):
     except Exception:
         logger.warning(f"Invalid param for {key}; using default {default}")
         return default
-
-
-def _generate_census(df, start_date, end_date):
-    """
-    Minimal vis_08-equivalent census generation.
-    Builds hourly time-series census from encounter windows.
-    """
-    try:
-        df = df.copy()
-
-        # =========================================================
-        # VALIDATION
-        # =========================================================
-        if not all(col in df.columns for col in ["arrival_dtm", "tmt_stop_dtm"]):
-            logging.error(f"[{VISUAL_ID}] Missing required columns")
-            return pd.DataFrame()
-
-        # =========================================================
-        # DATETIME PREP
-        # =========================================================
-        df["arrival_dtm"] = pd.to_datetime(df["arrival_dtm"], errors="coerce")
-        df["tmt_stop_dtm"] = pd.to_datetime(df["tmt_stop_dtm"], errors="coerce")
-
-        df = df.dropna(df=["arrival_dtm", "tmt_stop_dtm"])
-
-        invalid_mask = df["tmt_stop_dtm"] < df["arrival_dtm"]
-        zero_mask = df["tmt_stop_dtm"] == df["arrival_dtm"]
-
-        df.loc[invalid_mask, "tmt_stop_dtm"] = (
-            df.loc[invalid_mask, "arrival_dtm"] + pd.Timedelta(minutes=1)
-        )
-        df.loc[zero_mask, "tmt_stop_dtm"] = (
-            df.loc[zero_mask, "arrival_dtm"] + pd.Timedelta(minutes=1)
-        )
-
-        # =========================================================
-        # DATE RANGE
-        # =========================================================
-        start_date = pd.to_datetime(start_date)
-        end_date = pd.to_datetime(end_date)
-
-        if end_date.hour == 0 and end_date.minute == 0 and end_date.second == 0:
-            end_date = end_date + pd.Timedelta(days=1) - pd.Timedelta(minutes=1)
-
-        # =========================
-        # DATE WINDOW FILTER
-        # =========================
-        if "tmt_stop_dtm" in df.columns:
-            # Include any record whose interval overlaps the requested window
-            df = df[
-                (df["arrival_dtm"] <= end_date) &
-                (df["tmt_stop_dtm"] >= start_date)
-            ].copy()
-        else:
-            # Fallback for datasets without tmt_stop_dtm:
-            # arrival_dtm must fall within the requested window
-            df = df[
-                (df["arrival_dtm"] >= start_date) &
-                (df["arrival_dtm"] <= end_date)
-            ].copy()
-
-        if df.empty:
-            logging.warning(f"{VISUAL_ID}: no data after date window filtering")
-            return
-
-        # =========================================================
-        # VISIT WINDOWS
-        # =========================================================
-        df["start"] = df["arrival_dtm"]
-        df["end"] = df["tmt_stop_dtm"]
-
-        df["end"] = df["end"].clip(lower=start_date, upper=end_date)
-        df["end"] = df["end"] + pd.Timedelta(minutes=1)
-
-        # =========================================================
-        # TIME GRID
-        # =========================================================
-        intervals = pd.date_range(start=start_date, end=end_date, freq="min")
-        base = pd.DataFrame({"interval": intervals})
-
-        # =========================================================
-        # EVENTS
-        # =========================================================
-        start_events = df[["start"]].rename(columns={"start": "interval"})
-        start_events["delta"] = 1
-
-        end_events = df[["end"]].rename(columns={"end": "interval"})
-        end_events["delta"] = -1
-
-        events = pd.concat([start_events, end_events])
-
-        events = events[
-            (events["interval"] >= start_date) &
-            (events["interval"] <= end_date)
-        ]
-
-        events = (
-            events.groupby("interval", as_index=False)["delta"]
-            .sum()
-            .sort_values("interval")
-        )
-
-        # =========================================================
-        # MERGE + CENSUS
-        # =========================================================
-        ts = base.merge(events, on="interval", how="left")
-        ts["delta"] = ts["delta"].fillna(0)
-
-        initial_count = df[
-            (df["arrival_dtm"] < start_date) &
-            (df["tmt_stop_dtm"] >= start_date)
-        ].shape[0]
-
-        ts["census"] = ts["delta"].cumsum()
-        ts["census"] += initial_count
-
-        ts["census"] = (
-            pd.to_numeric(ts["census"], errors="coerce")
-            .round()
-            .astype("Int64")
-        )
-
-        return ts
-
-    except Exception as e:
-        logger.error(f"Census generation failed: {e}")
-        return pd.DataFrame()
     
 def run(df, params, start_date, end_date, output_dir, generate_output_name):
     logger.info(f"[{VISUAL_ID}] Starting run")
@@ -226,7 +101,21 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         if df is None or df.empty:
             logger.warning("Input dataframe is empty")
             return
-        
+
+        # =========================
+        # DATE WINDOW FILTER
+        # =========================
+        # arrival_dtm must fall within the requested window
+        df["arrival_dtm"] = pd.to_datetime(df["arrival_dtm"], errors="coerce")
+        df_visits = df[
+            (df["arrival_dtm"] >= start_date) &
+            (df["arrival_dtm"] <= end_date)
+        ].copy()
+
+        if df_visits.empty:
+            logging.warning(f"{VISUAL_ID}: no data after date window filtering")
+            return
+
         ESI_LABELS = {
             0: "0-Unknown",
             1: "1-Immediate",
@@ -299,19 +188,26 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             params.get("tick_fontsize", 10) or 10
         )
 
-        if "esi" not in df.columns:
-            logger.error(f"[{VISUAL_ID}] Missing required column: esi")
-            return
+        # =========================================================
+        # VALIDATION
+        # =========================================================
+        if not all(col in df.columns for col in ["arrival_dtm", "tmt_stop_dtm","esi"]):
+            logging.error(f"[{VISUAL_ID}] Missing required columns")
+            return pd.DataFrame()
 
         df["esi"] = pd.to_numeric(df["esi"], errors="coerce")
         df["esi"] = df["esi"].fillna(0).astype(int)
         df["acuity_name"] = df["esi"].map(ESI_LABELS).fillna("0-Unknown")
 
+        # =========================================================
+        # CENSUS BY ESI
+        # =========================================================
+
         results = []
 
         for esi_value, group_df in df.groupby("acuity_name"):
 
-            ts = _generate_census(
+            ts, census_df = generate_census(
                 group_df,
                 start_date,
                 end_date
@@ -347,17 +243,17 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                 "room_need": room_need
             })
 
-        ts_total = _generate_census(
+        ts_total, census_df = generate_census(
             df,
             start_date,
             end_date
         )
 
+        ts_total["hour"] = ts_total["interval"].dt.hour
+
         ts_total["adj_census"] = (
             ts_total["census"] * (1 + growth)
         )
-
-        ts_total["hour"] = ts_total["interval"].dt.hour
 
         hourly_total = (
             ts_total.groupby("hour")["adj_census"]
@@ -380,6 +276,72 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         })
 
         table_df = pd.DataFrame(results)
+
+        # =========================================================
+        # INSPECTION FILES
+        # =========================================================
+
+        visit_df_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=f"{VISUAL_ID}_visit_df",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="csv"
+            )
+        )
+
+        df_visits.to_csv(
+            visit_df_file,
+            index=False
+        )
+
+        logger.info(
+            f"[{VISUAL_ID}] Visit DF exported: "
+            f"{visit_df_file} ({len(df_visits):,} rows)"
+        )
+
+        census_df_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=f"{VISUAL_ID}_census_df",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="csv"
+            )
+        )
+
+        census_df.to_csv(
+            census_df_file,
+            index=False
+        )
+
+        logger.info(
+            f"[{VISUAL_ID}] Census DF exported: "
+            f"{census_df_file} ({len(census_df):,} rows)"
+        )
+
+        ts_total_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=f"{VISUAL_ID}_ts_total",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="csv"
+            )
+        )
+
+        ts_total.to_csv(
+            ts_total_file,
+            index=False
+        )
+
+        # =========================================================
+        # ESI SCENARIO TABLE 
+        # =========================================================
 
         scenario_factors = {
             "1-Immediate": _safe_param(
@@ -497,28 +459,9 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             "scenario_room_need"
         ].round(1)
 
-        visit_df = df.copy()
-
-        visit_df["arrival_dtm"] = pd.to_datetime(
-            visit_df["arrival_dtm"],
-            errors="coerce"
-        )
-
-        visit_df["tmt_stop_dtm"] = pd.to_datetime(
-            visit_df["tmt_stop_dtm"],
-            errors="coerce"
-        )
-
-        visit_df = visit_df.dropna(
-            visit_df=["arrival_dtm", "tmt_stop_dtm"]
-        )
-
-        visit_df = visit_df[
-            (visit_df["arrival_dtm"] <= pd.to_datetime(end_date)) &
-            (visit_df["tmt_stop_dtm"] >= pd.to_datetime(start_date))
-        ]
-
-        visit_count = len(visit_df)
+        # =========================================================
+        # ACUITY TABLE FORMATTING
+        # =========================================================
 
         sort_order = {
             "0-Unknown": 0,
@@ -730,6 +673,10 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
         ax.axis("off")
 
+        # ==================================
+        # SCENARIO TABLE FORMATTING
+        # ==================================
+
         scenario_col_widths = [
             0.23,
             0.12,
@@ -909,7 +856,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         plt.close()
 
         # ==================================
-        # IMAGE CROPPING
+        # CROPPING
         # ==================================
 
         crop_top_pct = float(
@@ -949,124 +896,8 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             ]
         ):
 
-            img = Image.open(output_file)
-
-            width, height = img.size
-
-            left = int(
-                width *
-                (
-                    crop_left_pct / 100.0
-                )
-            )
-
-            right = int(
-                width *
-                (
-                    1 -
-                    crop_right_pct / 100.0
-                )
-            )
-
-            upper = int(
-                height *
-                (
-                    crop_top_pct / 100.0
-                )
-            )
-
-            lower = int(
-                height *
-                (
-                    1 -
-                    crop_bottom_pct / 100.0
-                )
-            )
-
-            img = img.crop(
-                (
-                    left,
-                    upper,
-                    right,
-                    lower
-                )
-            )
-
-            img.save(output_file)
-
-            logger.info(
-                f"[{VISUAL_ID}] Image cropped "
-                f"(top={crop_top_pct}%, "
-                f"bottom={crop_bottom_pct}%, "
-                f"left={crop_left_pct}%, "
-                f"right={crop_right_pct}%)"
-            )
-
-        # ==================================
-        # IMAGE CROPPING
-        # ==================================
-
-        if any(
-            [
-                crop_top_pct,
-                crop_bottom_pct,
-                crop_left_pct,
-                crop_right_pct
-            ]
-        ):
-
-            img = Image.open(scenario_output_file)
-
-            width, height = img.size
-
-            left = int(
-                width *
-                (
-                    crop_left_pct / 100.0
-                )
-            )
-
-            right = int(
-                width *
-                (
-                    1 -
-                    crop_right_pct / 100.0
-                )
-            )
-
-            upper = int(
-                height *
-                (
-                    crop_top_pct / 100.0
-                )
-            )
-
-            lower = int(
-                height *
-                (
-                    1 -
-                    crop_bottom_pct / 100.0
-                )
-            )
-
-            img = img.crop(
-                (
-                    left,
-                    upper,
-                    right,
-                    lower
-                )
-            )
-
-            img.save(scenario_output_file)
-
-            logger.info(
-                f"[{VISUAL_ID}] Image cropped "
-                f"(top={crop_top_pct}%, "
-                f"bottom={crop_bottom_pct}%, "
-                f"left={crop_left_pct}%, "
-                f"right={crop_right_pct}%)"
-            )
+            crop_image(scenario_output_file, crop_top_pct, crop_bottom_pct, crop_left_pct, crop_right_pct)
+            crop_image(output_file, crop_top_pct, crop_bottom_pct, crop_left_pct, crop_right_pct)
 
         # ==================================
         # LEGEND PNG
@@ -1153,6 +984,12 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             f"[{VISUAL_ID}] Title written: "
             f"{title_output_file}"
         )
+
+        # =========================================================
+        # VISITS PNG
+        # =========================================================
+
+        visit_count = len(df_visits)
 
         visit_output_file = os.path.join(
             output_dir,

@@ -60,7 +60,8 @@ from utils.vis_helpers import (
     format_display_value,
     get_display_parameters,
     save_parameter_table_png,
-    save_title_png
+    save_title_png,
+    generate_census
 )
 VISUAL_ID = "vis_08"
 
@@ -70,110 +71,10 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     params = normalize_params(params)
 
     try:
-        # =========================================================
-        # VALIDATION
-        # =========================================================
-        if not all(col in df.columns for col in ["arrival_dtm", "tmt_stop_dtm"]):
-            logging.error(f"[{VISUAL_ID}] Missing required columns")
-            return
-
-        # =========================
-        # DATE WINDOW FILTER
-        # =========================
-        if "tmt_stop_dtm" in df.columns:
-            # Include any record whose interval overlaps the requested window
-            df = df[
-                (df["arrival_dtm"] <= end_date) &
-                (df["tmt_stop_dtm"] >= start_date)
-            ].copy()
-        else:
-            # Fallback for datasets without tmt_stop_dtm:
-            # arrival_dtm must fall within the requested window
-            df = df[
-                (df["arrival_dtm"] >= start_date) &
-                (df["arrival_dtm"] <= end_date)
-            ].copy()
-
-        if df.empty:
-            logging.warning(f"{VISUAL_ID}: no data after date window filtering")
-            return
-
-        # =========================================================
-        # DATE RANGE
-        # =========================================================
-        start_date = pd.to_datetime(start_date)
-        end_date = pd.to_datetime(end_date)
-
-        if end_date.hour == 0 and end_date.minute == 0 and end_date.second == 0:
-            end_date = end_date + pd.Timedelta(days=1) - pd.Timedelta(minutes=1)
-
-        # =========================================================
-        # FILTER
-        # =========================================================
-        df = df[
-            (df["arrival_dtm"] <= end_date) &
-            (df["tmt_stop_dtm"] >= start_date)
-        ].copy()
-
-        if df.empty:
-            logging.warning(f"[{VISUAL_ID}] No data after filtering")
-            return
-
-        # =========================================================
-        # VISIT WINDOWS
-        # =========================================================
-        df["start"] = df["arrival_dtm"]
-        df["end"] = df["tmt_stop_dtm"]
-
-        df["end"] = df["end"].clip(lower=start_date, upper=end_date)
-        df["end"] = df["end"] + pd.Timedelta(minutes=1)
-
-        # =========================================================
-        # TIME GRID
-        # =========================================================
-        intervals = pd.date_range(start=start_date, end=end_date, freq="min")
-        base = pd.DataFrame({"interval": intervals})
-
-        # =========================================================
-        # EVENTS
-        # =========================================================
-        start_events = df[["start"]].rename(columns={"start": "interval"})
-        start_events["delta"] = 1
-
-        end_events = df[["end"]].rename(columns={"end": "interval"})
-        end_events["delta"] = -1
-
-        events = pd.concat([start_events, end_events])
-
-        events = events[
-            (events["interval"] >= start_date) &
-            (events["interval"] <= end_date)
-        ]
-
-        events = (
-            events.groupby("interval", as_index=False)["delta"]
-            .sum()
-            .sort_values("interval")
-        )
-
-        # =========================================================
-        # MERGE + CENSUS
-        # =========================================================
-        ts = base.merge(events, on="interval", how="left")
-        ts["delta"] = ts["delta"].fillna(0)
-
-        initial_count = df[
-            (df["arrival_dtm"] < start_date) &
-            (df["tmt_stop_dtm"] >= start_date)
-        ].shape[0]
-
-        ts["census"] = ts["delta"].cumsum()
-        ts["census"] += initial_count
-
-        ts["census"] = (
-            pd.to_numeric(ts["census"], errors="coerce")
-            .round()
-            .astype("Int64")
+        ts, census_df = generate_census(
+            df,
+            start_date,
+            end_date
         )
 
         enable_rdb = int(params.get("rdb_write", 0))
@@ -377,31 +278,8 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             below = pd.Series(True, index=ts.index)
             above = pd.Series(False, index=ts.index)
 
-        # # -----------------------------------------------------
-        # # MAIN LINE 
-        # # -----------------------------------------------------
-        # below_line, = plt.plot(
-        #     ts["interval"],
-        #     ts["census"].where(below),
-        #     color=below_color,
-        #     linewidth=line_width,
-        #     label=f"Census (≤{int(capacity_threshold_pct*100)}%)"
-        # )
-
-        # above_line = None
-
-        # if capacity_value is not None:
-
-        #     above_line, = plt.plot(
-        #         ts["interval"],
-        #         ts["census"].where(above),
-        #         color=above_color,
-        #         linewidth=line_width,
-        #         label=f"Census (>{int(capacity_threshold_pct*100)}%)"
-        #     )
-
         # -----------------------------------------------------
-        # MAIN LINE (CONTINUOUS)
+        # MAIN LINE 
         # -----------------------------------------------------
         below_line, = plt.plot(
             ts["interval"],
@@ -440,8 +318,11 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                     y=capacity_value,
                     linestyle=capacity_linestyle,
                     linewidth=capacity_linewidth,
-                    label=f"Capacity ({capacity_value})"
+                    color="dodgerblue",
+                    label=f"Capacity ({capacity_value})",
+                    zorder=10
                 )
+
         # -----------------------------------------------------
         # AVERAGE LINE
         # -----------------------------------------------------
@@ -456,7 +337,8 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                 color=avg_line_color,
                 linestyle=avg_linestyle,
                 linewidth=avg_linewidth,
-                label=f"Average ({round(avg_census,1)})"
+                label=f"Average ({round(avg_census,1)})",
+                zorder=11
             )
 
         # Labels

@@ -49,7 +49,8 @@ from utils.vis_helpers import (
     format_display_value,
     get_display_parameters,
     save_parameter_table_png,
-    save_title_png
+    save_title_png,
+    map_arrival_method
 )
 
 def _load_cohort_location(
@@ -98,57 +99,6 @@ def _load_cohort_location(
         )
 
         return None, None
-
-def _map_arrival_method(value):
-
-    if pd.isna(value):
-        return "Other"
-
-    txt = str(value).strip().lower()
-
-    ambulance_terms = [
-        "ambulance",
-        "medical flight",
-        "hospital transport",
-        "tc bls stretcher",
-        "tc als stretcher",
-        "tc critical care team",
-        "tc pals stretcher",
-        "tc bariatric"
-    ]
-
-    if any(term in txt for term in ambulance_terms):
-        return "EMT"
-
-    if (
-        txt == "police"
-        or "police" in txt
-        or "sheriff" in txt
-    ):
-        return "Police"
-
-    if (
-        "wheelchair" in txt
-        or "wheelchair van" in txt
-    ):
-        return "Wheelchair"
-
-    car_walk_terms = [
-        "car",
-        "walk",
-        "ambulatory",
-        "assist from vehicle",
-        "self",
-        "taxi",
-        "public transportation",
-        "bus",
-        "community assistance"
-    ]
-
-    if any(term in txt for term in car_walk_terms):
-        return "Car / Walk-in"
-
-    return "Other"
 
 def _build_dynamic_legend(
     values,
@@ -708,7 +658,7 @@ def run(
 
     df["arrival_group"] = (
         df["arrival_method"]
-        .apply(_map_arrival_method)
+        .apply(map_arrival_method)
     )
 
     df["esi"] = pd.to_numeric(

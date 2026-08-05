@@ -3,8 +3,8 @@ param,value,description,display,display_format
 ### ===== CORE PARAMETERS =====
 
 variable_10_year_growth,0.00,Growth adjustment factor,0,percent0
-peak_period_start,19,Start hour for peak period,1,hour12
-peak_period_length_hours,8,Length of peak period,1,integer
+peak_period_start,13,Start hour for peak period,1,hour12
+peak_period_length_hours,10,Length of peak period,1,integer
 utilization,0.75,Capacity utilization factor,1,percent0
 
 ### ===== FIGURE =====

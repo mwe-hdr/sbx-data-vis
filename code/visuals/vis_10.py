@@ -29,7 +29,7 @@
 #   - Strategic operational planning
 #
 # Inputs :
-#   - arrival_dtm            : Facility arrival/start datetime
+#   - tmt_start_dtm            : Facility arrival/start datetime
 #   - tmt_stop_dtm             : Facility departure/stop datetime
 #   - start_date              : Reporting period start date/time
 #   - end_date                : Reporting period end date/time
@@ -76,7 +76,8 @@ from utils.vis_helpers import (
     format_display_value,
     get_display_parameters,
     save_parameter_table_png,
-    save_title_png
+    save_title_png,
+    generate_census
 )
 from utils.io_helpers import (
     load_data,
@@ -96,133 +97,6 @@ def _safe_param(params, key, default, cast_type=None):
     except Exception:
         logger.warning(f"Invalid param for {key}; using default {default}")
         return default
-
-def _generate_census(df, start_date, end_date):
-    """
-    Minimal vis_08-equivalent census generation.
-    Builds hourly time-series census from encounter windows.
-    """
-    try:
-        df = df.copy()
-
-        # =========================================================
-        # VALIDATION
-        # =========================================================
-        if not all(col in df.columns for col in ["arrival_dtm", "tmt_stop_dtm"]):
-            logging.error(f"[{VISUAL_ID}] Missing required columns")
-            return pd.DataFrame()
-
-        # =========================================================
-        # DATETIME PREP
-        # =========================================================
-        df["arrival_dtm"] = pd.to_datetime(df["arrival_dtm"], errors="coerce")
-        df["tmt_stop_dtm"] = pd.to_datetime(df["tmt_stop_dtm"], errors="coerce")
-
-        df = df.dropna(df=["arrival_dtm", "tmt_stop_dtm"])
-
-        invalid_mask = df["tmt_stop_dtm"] < df["arrival_dtm"]
-        zero_mask = df["tmt_stop_dtm"] == df["arrival_dtm"]
-
-        df.loc[invalid_mask, "tmt_stop_dtm"] = (
-            df.loc[invalid_mask, "arrival_dtm"] + pd.Timedelta(minutes=1)
-        )
-        df.loc[zero_mask, "tmt_stop_dtm"] = (
-            df.loc[zero_mask, "arrival_dtm"] + pd.Timedelta(minutes=1)
-        )
-
-        # =========================================================
-        # DATE RANGE
-        # =========================================================
-        start_date = pd.to_datetime(start_date)
-        end_date = pd.to_datetime(end_date)
-
-        if end_date.hour == 0 and end_date.minute == 0 and end_date.second == 0:
-            end_date = end_date + pd.Timedelta(days=1) - pd.Timedelta(minutes=1)
-
-        # =========================
-        # DATE WINDOW FILTER
-        # =========================
-        if "tmt_stop_dtm" in df.columns:
-            # Include any record whose interval overlaps the requested window
-            df = df[
-                (df["arrival_dtm"] <= end_date) &
-                (df["tmt_stop_dtm"] >= start_date)
-            ].copy()
-        else:
-            # Fallback for datasets without tmt_stop_dtm:
-            # arrival_dtm must fall within the requested window
-            df = df[
-                (df["arrival_dtm"] >= start_date) &
-                (df["arrival_dtm"] <= end_date)
-            ].copy()
-
-        if df.empty:
-            logging.warning(f"{VISUAL_ID}: no data after date window filtering")
-            return
-
-        # =========================================================
-        # VISIT WINDOWS
-        # =========================================================
-        df["start"] = df["arrival_dtm"]
-        df["end"] = df["tmt_stop_dtm"]
-
-        df["end"] = df["end"].clip(lower=start_date, upper=end_date)
-        df["end"] = df["end"] + pd.Timedelta(minutes=1)
-
-        # =========================================================
-        # TIME GRID
-        # =========================================================
-        intervals = pd.date_range(start=start_date, end=end_date, freq="min")
-        base = pd.DataFrame({"interval": intervals})
-
-        # =========================================================
-        # EVENTS
-        # =========================================================
-        start_events = df[["start"]].rename(columns={"start": "interval"})
-        start_events["delta"] = 1
-
-        end_events = df[["end"]].rename(columns={"end": "interval"})
-        end_events["delta"] = -1
-
-        events = pd.concat([start_events, end_events])
-
-        events = events[
-            (events["interval"] >= start_date) &
-            (events["interval"] <= end_date)
-        ]
-
-        events = (
-            events.groupby("interval", as_index=False)["delta"]
-            .sum()
-            .sort_values("interval")
-        )
-
-        # =========================================================
-        # MERGE + CENSUS
-        # =========================================================
-        ts = base.merge(events, on="interval", how="left")
-        ts["delta"] = ts["delta"].fillna(0)
-
-        initial_count = df[
-            (df["arrival_dtm"] < start_date) &
-            (df["tmt_stop_dtm"] >= start_date)
-        ].shape[0]
-
-        ts["census"] = ts["delta"].cumsum()
-        ts["census"] += initial_count
-
-        ts["census"] = (
-            pd.to_numeric(ts["census"], errors="coerce")
-            .round()
-            .astype("Int64")
-        )
-
-        return ts
-
-    except Exception as e:
-        logger.error(f"Census generation failed: {e}")
-        return pd.DataFrame()
-
 
 def run(df, params, start_date, end_date, output_dir, generate_output_name):
     logger.info(f"[{VISUAL_ID}] Starting run")
@@ -348,7 +222,11 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # =========================
         # STEP 1: Census 
         # =========================
-        ts = _generate_census(df, start_date, end_date)
+        ts, census_df = generate_census(
+            df,
+            start_date,
+            end_date
+        )
 
         if ts.empty:
             logger.warning("Census dataset empty after generation")
@@ -461,6 +339,73 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             f"Peak Census: {round(peak_census, 2)} | "
             f"Room Need: {round(room_need, 2)} | "
             f"Utilization: {utilization}"
+        )
+
+        # =========================================================
+        # INSPECTION FILES
+        # =========================================================
+
+        census_input_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=f"{VISUAL_ID}_census_input",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="csv"
+            )
+        )
+
+        df.to_csv(
+            census_input_file,
+            index=False
+        )
+
+        logger.info(
+            f"[{VISUAL_ID}] Census Input File exported: "
+            f"{census_input_file} ({len(df):,} rows)"
+        )
+
+        census_df_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=f"{VISUAL_ID}_census_df",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="csv"
+            )
+        )
+
+        census_df.to_csv(
+            census_df_file,
+            index=False
+        )
+
+        logger.info(
+            f"[{VISUAL_ID}] Census DF exported: "
+            f"{census_df_file} ({len(census_df):,} rows)"
+        )
+
+        ts_df_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=f"{VISUAL_ID}_ts_df",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="csv"
+            )
+        )
+
+        ts.to_csv(
+            ts_df_file,
+            index=False
+        )
+
+        logger.info(
+            f"[{VISUAL_ID}] TS DF exported: "
+            f"{ts_df_file} ({len(ts):,} rows)"
         )
 
         # =========================

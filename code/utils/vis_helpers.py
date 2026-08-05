@@ -1,8 +1,12 @@
 import pandas as pd
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mtick
 import os
 import logging
+
+logger = logging.getLogger(__name__)
 
 def normalize_params(params):
     if params is None:
@@ -89,7 +93,7 @@ def save_title_png(
         pad_inches=0
     )
 
-    plt.close()
+    plt.close(fig)
 
 def format_date_range(start_date, end_date):
     try:
@@ -430,3 +434,286 @@ def save_parameter_table_png(
     plt.close()
 
     return output_file
+
+def crop_image(crop_file, crop_top=0, crop_bottom=0, crop_left=0, crop_right=0):
+
+    from PIL import Image
+
+    try:
+
+            width, height = img.size
+
+            left = int(
+                width *
+                (
+                    crop_left / 100.0
+                )
+            )
+
+            right = int(
+                width *
+                (
+                    1 -
+                    crop_right / 100.0
+                )
+            )
+
+            upper = int(
+                height *
+                (
+                    crop_top / 100.0
+                )
+            )
+
+            lower = int(
+                height *
+                (
+                    1 -
+                    crop_bottom / 100.0
+                )
+            )
+
+            with Image.open(crop_file) as img:
+
+                img = img.crop(
+                    (
+                        left,
+                        upper,
+                        right,
+                        lower
+                    )
+                )
+
+                img.save(crop_file)
+
+    except Exception as e:
+        logger.error(f"Image cropping failed: {e}")
+
+def generate_census(df, start_date, end_date):
+
+    try:
+        df = df.copy()
+
+        # =========================================================
+        # DATETIME PREP
+        # =========================================================
+        df["arrival_dtm"] = pd.to_datetime(df["arrival_dtm"], errors="coerce")
+        df["tmt_stop_dtm"] = pd.to_datetime(df["tmt_stop_dtm"], errors="coerce")
+
+        df = df.dropna(subset=["arrival_dtm"])
+
+        # =========================================================
+        # DATE RANGE
+        # =========================================================
+        start_date = pd.to_datetime(start_date)
+        end_date = pd.to_datetime(end_date)
+
+        if end_date.hour == 0 and end_date.minute == 0 and end_date.second == 0:
+            end_date = end_date + pd.Timedelta(days=1) - pd.Timedelta(minutes=1)
+
+        # =========================
+        # DATE WINDOW FILTER
+        # =========================
+        # Include any record whose interval overlaps the requested window
+        df = df[
+            (df["arrival_dtm"] <= end_date) &
+            (df["tmt_stop_dtm"] >= start_date)
+        ].copy()
+ 
+        # =========================================================
+        # VISIT WINDOWS
+        # =========================================================
+        df["start"] = df["arrival_dtm"]
+
+        df["end"] = (
+            df["tmt_stop_dtm"]
+            .clip(
+                lower=start_date,
+                upper=end_date
+            )
+            + pd.Timedelta(minutes=1)
+        )
+
+        # =========================================================
+        # TIME GRID
+        # =========================================================
+        intervals = pd.date_range(start=start_date, end=end_date, freq="min")
+        base = pd.DataFrame({"interval": intervals})
+
+        # =========================================================
+        # EVENTS
+        # =========================================================
+        start_events = (
+            df[df["arrival_dtm"] >= start_date][["arrival_dtm"]]
+            .rename(columns={"arrival_dtm": "interval"})
+        )
+
+        start_events["delta"] = 1
+
+        end_events = df[["end"]].rename(columns={"end": "interval"})
+        end_events["delta"] = -1
+
+        events = pd.concat([start_events, end_events])
+
+        events = events[
+            (events["interval"] >= start_date) &
+            (events["interval"] <= end_date)
+        ]
+
+        events = (
+            events.groupby("interval", as_index=False)["delta"]
+            .sum()
+            .sort_values("interval")
+        )
+
+        # =========================================================
+        # MERGE + CENSUS
+        # =========================================================
+        ts = base.merge(events, on="interval", how="left")
+        ts["delta"] = ts["delta"].fillna(0)
+
+        initial_count = df[
+            (df["arrival_dtm"] < start_date) &
+            (df["tmt_stop_dtm"] >= start_date)
+        ].shape[0]
+
+        ts["census"] = ts["delta"].cumsum()
+        ts["census"] += initial_count
+
+        ts["census"] = (
+            pd.to_numeric(ts["census"], errors="coerce")
+            .round()
+            .astype("Int64")
+        )
+
+        return ts, df
+
+    except Exception as e:
+        logger.error(f"Census generation failed: {e}")
+        return pd.DataFrame()
+
+def map_arrival_method(value):
+
+    if pd.isna(value):
+        return "Other"
+
+    txt = str(value).strip().lower()
+
+    ambulance_terms = [
+        "ambulance",
+        "medical flight",
+        "hospital transport",
+        "tc bls stretcher",
+        "tc als stretcher",
+        "tc critical care team",
+        "tc pals stretcher",
+        "tc bariatric"
+    ]
+
+    if any(term in txt for term in ambulance_terms):
+        return "EMT"
+
+    if (
+        txt == "police"
+        or "police" in txt
+        or "sheriff" in txt
+    ):
+        return "Police"
+
+    if (
+        "wheelchair" in txt
+        or "wheelchair van" in txt
+    ):
+        return "Wheelchair"
+
+    car_walk_terms = [
+        "car",
+        "walk",
+        "ambulatory",
+        "assist from vehicle",
+        "self",
+        "taxi",
+        "public transportation",
+        "bus",
+        "community assistance"
+    ]
+
+    if any(term in txt for term in car_walk_terms):
+        return "Car / Walk-in"
+
+    return "Other"
+
+def map_disposition(value):
+    """
+    Standardized ED disposition mapping.
+
+    Returns:
+        Observation
+        Inpatient
+        Transfer
+        Expired
+        Discharge
+        Exit w/o Care
+        Unknown
+    """
+
+    if pd.isna(value):
+        return "Unknown"
+
+    txt = str(value).strip().lower()
+
+    if txt == "":
+        return "Unknown"
+
+    # Observation (must be checked before inpatient)
+    if (
+        "observation" in txt
+        or txt.startswith("obs")
+        or "obs unit" in txt
+    ):
+        return "Observation"
+
+    # Inpatient
+    if (
+        "admit" in txt
+        or "admitted" in txt
+        or "inpatient" in txt
+    ):
+        return "Inpatient"
+
+    # Transfer
+    if "transfer" in txt:
+        return "Transfer"
+
+    # Expired
+    if (
+        "expired" in txt
+        or "death" in txt
+        or "deceased" in txt
+        or "doa" in txt
+        or "pronounced dead" in txt
+    ):
+        return "Expired"
+
+    # Exit Without Care
+    if (
+        "lwbs" in txt
+        or "left without being seen" in txt
+        or "left before triage" in txt
+        or "left prior to triage" in txt
+        or "left without treatment" in txt
+        or "left during treatment" in txt
+        or "against medical advice" in txt
+        or txt == "ama"
+    ):
+        return "Exit w/o Care"
+
+    # Discharge
+    if (
+        "discharge" in txt
+        or "discharged" in txt
+        or "home" in txt
+    ):
+        return "Discharge"
+
+    return "Unknown"

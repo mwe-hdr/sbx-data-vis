@@ -5,11 +5,11 @@ param,value,description,display,display_format
 variable_10_year_growth,0.00,Growth adjustment factor,1,percent0
 utilization,0.75,Capacity utilization factor,1,percent0
 
-esi1_volume_factor,1.00,ESI 1 volume multiplier,1,percent0
-esi2_volume_factor,1.00,ESI 2 volume multiplier,1,percent0
-esi3_volume_factor,1,ESI 3 volume multiplier,1,percent0
-esi4_volume_factor,1,ESI 4 volume multiplier,1,percent0
-esi5_volume_factor,1,ESI 5 volume multiplier,1,percent0
+esi1_volume_factor,0.00,ESI 1 volume multiplier,1,percent0
+esi2_volume_factor,0.00,ESI 2 volume multiplier,1,percent0
+esi3_volume_factor,0.00,ESI 3 volume multiplier,1,percent0
+esi4_volume_factor,0.00,ESI 4 volume multiplier,1,percent0
+esi5_volume_factor,0.00,ESI 5 volume multiplier,1,percent0
 
 ### ===== TABLE FIGURES =====
 

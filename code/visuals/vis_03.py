@@ -47,9 +47,6 @@ from utils.vis_helpers import (
 VISUAL_ID = "vis_03"
 
 def run(df, params, start_date, end_date, output_dir, generate_output_name):
-    """
-    Visualization 03: Facility Visits by Year
-    """
 
     logging.info(f"[{VISUAL_ID}] Starting visualization")
     params = normalize_params(params)
@@ -153,28 +150,24 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     # DATA PREP
     # =========================
     try:
-        df["arrival_dtm"] = pd.to_datetime(df["arrival_dtm"], errors="coerce")
-        df = df.dropna(df=["arrival_dtm"])
+        df = df.dropna(subset=["arrival_dtm"])
     except Exception as e:
         logging.error(f"[{VISUAL_ID}] Failed to process arrival_dtm: {e}")
         return
 
+    df["arrival_dtm"] = pd.to_datetime(
+        df["arrival_dtm"],
+        errors="coerce"
+    )
+
     # =========================
     # DATE WINDOW FILTER
     # =========================
-    if "tmt_stop_dtm" in df.columns:
-        # Include any record whose interval overlaps the requested window
-        df = df[
-            (df["arrival_dtm"] <= end_date) &
-            (df["tmt_stop_dtm"] >= start_date)
-        ].copy()
-    else:
-        # Fallback for datasets without tmt_stop_dtm:
-        # arrival_dtm must fall within the requested window
-        df = df[
-            (df["arrival_dtm"] >= start_date) &
-            (df["arrival_dtm"] <= end_date)
-        ].copy()
+    # arrival_dtm must fall within the requested window
+    df = df[
+        (df["arrival_dtm"] >= start_date) &
+        (df["arrival_dtm"] <= end_date)
+    ].copy()
 
     if df.empty:
         logging.warning(f"{VISUAL_ID}: no data after date window filtering")
@@ -199,6 +192,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             .reset_index(name="visits")
             .sort_values("arrival_year")
         )
+    
     except Exception as e:
         logging.error(f"[{VISUAL_ID}] Aggregation failed: {e}")
         return

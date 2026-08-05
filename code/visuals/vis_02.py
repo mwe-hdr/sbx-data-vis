@@ -165,7 +165,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         df["tmt_stop_dtm"] = pd.to_datetime(df["tmt_stop_dtm"], errors="coerce")
 
         # Drop null timestamps
-        df = df.dropna(df=["arrival_dtm", "tmt_stop_dtm"])
+        df = df.dropna(subset=["arrival_dtm", "tmt_stop_dtm"])
 
         # =========================
         # DATE WINDOW FILTER
@@ -202,6 +202,21 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         if df.empty:
             logging.warning("vis_02: No valid LOS values")
             return
+
+        # --------------------------------------------------
+        # LOS SUMMARY STATISTICS
+        # --------------------------------------------------
+        mean_los = float(df["los_hours"].mean())
+        median_los = float(df["los_hours"].median())
+        min_los = float(df["los_hours"].min())
+        max_los = float(df["los_hours"].max())
+
+        mode_series = df["los_hours"].mode()
+        mode_los = (
+            float(mode_series.iloc[0])
+            if not mode_series.empty
+            else None
+        )
 
         # --------------------------------------------------
         # BUCKETING
@@ -243,6 +258,42 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         total_encounters = int(total)
 
         if write_rdb == 1:
+
+            summary_metrics = [
+                ("los_mean_hours", mean_los),
+                ("los_median_hours", median_los),
+                ("los_min_hours", min_los),
+                ("los_max_hours", max_los),
+                ("los_mode_hours", mode_los),
+            ]
+
+            for metric_name, metric_value in summary_metrics:
+                rdb_rows.append({
+                    "run_id": params.get("run_id"),
+                    "visual_id": "vis_02",
+                    "client_name": params.get("client_name"),
+                    "domain": params.get("domain"),
+                    "cohort_id": params.get("cohort_id"),
+                    "domain_cohort":
+                        f"{params.get('domain')}.{params.get('cohort_id')}",
+
+                    "dimension": "summary",
+                    "dimension_value": None,
+                    "dimension_value_label": metric_name,
+
+                    "secondary_dimension": None,
+                    "secondary_dimension_value": None,
+
+                    "metric": metric_name,
+                    "metric_type": "summary",
+                    "value": metric_value,
+
+                    "start_date": start_date,
+                    "end_date": end_date,
+
+                    "report_title":
+                        "Length of Stay Distribution (Hours)"
+                })
 
             for _, row in grouped.iterrows():
 

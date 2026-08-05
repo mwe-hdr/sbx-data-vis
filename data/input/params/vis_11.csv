@@ -19,6 +19,7 @@ subtitle_fontsize,10,Subtitle font size
 title_background_color,#d9d9d9,Background color
 title_weight,bold,Title font weight
 title_fontsize,10,Title font size
+visit_count_override,75975
 
 ## ===== LEGEND IMAGE =====
 
@@ -77,6 +78,6 @@ visit_value_font_weight,bold,Visits metric font weight
 
 esi1_volume_factor,1.00,ESI 1 volume multiplier
 esi2_volume_factor,1.00,ESI 2 volume multiplier
-esi3_volume_factor,0.95,ESI 3 volume multiplier
-esi4_volume_factor,0.90,ESI 4 volume multiplier
-esi5_volume_factor,0.85,ESI 5 volume multiplier
+esi3_volume_factor,1.00,ESI 3 volume multiplier
+esi4_volume_factor,1.00,ESI 4 volume multiplier
+esi5_volume_factor,1.00,ESI 5 volume multiplier
