@@ -63,8 +63,13 @@ from utils.vis_helpers import (
     format_display_value,
     get_display_parameters,
     save_parameter_table_png,
-    save_title_png
+    save_title_png,
+    map_arrival_method
 )
+from utils.date_helpers import prepare_dates
+from utils.col_helpers import add_common_helper_columns
+
+logger = logging.getLogger(__name__)
 
 VISUAL_ID = "vis_07"
 
@@ -73,7 +78,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     Visualization 07: Encounters by Arrival Type (Pie Chart)
     """
 
-    logging.info(f"Starting {VISUAL_ID}")
+    logger.info(f"Starting {VISUAL_ID}")
     params = normalize_params(params)
 
     # =========================
@@ -177,69 +182,34 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     except Exception:
         label_decimals = 1
 
+    # --------------------------------------------------
+    # HELP MY DATAFRAME
+    # --------------------------------------------------
+    df = prepare_dates(df, start_date, end_date)
+    df = add_common_helper_columns(df)
+
+    logger.info(
+        f"[{VISUAL_ID}] Dataset received after helper preparation. "
+        f"Rows available for arrival-type analysis: {len(df):,}"
+    )
+
     # =========================
     # VALIDATION
     # =========================
-    required_cols = ["arrival_dtm","arrival_method"]
+    required_cols = ["arrival_dtm","arrival_group"]
 
     for col in required_cols:
         if col not in df.columns:
-            logging.error(f"{VISUAL_ID}: Missing required column '{col}'")
+            logger.error(f"{VISUAL_ID}: Missing required column '{col}'")
             return
 
     df = df.copy()
 
     # =========================
-    # DATE WINDOW FILTER
-    # =========================
-    if "stop_dtm" in df.columns:
-        # Include any record whose interval overlaps the requested window
-        df = df[
-            (df["arrival_dtm"] <= end_date) &
-            (df["stop_dtm"] >= start_date)
-        ].copy()
-    else:
-        # Fallback for datasets without stop_dtm:
-        # arrival_dtm must fall within the requested window
-        df = df[
-            (df["arrival_dtm"] >= start_date) &
-            (df["arrival_dtm"] <= end_date)
-        ].copy()
-
-    if df.empty:
-        logging.warning(f"{VISUAL_ID}: no data after date window filtering")
-        return
-
-    # =========================
-    # DATA CLEANING
-    # =========================
-    df = df[~df["arrival_method"].isna()]
-    df["arrival_method"] = df["arrival_method"].astype(str).str.strip().str.lower()
-
-    if df.empty:
-        logging.warning(f"{VISUAL_ID}: No valid arrival_method values")
-        return
-
-    # =========================
-    # MAPPING LOGIC
-    # =========================
-    def map_arrival(val):
-        if "ambulance" in val or "ems" in val:
-            return "EMT"
-        elif any(x in val for x in ["walk", "self", "car", "vehicle", "private"]):
-            return "Car"
-        elif "wheelchair" in val:
-            return "Wheelchair"
-        else:
-            return "Other"
-
-    df["arrival_type"] = df["arrival_method"].apply(map_arrival)
-
-    # =========================
     # AGGREGATION
     # =========================
     counts = (
-        df.groupby("arrival_type")
+        df.groupby("arrival_group")
         .size()
         .reset_index(name="count")
     )
@@ -247,7 +217,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     total = counts["count"].sum()
 
     if total <= 0:
-        logging.warning(f"{VISUAL_ID}: Total encounters is zero")
+        logger.warning(f"{VISUAL_ID}: Total encounters is zero")
         return
 
     counts["percent"] = counts["count"] / total
@@ -261,23 +231,33 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     if group_other_threshold > 0:
         small_mask = (
             (counts["percent"] < group_other_threshold) &
-            (counts["arrival_type"] != "Other")
+            (counts["arrival_group"] != "Other")
         )
 
         if small_mask.any():
             other_sum = counts.loc[small_mask, "count"].sum()
 
+            logger.info(
+                f"[{VISUAL_ID}] Grouping small arrival categories into 'Other'. "
+                f"Categories before filter: {len(counts):,}"
+            )
+
             counts = counts.loc[~small_mask].copy()
+
+            logger.info(
+                f"[{VISUAL_ID}] Completed small-category consolidation. "
+                f"Categories after filter: {len(counts):,}"
+            )
 
             if other_sum > 0:
                 # if Other already exists, add to it
-                if "Other" in counts["arrival_type"].values:
-                    counts.loc[counts["arrival_type"] == "Other", "count"] += other_sum
+                if "Other" in counts["arrival_group"].values:
+                    counts.loc[counts["arrival_group"] == "Other", "count"] += other_sum
                 else:
                     counts = pd.concat([
                         counts,
                         pd.DataFrame([{
-                            "arrival_type": "Other",
+                            "arrival_group": "Other",
                             "count": other_sum
                         }])
                     ], ignore_index=True)
@@ -287,11 +267,11 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     # =========================
     # ENSURE CATEGORY COMPLETENESS
     # =========================
-    base_categories = ["EMT", "Car", "Wheelchair"]
+    base_categories = ["EMT", "Car / Walk-in", "Wheelchair"]
     if include_other:
         base_categories.append("Other")
 
-    counts = counts.set_index("arrival_type").reindex(base_categories).fillna(0)
+    counts = counts.set_index("arrival_group").reindex(base_categories).fillna(0)
     counts = counts.reset_index()
 
     # avoid divide-by-zero
@@ -299,7 +279,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     if total > 0:
         counts["percent"] = counts["count"] / total
     else:
-        logging.warning(f"{VISUAL_ID}: No data after category alignment")
+        logger.warning(f"{VISUAL_ID}: No data after category alignment")
         return
 
     # =========================
@@ -307,12 +287,12 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     # =========================
     color_map = {
         "EMT": p["color_emt"],
-        "Car": p["color_car"],
+        "Car / Walk-in": p["color_car"],
         "Wheelchair": p["color_wheelchair"],
         "Other": p["color_other"],
     }
 
-    colors = [color_map.get(cat, "#cccccc") for cat in counts["arrival_type"]]
+    colors = [color_map.get(cat, "#cccccc") for cat in counts["arrival_group"]]
 
     # =========================
     # LABEL FUNCTION WITH SUPPRESSION
@@ -324,7 +304,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         if percent < label_threshold:
             return ""
 
-        parts = [row["arrival_type"]]
+        parts = [row["arrival_group"]]
 
         if show_counts:
             parts.append(f"{int(count):,}")
@@ -334,8 +314,18 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
         return "\n".join(parts)
 
+    logger.info(
+        f"[{VISUAL_ID}] Removing zero-count arrival categories. "
+        f"Categories before filter: {len(counts):,}"
+    )
+
     # remove zero-count categories 
     counts = counts[counts["count"] > 0].reset_index(drop=True)
+
+    logger.info(
+        f"[{VISUAL_ID}] Completed zero-count category filter. "
+        f"Categories after filter: {len(counts):,}"
+    )
 
     # rebuild labels 
     labels = [make_label(row) for _, row in counts.iterrows()]
@@ -351,7 +341,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             dpi=int(p["dpi"])
         )
 
-        legend_labels = counts["arrival_type"].tolist()
+        legend_labels = counts["arrival_group"].tolist()
 
         wedges, texts = ax.pie(
             counts["percent"],
@@ -409,7 +399,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             height=legend_height
         )
 
-        logging.info(
+        logger.info(
             f"{VISUAL_ID}: Legend saved: "
             f"{legend_output_file}"
         )
@@ -443,17 +433,17 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             title_weight=title_weight
         )
 
-        logging.info(
+        logger.info(
             f"{VISUAL_ID}: Title saved: "
             f"{title_output_file}"
         )
 
         plt.close()
 
-        logging.info(f"{VISUAL_ID}: Saved to {output_file}")
+        logger.info(f"{VISUAL_ID}: Saved to {output_file}")
 
     except Exception as e:
-        logging.error(f"{VISUAL_ID}: Plotting failed - {str(e)}")
+        logger.error(f"{VISUAL_ID}: Plotting failed - {str(e)}")
 
     # =========================
     # RDB OUTPUT
@@ -474,7 +464,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             "domain_cohort":
                 f"{params.get('domain')}.{params.get('cohort_id')}",
 
-            "dimension": "arrival_type",
+            "dimension": "arrival_group",
             "dimension_value": "all",
             "dimension_value_label": "All Arrival Types",
 
@@ -505,9 +495,9 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                 "domain_cohort":
                     f"{params.get('domain')}.{params.get('cohort_id')}",
 
-                "dimension": "arrival_type",
-                "dimension_value": row["arrival_type"],
-                "dimension_value_label": row["arrival_type"],
+                "dimension": "arrival_group",
+                "dimension_value": row["arrival_group"],
+                "dimension_value_label": row["arrival_group"],
 
                 "secondary_dimension": None,
                 "secondary_dimension_value": None,

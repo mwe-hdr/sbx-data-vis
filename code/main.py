@@ -261,9 +261,9 @@ args = parser.parse_args()
 
 if __name__ == "__main__":
 
-    logging.basicConfig(level=logging.INFO)
-
     run_dir, output_dir = initialize_run()
+
+    logging.info(f"Run initialized: {run_dir}")
 
     run_id = os.path.basename(run_dir)
 

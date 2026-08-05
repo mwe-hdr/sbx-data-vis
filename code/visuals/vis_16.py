@@ -35,11 +35,6 @@ from matplotlib.colors import to_hex
 from shapely.geometry import Point
 from matplotlib.lines import Line2D
 from matplotlib.ticker import FuncFormatter
-
-VISUAL_ID = "vis_16"
-
-logger = logging.getLogger(__name__)
-
 from utils.vis_helpers import (
     normalize_params,
     format_date_range,
@@ -52,6 +47,12 @@ from utils.vis_helpers import (
     save_title_png,
     map_arrival_method
 )
+from utils.date_helpers import prepare_dates
+from utils.col_helpers import add_common_helper_columns
+
+logger = logging.getLogger(__name__)
+
+VISUAL_ID = "vis_16"
 
 def _load_cohort_location(
     cohort_locations_file,
@@ -94,7 +95,7 @@ def _load_cohort_location(
 
     except Exception as ex:
 
-        logging.warning(
+        logger.warning(
             f"Unable to load cohort location: {ex}"
         )
 
@@ -217,7 +218,7 @@ def _parse_county_label_offsets(
 
         except Exception:
 
-            logging.warning(
+            logger.warning(
                 f"Invalid county label offset: {item}"
             )
 
@@ -282,7 +283,13 @@ def run(
     generate_output_name
 ):
 
-    logging.info("Running vis_16_ed_geo_catchment")
+    logger.info("Running vis_16_ed_geo_catchment")
+
+    # --------------------------------------------------
+    # HELP MY DATAFRAME
+    # --------------------------------------------------
+    df = prepare_dates(df, start_date, end_date)
+    df = add_common_helper_columns(df)
 
     # ============================================================
     # REQUIRED COLUMNS
@@ -290,7 +297,7 @@ def run(
 
     required_cols = [
         "patient_zipcode",
-        "arrival_method",
+        "arrival_group",
         "esi",
         "arrival_dtm"
     ]
@@ -299,7 +306,7 @@ def run(
 
         if col not in df.columns:
 
-            logging.error(
+            logger.error(
                 f"vis_16: missing required column '{col}'"
             )
 
@@ -327,7 +334,7 @@ def run(
 
     if not zcta_file:
 
-        logging.error(
+        logger.error(
             "vis_16: zcta_file parameter required"
         )
 
@@ -580,91 +587,17 @@ def run(
 
     df = df.copy()
 
-    # ============================================================
-    # DATE FILTER
-    # ============================================================
-
-    if "arrival_dtm" in df.columns:
-
-        df["arrival_dtm"] = pd.to_datetime(
-            df["arrival_dtm"],
-            errors="coerce"
-        )
-
-        report_start = pd.to_datetime(start_date)
-        report_end = pd.to_datetime(end_date)
-
-        if (
-            report_end.hour == 0
-            and report_end.minute == 0
-            and report_end.second == 0
-        ):
-            report_end = (
-                report_end
-                + pd.Timedelta(days=1)
-                - pd.Timedelta(minutes=1)
-            )
-
-        # =========================
-        # DATE WINDOW FILTER
-        # =========================
-        if "tmt_stop_dtm" in df.columns:
-            # Include any record whose interval overlaps the requested window
-            df = df[
-                (df["arrival_dtm"] <= end_date) &
-                (df["tmt_stop_dtm"] >= start_date)
-            ].copy()
-        else:
-            # Fallback for datasets without tmt_stop_dtm:
-            # arrival_dtm must fall within the requested window
-            df = df[
-                (df["arrival_dtm"] >= start_date) &
-                (df["arrival_dtm"] <= end_date)
-            ].copy()
-
-        if df.empty:
-            logging.warning(f"{VISUAL_ID}: no data after date window filtering")
-            return
-
-        logging.info(
-            f"vis_16 rows after date filter: "
-            f"{len(df):,}"
-        )
-
-        if df.empty:
-            logging.warning(
-                "vis_16: no visits after date filtering"
-            )
-            return
-
-    df["patient_zipcode"] = (
-        df["patient_zipcode"]
-        .astype(str)
-        .str.strip()
-        .str.zfill(5)
-    )
-
     df = df[
         df["patient_zipcode"].notna()
     ]
 
     if df.empty:
 
-        logging.warning(
+        logger.warning(
             "vis_16: no zipcode data available"
         )
 
         return
-
-    df["arrival_group"] = (
-        df["arrival_method"]
-        .apply(map_arrival_method)
-    )
-
-    df["esi"] = pd.to_numeric(
-        df["esi"],
-        errors="coerce"
-    )
 
     df = df[
         df["arrival_group"]
@@ -690,7 +623,7 @@ def run(
 
     except Exception as ex:
 
-        logging.error(
+        logger.error(
             f"vis_16: unable to read zcta file: {ex}"
         )
 
@@ -718,7 +651,7 @@ def run(
 
     if zip_col is None:
 
-        logging.error(
+        logger.error(
             "vis_16: unable to identify zip field"
         )
 
@@ -872,7 +805,7 @@ def run(
 
         except Exception as ex:
 
-            logging.warning(
+            logger.warning(
                 f"County zoom unavailable: {ex}"
             )
 
@@ -940,7 +873,7 @@ def run(
                     >= water_area_threshold
                 ].copy()
 
-                logging.info(
+                logger.info(
                     f"vis_16 loaded "
                     f"{len(water_gdf)} "
                     f"water polygons"
@@ -948,7 +881,7 @@ def run(
 
     except Exception as ex:
 
-        logging.warning(
+        logger.warning(
             f"vis_16 water unavailable: {ex}"
         )
 
@@ -1018,13 +951,13 @@ def run(
                 .copy()
             )
 
-            logging.info(
+            logger.info(
                 "vis_16 water cutout applied"
             )
 
         except Exception as ex:
 
-            logging.warning(
+            logger.warning(
                 f"vis_16 water cutout failed: {ex}"
             )
 
@@ -1258,7 +1191,7 @@ def run(
             bbox_inches="tight"
         )
 
-        logging.info(
+        logger.info(
             f"Zoom map written: "
             f"{zoom_output_file}"
         )
@@ -1341,7 +1274,7 @@ def run(
         tick.set_fontfamily(font_family)
         tick.set_fontsize(tick_fontsize)
 
-    logging.info(f"vis_16 CRS: {geo.crs}")
+    logger.info(f"vis_16 CRS: {geo.crs}")
 
     ax.set_aspect("equal")
 
@@ -1396,7 +1329,7 @@ def run(
 
     plt.close()
 
-    logging.info(
+    logger.info(
         f"vis_16 output written: {output_file}"
     )
 
@@ -1508,7 +1441,7 @@ def run(
 
     plt.close()
 
-    logging.info(
+    logger.info(
         f"vis_16 top zip table written: "
         f"{table_file}"
     )
@@ -1567,7 +1500,7 @@ def run(
         height=legend_height
     )
 
-    logging.info(
+    logger.info(
         f"vis_16 legend written: "
         f"{legend_output_file}"
     )
@@ -1601,7 +1534,7 @@ def run(
         title_weight=title_weight
     )
 
-    logging.info(
+    logger.info(
         f"vis_16 title written: "
         f"{title_output_file}"
     )

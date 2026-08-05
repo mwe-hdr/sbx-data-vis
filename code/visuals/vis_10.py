@@ -79,16 +79,12 @@ from utils.vis_helpers import (
     save_title_png,
     generate_census
 )
-from utils.io_helpers import (
-    load_data,
-    load_driver,
-    load_params,
-    load_cohort_params
-)
+from utils.date_helpers import prepare_dates
+from utils.col_helpers import add_common_helper_columns
 
-VISUAL_ID = "vis_10"
 logger = logging.getLogger(__name__)
 
+VISUAL_ID = "vis_10"
 
 def _safe_param(params, key, default, cast_type=None):
     try:
@@ -222,6 +218,13 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # =========================
         # STEP 1: Census 
         # =========================
+
+        # --------------------------------------------------
+        # HELP MY DATAFRAME
+        # --------------------------------------------------
+        prepare_dates(df, start_date, end_date)
+        add_common_helper_columns(df)
+
         ts, census_df = generate_census(
             df,
             start_date,

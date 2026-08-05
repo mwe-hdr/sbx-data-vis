@@ -58,6 +58,10 @@ from utils.vis_helpers import (
     save_parameter_table_png,
     save_title_png
 )
+from utils.date_helpers import prepare_dates
+from utils.col_helpers import add_common_helper_columns
+
+logger = logging.getLogger(__name__)
 
 VISUAL_ID = "vis_04"
 
@@ -67,7 +71,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     Visualization 04: ESI Level Distribution
     """
 
-    logging.info(f"[{VISUAL_ID}] Starting visualization")
+    logger.info(f"[{VISUAL_ID}] Starting visualization")
     params = normalize_params(params)
 
     # ======================================================
@@ -159,64 +163,29 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         cfg.get("x_tick_rotation", 30) or 30
     )
 
-    required_columns = ["arrival_dtm", "esi"]
     params = params or {}
+
+    # --------------------------------------------------
+    # HELP MY DATAFRAME
+    # --------------------------------------------------
+    df = prepare_dates(df, start_date, end_date)
+    df = add_common_helper_columns(df)
+
+    logger.info(
+        f"[{VISUAL_ID}] Dataset received after helper preparation. "
+        f"Rows available for ESI distribution: {len(df):,}"
+    )
 
     # ======================================================
     # VALIDATION
     # ======================================================
+    required_columns = ["arrival_dtm", "esi_category"]
     for col in required_columns:
         if col not in df.columns:
-            logging.error(f"[{VISUAL_ID}] Missing required column: {col}")
+            logger.error(f"[{VISUAL_ID}] Missing required column: {col}")
             return
 
     df = df.copy()
-
-    # =========================
-    # DATE WINDOW FILTER
-    # =========================
-    if "tmt_stop_dtm" in df.columns:
-        # Include any record whose interval overlaps the requested window
-        df = df[
-            (df["arrival_dtm"] <= end_date) &
-            (df["tmt_stop_dtm"] >= start_date)
-        ].copy()
-    else:
-        # Fallback for datasets without tmt_stop_dtm:
-        # arrival_dtm must fall within the requested window
-        df = df[
-            (df["arrival_dtm"] >= start_date) &
-            (df["arrival_dtm"] <= end_date)
-        ].copy()
-
-    if df.empty:
-        logging.warning(f"{VISUAL_ID}: no data after date window filtering")
-        return
-
-    # ======================================================
-    # ESI CLEANING + MAPPING
-    # ======================================================
-    def map_esi(val):
-        try:
-            if pd.isna(val):
-                return "3 - Urgent"
-            val = int(val)
-            if val == 1:
-                return "1 - Immediate"
-            elif val == 2:
-                return "2 - Emergent"
-            elif val == 3:
-                return "3 - Urgent"
-            elif val == 4:
-                return "4 - Less Urgent"
-            elif val == 5:
-                return "5 - Non-Urgent"
-            else:
-                return "3 - Urgent"
-        except Exception:
-            return "3 - Urgent"
-
-    df["esi_category"] = df["esi"].apply(map_esi)
 
     # ======================================================
     # AGGREGATION
@@ -229,11 +198,16 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         "5 - Non-Urgent",
     ]
 
+    logger.info(
+        f"[{VISUAL_ID}] Calculating ESI distribution from "
+        f"{len(df):,} encounters."
+    )
+
     counts = df["esi_category"].value_counts().reindex(category_order, fill_value=0)
 
     total = counts.sum()
     if total == 0:
-        logging.warning(f"[{VISUAL_ID}] Total encounter count is zero")
+        logger.warning(f"[{VISUAL_ID}] Total encounter count is zero")
         return
 
     percents = counts / total
@@ -368,7 +342,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             height=legend_height
         )
 
-        logging.info(
+        logger.info(
             f"[{VISUAL_ID}] Legend written: "
             f"{legend_output_file}"
         )
@@ -403,7 +377,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             title_weight=title_weight
         )
 
-        logging.info(
+        logger.info(
             f"[{VISUAL_ID}] Title written: "
             f"{title_output_file}"
         )
@@ -411,10 +385,10 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
         plt.close()
 
-        logging.info(f"[{VISUAL_ID}] Saved output to {output_file}")
+        logger.info(f"[{VISUAL_ID}] Saved output to {output_file}")
 
     except Exception as e:
-        logging.error(f"[{VISUAL_ID}] Failed to save output: {str(e)}")
+        logger.error(f"[{VISUAL_ID}] Failed to save output: {str(e)}")
         return
 
     # ======================================================

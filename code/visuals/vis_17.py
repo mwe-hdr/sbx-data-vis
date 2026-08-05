@@ -36,12 +36,10 @@
 
 import os
 import logging
-
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
-
 from utils.vis_helpers import (
     normalize_params,
     format_date_range,
@@ -51,10 +49,12 @@ from utils.vis_helpers import (
     save_legend_png,
     map_arrival_method
 )
-
-VISUAL_ID = "vis_17"
+from utils.date_helpers import prepare_dates
+from utils.col_helpers import add_common_helper_columns
 
 logger = logging.getLogger(__name__)
+
+VISUAL_ID = "vis_17"
 
 def _safe_int(value, default_value):
     try:
@@ -166,10 +166,17 @@ def run(
         17
     )
 
+    # --------------------------------------------------
+    # HELP MY DATAFRAME
+    # --------------------------------------------------
+    df = prepare_dates(df, start_date, end_date)
+    df = add_common_helper_columns(df)
+
     required_cols = [
-        "arrival_method",
+        "arrival_group",
         "esi",
-        "arrival_dtm"
+        "arrival_day_of_week",
+        "arrival_hour"
     ]
 
     missing_cols = [
@@ -183,66 +190,6 @@ def run(
         )
 
     df = df.copy()
-
-    # =====================================================
-    # REPORTING PERIOD FILTER
-    # =====================================================
-
-    df["arrival_dtm"] = pd.to_datetime(
-        df["arrival_dtm"],
-        errors="coerce"
-    )
-
-    report_start = pd.to_datetime(start_date)
-    report_end = pd.to_datetime(end_date)
-
-    if (
-        report_end.hour == 0
-        and report_end.minute == 0
-        and report_end.second == 0
-    ):
-        report_end = (
-            report_end
-            + pd.Timedelta(days=1)
-            - pd.Timedelta(minutes=1)
-        )
-
-    # =========================
-    # DATE WINDOW FILTER
-    # =========================
-    if "tmt_stop_dtm" in df.columns:
-        # Include any record whose interval overlaps the requested window
-        df = df[
-            (df["arrival_dtm"] <= end_date) &
-            (df["tmt_stop_dtm"] >= start_date)
-        ].copy()
-    else:
-        # Fallback for datasets without tmt_stop_dtm:
-        # arrival_dtm must fall within the requested window
-        df = df[
-            (df["arrival_dtm"] >= start_date) &
-            (df["arrival_dtm"] <= end_date)
-        ].copy()
-
-    if df.empty:
-        logging.warning(f"{VISUAL_ID}: no data after date window filtering")
-        return
-
-    logger.info(
-        f"[{VISUAL_ID}] Rows after date filtering: "
-        f"{len(df):,}"
-    )
-
-    if df.empty:
-        logger.warning(
-            f"[{VISUAL_ID}] No encounters after date filtering"
-        )
-        return
-
-    df["arrival_group"] = (
-        df["arrival_method"]
-        .apply(map_arrival_method)
-    )
 
     esi_values = str(
         params.get(
@@ -262,11 +209,6 @@ def run(
             except Exception:
                 pass
 
-    df["esi"] = pd.to_numeric(
-        df["esi"],
-        errors="coerce"
-    )
-
     df = df[
         df["arrival_group"]
         == "Car / Walk-in"
@@ -274,11 +216,6 @@ def run(
 
     df = df[
         df["esi"].isin(esi_list)
-    ]
-
-
-    df = df[
-        df["arrival_dtm"].notna()
     ]
 
     weekday_order = [
@@ -291,18 +228,9 @@ def run(
         "Sunday"
     ]
 
-    df["hour_of_day"] = (
-        df["arrival_dtm"].dt.hour
-    )
-
-    df["day_of_week"] = (
-        df["arrival_dtm"]
-        .dt.day_name()
-    )
-
     counts = pd.crosstab(
-        df["day_of_week"],
-        df["hour_of_day"]
+        df["arrival_day_of_week"],
+        df["arrival_hour"]
     )
 
     counts = counts.reindex(
@@ -357,12 +285,12 @@ def run(
     )
 
     in_hours_mask = (
-        (df["hour_of_day"] >= clinic_open_hour)
+        (df["arrival_hour"] >= clinic_open_hour)
         &
-        (df["hour_of_day"] < clinic_close_hour)
+        (df["arrival_hour"] < clinic_close_hour)
         &
         (
-            df["day_of_week"].isin(
+            df["arrival_day_of_week"].isin(
                 [
                     "Monday",
                     "Tuesday",
@@ -733,8 +661,8 @@ def run(
                     "report_title": "EMT Arrival Time Heatmap",
                     "start_date": start_date,
                     "end_date": end_date,
-                    "day_of_week": day,
-                    "hour_of_day": hour,
+                    "arrival_day_of_week": day,
+                    "arrival_hour": hour,
                     "encounter_count": count,
                     "percent_of_total": round(
                         pct,

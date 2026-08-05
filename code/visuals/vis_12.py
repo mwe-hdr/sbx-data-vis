@@ -77,8 +77,6 @@ from matplotlib.colors import to_hex
 from shapely.geometry import Point
 from matplotlib.lines import Line2D
 from matplotlib.ticker import FuncFormatter
-
-
 from utils.vis_helpers import (
     normalize_params,
     format_date_range,
@@ -90,9 +88,14 @@ from utils.vis_helpers import (
     save_parameter_table_png,
     save_title_png
 )
+from utils.date_helpers import prepare_dates
+from utils.col_helpers import add_common_helper_columns
+
+logger = logging.getLogger(__name__)
+
 VISUAL_ID = "vis_12"
 
-def _load_cohort_location(
+def load_cohort_location(
     cohort_locations_file,
     cohort_id
 ):
@@ -133,13 +136,13 @@ def _load_cohort_location(
 
     except Exception as ex:
 
-        logging.warning(
+        logger.warning(
             f"Unable to load cohort location: {ex}"
         )
 
         return None, None
 
-def _build_dynamic_legend(
+def build_dynamic_legend(
     values,
     cmap_name,
     classification_method,
@@ -225,7 +228,7 @@ def _build_dynamic_legend(
 
     return handles, labels
 
-def _parse_county_label_offsets(
+def parse_county_label_offsets(
     offset_string
 ):
 
@@ -256,7 +259,7 @@ def _parse_county_label_offsets(
 
         except Exception:
 
-            logging.warning(
+            logger.warning(
                 f"Invalid county label offset: {item}"
             )
 
@@ -321,7 +324,7 @@ def run(
     generate_output_name
 ):
 
-    logging.info("Running vis_12_ed_geo_catchment")
+    logger.info("Running vis_12_ed_geo_catchment")
 
     # ============================================================
     # REQUIRED COLUMNS
@@ -335,7 +338,7 @@ def run(
 
         if col not in df.columns:
 
-            logging.error(
+            logger.error(
                 f"vis_12: missing required column '{col}'"
             )
 
@@ -363,7 +366,7 @@ def run(
 
     if not zcta_file:
 
-        logging.error(
+        logger.error(
             "vis_12: zcta_file parameter required"
         )
 
@@ -425,7 +428,7 @@ def run(
     county_file = params.get("county_file")
 
     county_label_offsets = (
-        _parse_county_label_offsets(
+        parse_county_label_offsets(
             params.get(
                 "county_label_offsets",
                 ""
@@ -586,39 +589,17 @@ def run(
         )
     )
 
+    # --------------------------------------------------
+    # HELP MY DATAFRAME
+    # --------------------------------------------------
+    prepare_dates(df, start_date, end_date)
+    add_common_helper_columns(df)
+
     # ============================================================
     # FILTER
     # ============================================================
 
     df = df.copy()
-
-    # =========================
-    # DATE WINDOW FILTER
-    # =========================
-    if "tmt_stop_dtm" in df.columns:
-        # Include any record whose interval overlaps the requested window
-        df = df[
-            (df["arrival_dtm"] <= end_date) &
-            (df["tmt_stop_dtm"] >= start_date)
-        ].copy()
-    else:
-        # Fallback for datasets without tmt_stop_dtm:
-        # arrival_dtm must fall within the requested window
-        df = df[
-            (df["arrival_dtm"] >= start_date) &
-            (df["arrival_dtm"] <= end_date)
-        ].copy()
-
-    if df.empty:
-        logging.warning(f"{VISUAL_ID}: no data after date window filtering")
-        return
-    
-    df["patient_zipcode"] = (
-        df["patient_zipcode"]
-        .astype(str)
-        .str.strip()
-        .str.zfill(5)
-    )
 
     df = df[
         df["patient_zipcode"].notna()
@@ -626,7 +607,7 @@ def run(
 
     if df.empty:
 
-        logging.warning(
+        logger.warning(
             "vis_12: no zipcode data available"
         )
 
@@ -645,7 +626,7 @@ def run(
 
     except Exception as ex:
 
-        logging.error(
+        logger.error(
             f"vis_12: unable to read zcta file: {ex}"
         )
 
@@ -673,7 +654,7 @@ def run(
 
     if zip_col is None:
 
-        logging.error(
+        logger.error(
             "vis_12: unable to identify zip field"
         )
 
@@ -732,7 +713,7 @@ def run(
     zoom_bounds = None
 
     facility_lat, facility_lng = (
-        _load_cohort_location(
+        load_cohort_location(
             cohort_locations_file,
             params.get("cohort_id")
         )
@@ -827,7 +808,7 @@ def run(
 
         except Exception as ex:
 
-            logging.warning(
+            logger.warning(
                 f"County zoom unavailable: {ex}"
             )
 
@@ -895,7 +876,7 @@ def run(
                     >= water_area_threshold
                 ].copy()
 
-                logging.info(
+                logger.info(
                     f"vis_12 loaded "
                     f"{len(water_gdf)} "
                     f"water polygons"
@@ -903,7 +884,7 @@ def run(
 
     except Exception as ex:
 
-        logging.warning(
+        logger.warning(
             f"vis_12 water unavailable: {ex}"
         )
 
@@ -973,13 +954,13 @@ def run(
                 .copy()
             )
 
-            logging.info(
+            logger.info(
                 "vis_12 water cutout applied"
             )
 
         except Exception as ex:
 
-            logging.warning(
+            logger.warning(
                 f"vis_12 water cutout failed: {ex}"
             )
 
@@ -1232,7 +1213,7 @@ def run(
             bbox_inches="tight"
         )
 
-        logging.info(
+        logger.info(
             f"Zoom map written: "
             f"{zoom_output_file}"
         )
@@ -1315,7 +1296,7 @@ def run(
         tick.set_fontfamily(font_family)
         tick.set_fontsize(tick_fontsize)
 
-    logging.info(f"vis_12 CRS: {geo.crs}")
+    logger.info(f"vis_12 CRS: {geo.crs}")
 
     ax.set_aspect("equal")
 
@@ -1370,7 +1351,7 @@ def run(
 
     plt.close()
 
-    logging.info(
+    logger.info(
         f"vis_12 output written: {output_file}"
     )
 
@@ -1482,7 +1463,7 @@ def run(
 
     plt.close()
 
-    logging.info(
+    logger.info(
         f"vis_12 top zip table written: "
         f"{table_file}"
     )
@@ -1492,7 +1473,7 @@ def run(
     # ============================================================
 
     legend_handles, legend_labels = (
-        _build_dynamic_legend(
+        build_dynamic_legend(
             values=geo_active["visits"],
             cmap_name=cmap,
             classification_method=classification_method,
@@ -1541,7 +1522,7 @@ def run(
         height=legend_height
     )
 
-    logging.info(
+    logger.info(
         f"vis_12 legend written: "
         f"{legend_output_file}"
     )
@@ -1575,7 +1556,7 @@ def run(
         title_weight=title_weight
     )
 
-    logging.info(
+    logger.info(
         f"vis_12 title written: "
         f"{title_output_file}"
     )

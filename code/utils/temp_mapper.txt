@@ -1,0 +1,703 @@
+vis_01:
+
+    # =========================
+    # DATE WINDOW FILTER
+    # =========================
+        df = df[
+            (df["arrival_dtm"] >= start_date) &
+            (df["arrival_dtm"] <= end_date)
+        ].copy()
+
+    # =========================
+    # DATA PREP
+    # =========================
+    df["arrival_dtm"] = pd.to_datetime(
+    df["arrival_dtm"],
+    errors="coerce"
+    )
+
+    df = df[
+        df["arrival_dtm"].notna()
+    ].copy()
+    
+    df["arrival_hour"] = df["arrival_dtm"].dt.hour
+
+    df["esi"] = pd.to_numeric(
+        df["esi"],
+        errors="coerce"
+    )
+
+    esi_map = {
+        1: '1 - Immediate',
+        2: '2 - Emergent',
+        3: '3 - Urgent',
+        4: '4 - Less Urgent',
+        5: '5 - Non-Urgent'
+    }
+
+    df["esi_category"] = df["esi"].map(esi_map)
+
+    df = df[df["esi_category"].notna()]
+
+    if df.empty:
+        logging.warning("vis_01: no valid ESI data")
+        return
+
+vis_02: 
+
+        # --------------------------------------------------
+        # DATETIME HANDLING
+        # --------------------------------------------------
+        df["arrival_dtm"] = pd.to_datetime(df["arrival_dtm"], errors="coerce")
+        df["tmt_stop_dtm"] = pd.to_datetime(df["tmt_stop_dtm"], errors="coerce")
+
+        # Drop null timestamps
+        df = df.dropna(subset=["arrival_dtm", "tmt_stop_dtm"])
+
+    	# =========================
+    	# DATE WINDOW FILTER
+    	# =========================
+        df = df[
+            (df["arrival_dtm"] >= start_date) &
+            (df["arrival_dtm"] <= end_date)
+        ].copy()
+
+        # --------------------------------------------------
+        # LOS CALCULATION (HOURS)
+        # --------------------------------------------------
+        df["los_hours"] = (
+            (df["tmt_stop_dtm"] - df["arrival_dtm"])
+            .dt.total_seconds() / 3600.0
+        )
+
+        # Remove invalid LOS
+        df = df[(df["los_hours"].notna()) & (df["los_hours"] >= 0)]
+
+        if df.empty:
+            logging.warning("vis_02: No valid LOS values")
+            return
+
+vis_03:
+
+    # =========================
+    # DATA PREP
+    # =========================
+    try:
+        df = df.dropna(subset=["arrival_dtm"])
+    except Exception as e:
+        logging.error(f"[{VISUAL_ID}] Failed to process arrival_dtm: {e}")
+        return
+
+    df["arrival_dtm"] = pd.to_datetime(
+        df["arrival_dtm"],
+        errors="coerce"
+    )
+
+    # =========================
+    # DATE WINDOW FILTER
+    # =========================
+        df = df[
+            (df["arrival_dtm"] >= start_date) &
+            (df["arrival_dtm"] <= end_date)
+        ].copy()
+
+    # =========================
+    # FEATURE ENGINEERING
+    # =========================
+    try:
+        df["arrival_year"] = df["arrival_dtm"].dt.year
+    except Exception as e:
+        logging.error(f"[{VISUAL_ID}] Failed to derive year: {e}")
+        return
+
+vis_04:
+
+    # =========================
+    # DATE WINDOW FILTER
+    # =========================
+        df = df[
+            (df["arrival_dtm"] >= start_date) &
+            (df["arrival_dtm"] <= end_date)
+        ].copy()
+
+    # ======================================================
+    # ESI CLEANING + MAPPING
+    # ======================================================
+    def map_esi(val):
+        try:
+            if pd.isna(val):
+                return "3 - Urgent"
+            val = int(val)
+            if val == 1:
+                return "1 - Immediate"
+            elif val == 2:
+                return "2 - Emergent"
+            elif val == 3:
+                return "3 - Urgent"
+            elif val == 4:
+                return "4 - Less Urgent"
+            elif val == 5:
+                return "5 - Non-Urgent"
+            else:
+                return "3 - Urgent"
+        except Exception:
+            return "3 - Urgent"
+
+    df["esi_category"] = df["esi"].apply(map_esi)
+
+vis_05: 
+
+    # =========================
+    # DATE WINDOW FILTER
+    # =========================
+        df = df[
+            (df["arrival_dtm"] >= start_date) &
+            (df["arrival_dtm"] <= end_date)
+        ].copy()
+
+    # =========================
+    # FEATURE ENGINEERING
+    # =========================
+    try:
+        df["year_month"] = df["arrival_dtm"].dt.to_period("M").dt.to_timestamp()
+
+    except Exception as e:
+        logging.error(f"{VISUAL_ID}: Feature engineering failed - {str(e)}")
+        return
+
+vis_06:
+
+    	# =========================
+    	# DATE WINDOW FILTER
+    	# =========================
+        df = df[
+            (df["arrival_dtm"] >= start_date) &
+            (df["arrival_dtm"] <= end_date)
+        ].copy()
+
+
+        # =============================
+        # DERIVE WEEKDAY
+        # =============================
+        df["weekday_num"] = df["arrival_dtm"].dt.dayofweek
+
+        weekday_map = {
+            0: "Mon",
+            1: "Tue",
+            2: "Wed",
+            3: "Thu",
+            4: "Fri",
+            5: "Sat",
+            6: "Sun",
+        }
+
+        df["weekday"] = df["weekday_num"].map(weekday_map)
+
+        ordered_days = [
+            "Sun",
+            "Mon",
+            "Tue",
+            "Wed",
+            "Thu",
+            "Fri",
+            "Sat"
+        ]
+
+vis_07:
+
+    # =========================
+    # DATE WINDOW FILTER
+    # =========================
+    df = df[
+        (df["arrival_dtm"] >= start_date) &
+        (df["arrival_dtm"] <= end_date)
+    ].copy()
+
+    # =========================
+    # DATA CLEANING
+    # =========================
+    df = df[~df["arrival_method"].isna()]
+    df["arrival_method"] = df["arrival_method"].astype(str).str.strip().str.lower()
+
+    if df.empty:
+        logging.warning(f"{VISUAL_ID}: No valid arrival_method values")
+        return
+
+    df["arrival_type"] = df["arrival_method"].apply(map_arrival_method)
+
+vis_12:
+
+    # =========================
+    # DATE WINDOW FILTER
+    # =========================
+    df = df[
+        (df["arrival_dtm"] >= start_date) &
+        (df["arrival_dtm"] <= end_date)
+    ].copy()
+    
+    df["patient_zipcode"] = (
+        df["patient_zipcode"]
+        .astype(str)
+        .str.strip()
+        .str.zfill(5)
+    )
+
+    df = df[
+        df["patient_zipcode"].notna()
+    ]
+
+    if df.empty:
+
+        logging.warning(
+            "vis_12: no zipcode data available"
+        )
+
+vis_13:
+
+    # =========================
+    # DATE WINDOW FILTER
+    # =========================
+    df = df[
+        (df["arrival_dtm"] >= start_date) &
+        (df["arrival_dtm"] <= end_date)
+    ].copy()
+
+    df["esi"] = pd.to_numeric(
+        df["esi"],
+        errors="coerce"
+    )
+
+    df = df[
+        df["esi"].isin([1, 2, 3, 4, 5])
+    ]
+
+    df["arrival_group"] = (
+        df["arrival_method"]
+        .apply(map_arrival_method)
+    )
+
+vis_15:
+
+    	# =========================
+    	# DATE WINDOW FILTER
+    	# =========================
+        df = df[
+            (df["arrival_dtm"] >= start_date) &
+            (df["arrival_dtm"] <= end_date)
+        ].copy()
+
+        df["arrival_dtm"] = pd.to_datetime(
+            df["arrival_dtm"],
+            errors="coerce"
+        )
+
+        df["tmt_stop_dtm"] = pd.to_datetime(
+            df["tmt_stop_dtm"],
+            errors="coerce"
+        )
+
+        df = df.dropna(
+            df=[
+                "arrival_dtm",
+                "tmt_stop_dtm"
+            ]
+        )
+
+        df["esi"] = (
+            pd.to_numeric(
+                df["esi"],
+                errors="coerce"
+            )
+            .fillna(0)
+            .astype(int)
+        )
+
+        df = df[df["esi"].isin([1, 2, 3, 4, 5])]
+
+        if df.empty:
+            logger.warning(
+                f"[{VISUAL_ID}] No valid ESI records"
+            )
+            return
+
+        los_hours = (
+            (
+                df["tmt_stop_dtm"] -
+                df["arrival_dtm"]
+            )
+            .dt.total_seconds()
+            / 3600
+        )
+
+        los_hours = los_hours.clip(lower=0.0167)
+
+        df["los_hours"] = los_hours
+
+vis_16:
+
+    # ============================================================
+    # DATE FILTER
+    # ============================================================
+
+    if "arrival_dtm" in df.columns:
+
+        df["arrival_dtm"] = pd.to_datetime(
+            df["arrival_dtm"],
+            errors="coerce"
+        )
+
+        report_start = pd.to_datetime(start_date)
+        report_end = pd.to_datetime(end_date)
+
+        if (
+            report_end.hour == 0
+            and report_end.minute == 0
+            and report_end.second == 0
+        ):
+            report_end = (
+                report_end
+                + pd.Timedelta(days=1)
+                - pd.Timedelta(minutes=1)
+            )
+
+    	# =========================
+    	# DATE WINDOW FILTER
+    	# =========================
+        df = df[
+            (df["arrival_dtm"] >= start_date) &
+            (df["arrival_dtm"] <= end_date)
+        ].copy()
+
+    df["patient_zipcode"] = (
+        df["patient_zipcode"]
+        .astype(str)
+        .str.strip()
+        .str.zfill(5)
+    )
+
+    df = df[
+        df["patient_zipcode"].notna()
+    ]
+
+    if df.empty:
+
+        logging.warning(
+            "vis_16: no zipcode data available"
+        )
+
+        return
+
+    df["arrival_group"] = (
+        df["arrival_method"]
+        .apply(map_arrival_method)
+    )
+
+    df["esi"] = pd.to_numeric(
+        df["esi"],
+        errors="coerce"
+    )
+
+    df = df[
+        df["arrival_group"]
+        == "EMT"
+    ]
+
+    df = df[
+        df["esi"].isin(
+            low_acuity_esi_values
+        )
+    ]
+
+vis_17:
+
+    # =====================================================
+    # REPORTING PERIOD FILTER
+    # =====================================================
+
+    df["arrival_dtm"] = pd.to_datetime(
+        df["arrival_dtm"],
+        errors="coerce"
+    )
+
+    report_start = pd.to_datetime(start_date)
+    report_end = pd.to_datetime(end_date)
+
+    if (
+        report_end.hour == 0
+        and report_end.minute == 0
+        and report_end.second == 0
+    ):
+        report_end = (
+            report_end
+            + pd.Timedelta(days=1)
+            - pd.Timedelta(minutes=1)
+        )
+
+    # =========================
+    # DATE WINDOW FILTER
+    # =========================
+    df = df[
+        (df["arrival_dtm"] >= start_date) &
+        (df["arrival_dtm"] <= end_date)
+    ].copy()
+
+    df["arrival_group"] = (
+        df["arrival_method"]
+        .apply(map_arrival_method)
+    )
+
+    esi_values = str(
+        params.get(
+            "low_acuity_esi_values",
+            "4;5"
+        )
+    )
+
+    esi_list = []
+
+    for value in esi_values.split(";"):
+        value = value.strip()
+
+        if value:
+            try:
+                esi_list.append(int(value))
+            except Exception:
+                pass
+
+    df["esi"] = pd.to_numeric(
+        df["esi"],
+        errors="coerce"
+    )
+
+    df = df[
+        df["arrival_group"]
+        == "Car / Walk-in"
+    ]
+
+    df = df[
+        df["esi"].isin(esi_list)
+    ]
+
+
+    df = df[
+        df["arrival_dtm"].notna()
+    ]
+
+    weekday_order = [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday",
+        "Sunday"
+    ]
+
+    df["hour_of_day"] = (
+        df["arrival_dtm"].dt.hour
+    )
+
+    df["day_of_week"] = (
+        df["arrival_dtm"]
+        .dt.day_name()
+    )
+
+vis_18:
+
+    # ============================================================
+    # REPORTING PERIOD FILTER
+    # ============================================================
+
+    df["arrival_dtm"] = pd.to_datetime(
+        df["arrival_dtm"],
+        errors="coerce"
+    )
+
+    report_start = pd.to_datetime(start_date)
+    report_end = pd.to_datetime(end_date)
+
+    if (
+        report_end.hour == 0
+        and report_end.minute == 0
+        and report_end.second == 0
+    ):
+        report_end = (
+            report_end
+            + pd.Timedelta(days=1)
+            - pd.Timedelta(minutes=1)
+        )
+
+    # =========================
+    # DATE WINDOW FILTER
+    # =========================
+    df = df[
+        (df["arrival_dtm"] >= start_date) &
+        (df["arrival_dtm"] <= end_date)
+    ].copy()
+
+    df["esi"] = pd.to_numeric(
+        df["esi"],
+        errors="coerce"
+    )
+
+    df = df[
+        df["esi"].isin([1, 2, 3, 4, 5])
+    ]
+
+    df["arrival_group"] = (
+        df["arrival_method"]
+        .apply(map_arrival_method)
+    )
+
+    selected_arrivals = [
+        x.strip()
+        for x in str(
+            params.get(
+                "arrival_groups",
+                "EMT"
+            )
+        ).split("|")
+        if x.strip()
+    ]
+
+    df = df[
+        df["arrival_group"].isin(
+            selected_arrivals
+        )
+    ]
+
+    df["disposition_group"] = (
+        df["disch_disp_desc"]
+        .apply(map_disposition)
+    )
+
+vis_19:
+
+   df["arrival_dtm"] = pd.to_datetime(
+        df["arrival_dtm"],
+        errors="coerce"
+    )
+
+    df["tmt_stop_dtm"] = pd.to_datetime(
+        df["tmt_stop_dtm"],
+        errors="coerce"
+    )
+
+    df = df.dropna(
+        subset=[
+            "arrival_dtm",
+            "tmt_stop_dtm"
+        ]
+    )
+
+    start_dt = pd.to_datetime(start_date)
+    end_dt = pd.to_datetime(end_date)
+
+    # =========================
+    # DATE WINDOW FILTER
+    # =========================
+    df = df[
+        (df["arrival_dtm"] >= start_date) &
+        (df["arrival_dtm"] <= end_date)
+    ].copy()
+
+    df["esi"] = pd.to_numeric(
+        df["esi"],
+        errors="coerce"
+    )
+
+    df = df[
+        df["esi"].isin([1, 2, 3, 4, 5])
+    ]
+
+    df["los_hours"] = (
+        (
+            df["tmt_stop_dtm"]
+            -
+            df["arrival_dtm"]
+        ).dt.total_seconds()
+        / 3600
+    )
+
+    df = df[
+        df["los_hours"] >= min_los_hours
+    ]
+
+    df = df[
+        df["los_hours"] <= max_los_hours
+    ]
+
+    df = df[
+        df["los_hours"] > 0
+    ]
+
+    df["arrival_type"] = (
+        df["arrival_method"]
+        .apply(map_arrival_method)
+    )
+
+vis_20:
+
+    df["arrival_dtm"] = pd.to_datetime(
+        df["arrival_dtm"],
+        errors="coerce"
+    )
+
+    df["triage_start_dtm"] = pd.to_datetime(
+        df["triage_start_dtm"],
+        errors="coerce"
+    )
+
+    df["tmt_start_dtm"] = pd.to_datetime(
+        df["tmt_start_dtm"],
+        errors="coerce"
+    )
+
+    df["esi"] = pd.to_numeric(
+        df["esi"],
+        errors="coerce"
+    )
+
+    df = df.dropna(df=["arrival_dtm"])
+
+    # =========================
+    # DATE WINDOW FILTER
+    # =========================
+    df = df[
+        (df["arrival_dtm"] >= start_date) &
+        (df["arrival_dtm"] <= end_date)
+    ].copy()
+
+    df["arrival_type"] = (
+        df["arrival_method"]
+        .apply(map_arrival_method)
+    )
+
+    df = df[
+        df["arrival_type"] == "EMT"
+    ]
+
+    df = df[
+        df["esi"].isin([1, 2, 3, 4, 5])
+    ]
+
+    df["has_triage"] = (
+        df["triage_start_dtm"].notna()
+    )
+
+    df["has_ed"] = (
+        df["tmt_start_dtm"].notna()
+    )
+
+    df["disposition"] = (
+        df["disch_disp_desc"]
+        .apply(map_disposition)
+    )
+
+
+
+
+
+
+
+

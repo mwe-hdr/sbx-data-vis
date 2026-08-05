@@ -59,15 +59,19 @@ from utils.vis_helpers import (
     save_parameter_table_png,
     save_title_png
 )
-VISUAL_ID = "vis_05"
+from utils.date_helpers import prepare_dates
+from utils.col_helpers import add_common_helper_columns
 
+logger = logging.getLogger(__name__)
+
+VISUAL_ID = "vis_05"
 
 def run(df, params, start_date, end_date, output_dir, generate_output_name):
     """
     Visualization 05: Monthly Facility Arrivals Trend
     """
 
-    logging.info(f"Starting {VISUAL_ID}")
+    logger.info(f"Starting {VISUAL_ID}")
     params = normalize_params(params)
 
     # =========================
@@ -155,55 +159,43 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         params.get("x_tick_rotation", 45) or 45
     )
 
+    # --------------------------------------------------
+    # HELP MY DATAFRAME
+    # --------------------------------------------------
+    df = prepare_dates(df, start_date, end_date)
+    df = add_common_helper_columns(df)
+
+    logger.info(
+        f"[{VISUAL_ID}] Dataset received after helper preparation. "
+        f"Rows available for monthly trend analysis: {len(df):,}"
+    )
+
     # =========================
     # VALIDATION
     # =========================
-    required_cols = ["arrival_dtm"]
+    required_cols = ["arrival_year_month"]
     for col in required_cols:
         if col not in df.columns:
-            logging.error(f"{VISUAL_ID}: Missing required column '{col}'")
+            logger.error(f"{VISUAL_ID}: Missing required column '{col}'")
             return
-
-    # =========================
-    # DATE WINDOW FILTER
-    # =========================
-    if "tmt_stop_dtm" in df.columns:
-        # Include any record whose interval overlaps the requested window
-        df = df[
-            (df["arrival_dtm"] <= end_date) &
-            (df["tmt_stop_dtm"] >= start_date)
-        ].copy()
-    else:
-        # Fallback for datasets without tmt_stop_dtm:
-        # arrival_dtm must fall within the requested window
-        df = df[
-            (df["arrival_dtm"] >= start_date) &
-            (df["arrival_dtm"] <= end_date)
-        ].copy()
-
-    if df.empty:
-        logging.warning(f"{VISUAL_ID}: no data after date window filtering")
-        return
-
-    # =========================
-    # FEATURE ENGINEERING
-    # =========================
-    try:
-        df["year_month"] = df["arrival_dtm"].dt.to_period("M").dt.to_timestamp()
-
-    except Exception as e:
-        logging.error(f"{VISUAL_ID}: Feature engineering failed - {str(e)}")
-        return
 
     # =========================
     # AGGREGATION
     # =========================
     try:
+        logger.info(
+            f"[{VISUAL_ID}] Aggregating {len(df):,} rows into monthly arrival counts."
+        )
+
         monthly_counts = (
-            df.groupby("year_month")
+            df.groupby("arrival_year_month")
             .size()
             .rename("arrival_count")
             .reset_index()
+        )
+
+        logger.info(
+            f"[{VISUAL_ID}] Generated {len(monthly_counts):,} monthly periods."
         )
 
         write_rdb = int(params.get("write_rdb", 0))
@@ -213,7 +205,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
             for _, row in monthly_counts.iterrows():
 
-                month_dt = pd.to_datetime(row["year_month"])
+                month_dt = pd.to_datetime(row["arrival_year_month"])
 
                 rdb_rows.append({
                     "run_id": params.get("run_id"),
@@ -226,7 +218,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                     "domain_cohort":
                         f"{params.get('domain')}.{params.get('cohort_id')}",
 
-                    "dimension": "year_month",
+                    "dimension": "arrival_year_month",
                     "dimension_value": month_dt.strftime("%Y-%m"),
                     "dimension_value_label": month_dt.strftime("%b %Y"),
 
@@ -244,22 +236,22 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                 })
 
         if monthly_counts.empty:
-            logging.warning(f"{VISUAL_ID}: Aggregation resulted in empty dataset")
+            logger.warning(f"{VISUAL_ID}: Aggregation resulted in empty dataset")
             return
 
         # Create full continuous monthly index
         full_range = pd.date_range(
-            start=monthly_counts["year_month"].min(),
-            end=monthly_counts["year_month"].max(),
+            start=monthly_counts["arrival_year_month"].min(),
+            end=monthly_counts["arrival_year_month"].max(),
             freq="MS"
         )
 
-        monthly_counts = monthly_counts.set_index("year_month").reindex(full_range, fill_value=0)
-        monthly_counts.index.name = "year_month"
+        monthly_counts = monthly_counts.set_index("arrival_year_month").reindex(full_range, fill_value=0)
+        monthly_counts.index.name = "arrival_year_month"
         monthly_counts = monthly_counts.reset_index()
 
     except Exception as e:
-        logging.error(f"{VISUAL_ID}: Aggregation failed - {str(e)}")
+        logger.error(f"{VISUAL_ID}: Aggregation failed - {str(e)}")
         return
 
     # =========================
@@ -282,7 +274,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             dpi=int(cfg["dpi"])
         )
 
-        x = monthly_counts["year_month"]
+        x = monthly_counts["arrival_year_month"]
         y = monthly_counts["arrival_count"]
 
         ax.plot(
@@ -372,7 +364,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                         fontfamily=font_family
                     )
             except Exception as e:
-                logging.warning(f"{VISUAL_ID}: Label rendering failed - {str(e)}")
+                logger.warning(f"{VISUAL_ID}: Label rendering failed - {str(e)}")
 
         plt.tight_layout()
         for tick in ax.get_xticklabels():
@@ -419,7 +411,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             height=legend_height
         )
 
-        logging.info(
+        logger.info(
             f"{VISUAL_ID}: Legend written: "
             f"{legend_output_file}"
         )
@@ -454,7 +446,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             title_weight=title_weight
         )
 
-        logging.info(
+        logger.info(
             f"{VISUAL_ID}: Title written: "
             f"{title_output_file}"
         )
@@ -463,7 +455,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
         plt.close()
 
-        logging.info(f"{VISUAL_ID}: Saved output to {filepath}")
+        logger.info(f"{VISUAL_ID}: Saved output to {filepath}")
 
         return {
             "output_path": filepath,
@@ -471,5 +463,5 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         }
 
     except Exception as e:
-        logging.error(f"{VISUAL_ID}: Plotting failed - {str(e)}")
+        logger.error(f"{VISUAL_ID}: Plotting failed - {str(e)}")
         return

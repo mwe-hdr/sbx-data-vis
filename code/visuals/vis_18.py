@@ -13,13 +13,13 @@
 ## Dispositions are normalized into operational categories:
 ##
 ## - Discharge
-## - Admit
+## - Inpatient
 ## - Observation
 ## - Transfer
 ## - Left Without Being Seen
 ## - Left Against Medical Advice
 ## - Expired
-## - Other
+## - Unknown
 ##
 ## Generates:
 ##
@@ -33,12 +33,10 @@
 
 import os
 import logging
-
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
-
 from utils.vis_helpers import (
     normalize_params,
     format_date_range,
@@ -46,12 +44,15 @@ from utils.vis_helpers import (
     get_display_parameters,
     save_parameter_table_png,
     save_title_png,
-    map_arrival_method
+    map_arrival_method,
+    map_disposition
 )
-
-VISUAL_ID = "vis_18"
+from utils.date_helpers import prepare_dates
+from utils.col_helpers import add_common_helper_columns
 
 logger = logging.getLogger(__name__)
+
+VISUAL_ID = "vis_18"
 
 from matplotlib.colors import to_rgb
 
@@ -66,59 +67,6 @@ def _get_contrasting_text_color(hex_color):
     )
 
     return "white" if luminance < 0.55 else "black"
-
-def _map_disposition(value):
-
-    if pd.isna(value):
-        return "Other"
-
-    txt = str(value).strip().lower()
-
-    if (
-        "observation" in txt
-        or txt.startswith("obs")
-    ):
-        return "Observation"
-
-    if (
-        "admit" in txt
-        or "inpatient" in txt
-    ):
-        return "Admit"
-
-    if (
-        "transfer" in txt
-    ):
-        return "Transfer"
-
-    if (
-        "lwbs" in txt
-        or "left without being seen" in txt
-        or "left before triage" in txt
-    ):
-        return "Left w/o Being Seen"
-
-    if (
-        "against medical advice" in txt
-        or txt == "ama"
-    ):
-        return "Left AMA"
-
-    if (
-        "expired" in txt
-        or "death" in txt
-        or "deceased" in txt
-    ):
-        return "Expired"
-
-    if (
-        "discharge" in txt
-        or "home" in txt
-    ):
-        return "Discharge"
-
-    return "Other"
-
 
 def run(
     df,
@@ -219,10 +167,17 @@ def run(
             )
         )
     )
+
+    # --------------------------------------------------
+    # HELP MY DATAFRAME
+    # --------------------------------------------------
+    df = prepare_dates(df, start_date, end_date)
+    df = add_common_helper_columns(df)
+
     required_cols = [
-        "arrival_method",
+        "arrival_group",
         "esi",
-        "disch_disp_desc",
+        "disposition_group",
         "arrival_dtm"
     ]
 
@@ -239,74 +194,7 @@ def run(
 
     df = df.copy()
 
-    # ============================================================
-    # REPORTING PERIOD FILTER
-    # ============================================================
-
-    df["arrival_dtm"] = pd.to_datetime(
-        df["arrival_dtm"],
-        errors="coerce"
-    )
-
-    report_start = pd.to_datetime(start_date)
-    report_end = pd.to_datetime(end_date)
-
-    if (
-        report_end.hour == 0
-        and report_end.minute == 0
-        and report_end.second == 0
-    ):
-        report_end = (
-            report_end
-            + pd.Timedelta(days=1)
-            - pd.Timedelta(minutes=1)
-        )
-
-    # =========================
-    # DATE WINDOW FILTER
-    # =========================
-    if "tmt_stop_dtm" in df.columns:
-        # Include any record whose interval overlaps the requested window
-        df = df[
-            (df["arrival_dtm"] <= end_date) &
-            (df["tmt_stop_dtm"] >= start_date)
-        ].copy()
-    else:
-        # Fallback for datasets without tmt_stop_dtm:
-        # arrival_dtm must fall within the requested window
-        df = df[
-            (df["arrival_dtm"] >= start_date) &
-            (df["arrival_dtm"] <= end_date)
-        ].copy()
-
-    if df.empty:
-        logging.warning(f"{VISUAL_ID}: no data after date window filtering")
-        return
-
-    logger.info(
-        f"[{VISUAL_ID}] Rows after date filtering: "
-        f"{len(df):,}"
-    )
-
-    if df.empty:
-        logger.warning(
-            f"[{VISUAL_ID}] No encounters after date filtering"
-        )
-        return
-
-    df["esi"] = pd.to_numeric(
-        df["esi"],
-        errors="coerce"
-    )
-
-    df = df[
-        df["esi"].isin([1, 2, 3, 4, 5])
-    ]
-
-    df["arrival_group"] = (
-        df["arrival_method"]
-        .apply(map_arrival_method)
-    )
+    df = df[(df["valid_esi"] == 1)]
 
     selected_arrivals = [
         x.strip()
@@ -325,24 +213,18 @@ def run(
         )
     ]
 
-    df["disposition_group"] = (
-        df["disch_disp_desc"]
-        .apply(_map_disposition)
-    )
-
     total_encounters = len(df)
 
     esi_order = [1, 2, 3, 4, 5]
 
     disp_order = [
         "Discharge",
-        "Admit",
+        "Inpatient",
         "Observation",
         "Transfer",
-        "Left w/o Being Seen",
-        "Left AMA",
+        "Exit w/o Care"
         "Expired",
-        "Other"
+        "Unknown"
     ]
 
     counts = pd.crosstab(
@@ -528,7 +410,7 @@ def run(
     total_encounters = len(df)
 
     admit_rate_overall = (
-        (df["disposition_group"] == "Admit")
+        (df["disposition_group"] == "Inpatient")
         .mean()
     )
 
@@ -543,7 +425,7 @@ def run(
     )
 
     admission_rates = (
-        row_pct["Admit"] / 100
+        row_pct["Inpatient"] / 100
     )
 
     observation_rates = (
@@ -757,7 +639,7 @@ def run(
                 "esi": esi,
                 "admission_rate":
                     round(
-                        row_pct.loc[esi,"Admit"],
+                        row_pct.loc[esi,"Inpatient"],
                         2
                     ),
                 "observation_rate":
@@ -780,7 +662,7 @@ def run(
             "value": int(
                 (
                     df["disposition_group"]
-                    == "Admit"
+                    == "Inpatient"
                 ).sum()
             )
         })

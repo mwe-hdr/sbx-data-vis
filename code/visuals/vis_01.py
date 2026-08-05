@@ -43,12 +43,27 @@ from utils.vis_helpers import (
     save_parameter_table_png,
     save_title_png
 )
+from utils.date_helpers import prepare_dates
+from utils.col_helpers import add_common_helper_columns
+
+logger = logging.getLogger(__name__)
 
 VISUAL_ID = "vis_01"
 
 def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
-    logging.info("Running vis_01_hourly_arrivals")
+    logger.info("Running vis_01_hourly_arrivals")
+
+    # --------------------------------------------------
+    # HELP MY DATAFRAME
+    # --------------------------------------------------
+    df = prepare_dates(df, start_date, end_date)
+    df = add_common_helper_columns(df)
+
+    logger.info(
+        f"[{VISUAL_ID}] Dataset received after helper preparation. "
+        f"Rows available for arrival-type analysis: {len(df):,}"
+    )
 
     # =========================
     # DEFENSIVE CHECKS
@@ -56,7 +71,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     required_cols = ["arrival_dtm", "esi"]
     for col in required_cols:
         if col not in df.columns:
-            logging.error(f"{VISUAL_ID}: missing required column '{col}'")
+            logger.error(f"{VISUAL_ID}: missing required column '{col}'")
             return
 
     # =========================
@@ -143,61 +158,23 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         params.get("title_width", 6.25) or 6.25
     )
 
-    # =========================
-    # DATE WINDOW FILTER
-    # =========================
-    if "tmt_stop_dtm" in df.columns:
-        # Include any record whose interval overlaps the requested window
-        df = df[
-            (df["arrival_dtm"] <= end_date) &
-            (df["tmt_stop_dtm"] >= start_date)
-        ].copy()
-    else:
-        # Fallback for datasets without tmt_stop_dtm:
-        # arrival_dtm must fall within the requested window
-        df = df[
-            (df["arrival_dtm"] >= start_date) &
-            (df["arrival_dtm"] <= end_date)
-        ].copy()
-
-    if df.empty:
-        logging.warning(f"{VISUAL_ID}: no data after date window filtering")
-        return
-
-    # =========================
-    # DATA PREP
-    # =========================
-    df["arrival_dtm"] = pd.to_datetime(
-    df["arrival_dtm"],
-    errors="coerce"
+    logger.info(
+        f"[{VISUAL_ID}] Filtering records with null esi_category. "
+        f"Rows before filter: {len(df):,}"
     )
-
-    df = df[
-        df["arrival_dtm"].notna()
-    ].copy()
-    
-    df["arrival_hour"] = df["arrival_dtm"].dt.hour
-
-    df["esi"] = pd.to_numeric(
-        df["esi"],
-        errors="coerce"
-    )
-
-    esi_map = {
-        1: '1 - Immediate',
-        2: '2 - Emergent',
-        3: '3 - Urgent',
-        4: '4 - Less Urgent',
-        5: '5 - Non-Urgent'
-    }
-
-    df["esi_category"] = df["esi"].map(esi_map)
 
     df = df[df["esi_category"].notna()]
 
+    logger.info(
+        f"[{VISUAL_ID}] Completed esi_category filter. "
+        f"Rows after filter: {len(df):,}"
+    )
+
     if df.empty:
-        logging.warning("vis_01: no valid ESI data")
+        logger.warning("vis_01: no valid ESI data")
         return
+
+
 
     # =========================
     # AGGREGATION
@@ -406,7 +383,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         height=legend_height
     )
 
-    logging.info(
+    logger.info(
         f"vis_01 legend written: "
         f"{legend_output_file}"
     )
@@ -442,14 +419,14 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         title_alignment=title_alignment
     )
 
-    logging.info(
+    logger.info(
         f"vis_01 title written: "
         f"{title_output_file}"
     )
 
     plt.close()
 
-    logging.info(f"vis_01 output written: {output_file}")
+    logger.info(f"vis_01 output written: {output_file}")
 
     if write_rdb == 1:
 

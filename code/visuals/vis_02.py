@@ -51,18 +51,16 @@ from utils.vis_helpers import (
     save_parameter_table_png,
     save_title_png
 )
+from utils.date_helpers import prepare_dates
+from utils.col_helpers import add_common_helper_columns
+
+logger = logging.getLogger(__name__)
 
 VISUAL_ID = "vis_02"
 
 def run(df, params, start_date, end_date, output_dir, generate_output_name):
-    """
-    Visualization 02: Length of Stay Distribution (Hours)
 
-    Generates a histogram-style bar chart showing the distribution of
-    Facility Length of Stay (LOS) in hourly buckets as percentages.
-    """
-
-    logging.info("Starting vis_02: Length of Stay Distribution")
+    logger.info("Starting vis_02: Length of Stay Distribution")
     params = normalize_params(params)
 
     try:
@@ -139,68 +137,59 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             try:
                 p[key] = float(p[key])
             except Exception:
-                logging.warning(f"Invalid param for {key}, using default")
+                logger.warning(f"Invalid param for {key}, using default")
                 p[key] = defaults[key]
 
         if p["max_bucket"] not in (None, ""):
             try:
                 p["max_bucket"] = int(p["max_bucket"])
             except Exception:
-                logging.warning("Invalid max_bucket, ignoring")
+                logger.warning("Invalid max_bucket, ignoring")
                 p["max_bucket"] = None
+
+        # --------------------------------------------------
+        # HELP MY DATAFRAME
+        # --------------------------------------------------
+        df = prepare_dates(df, start_date, end_date)
+        df = add_common_helper_columns(df)
 
         # --------------------------------------------------
         # REQUIRED COLUMNS CHECK
         # --------------------------------------------------
-        required_cols = ["arrival_dtm", "tmt_stop_dtm"]
+        required_cols = ["arrival_dtm", "tmt_stop_dtm", "valid_los"]
         for col in required_cols:
             if col not in df.columns:
-                logging.error(f"{VISUAL_ID}: Missing required column: {col}")
+                logger.error(f"{VISUAL_ID}: Missing required column: {col}")
                 return
 
-        # --------------------------------------------------
-        # DATETIME HANDLING
-        # --------------------------------------------------
-        df["arrival_dtm"] = pd.to_datetime(df["arrival_dtm"], errors="coerce")
-        df["tmt_stop_dtm"] = pd.to_datetime(df["tmt_stop_dtm"], errors="coerce")
+        logger.info(
+            f"[{VISUAL_ID}] Filtering records with null arrival_dtm or tmt_stop_dtm. "
+            f"Rows before filter: {len(df):,}"
+        )
 
         # Drop null timestamps
         df = df.dropna(subset=["arrival_dtm", "tmt_stop_dtm"])
 
-        # =========================
-        # DATE WINDOW FILTER
-        # =========================
-        if "tmt_stop_dtm" in df.columns:
-            # Include any record whose interval overlaps the requested window
-            df = df[
-                (df["arrival_dtm"] <= end_date) &
-                (df["tmt_stop_dtm"] >= start_date)
-            ].copy()
-        else:
-            # Fallback for datasets without tmt_stop_dtm:
-            # arrival_dtm must fall within the requested window
-            df = df[
-                (df["arrival_dtm"] >= start_date) &
-                (df["arrival_dtm"] <= end_date)
-            ].copy()
+        logger.info(
+            f"[{VISUAL_ID}] Completed timestamp filter. "
+            f"Rows after filter: {len(df):,}"
+        )
 
-        if df.empty:
-            logging.warning(f"{VISUAL_ID}: no data after date window filtering")
-            return
-
-        # --------------------------------------------------
-        # LOS CALCULATION (HOURS)
-        # --------------------------------------------------
-        df["los_hours"] = (
-            (df["tmt_stop_dtm"] - df["arrival_dtm"])
-            .dt.total_seconds() / 3600.0
+        logger.info(
+            f"[{VISUAL_ID}] Filtering to valid_los == 1. "
+            f"Rows before filter: {len(df):,}"
         )
 
         # Remove invalid LOS
-        df = df[(df["los_hours"].notna()) & (df["los_hours"] >= 0)]
+        df = df[(df["valid_los"] == 1)]
+
+        logger.info(
+            f"[{VISUAL_ID}] Completed valid_los filter. "
+            f"Rows after filter: {len(df):,}"
+        )
 
         if df.empty:
-            logging.warning("vis_02: No valid LOS values")
+            logger.warning("vis_02: No valid LOS values")
             return
 
         # --------------------------------------------------
@@ -453,7 +442,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         plt.savefig(output_path, dpi=int(p["dpi"]))
         plt.close()
 
-        logging.info(f"vis_02 saved to {output_path}")
+        logger.info(f"vis_02 saved to {output_path}")
 
         legend_output_file = os.path.join(
             output_dir,
@@ -477,7 +466,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             height=legend_height
         )
 
-        logging.info(
+        logger.info(
             f"vis_02 legend written: "
             f"{legend_output_file}"
         )
@@ -512,7 +501,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             title_weight=title_weight
         )
 
-        logging.info(
+        logger.info(
             f"vis_02 title written: "
             f"{title_output_file}"
         )
@@ -523,4 +512,4 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         }
 
     except Exception as e:
-        logging.error(f"vis_02 failed: {str(e)}")
+        logger.error(f"vis_02 failed: {str(e)}")

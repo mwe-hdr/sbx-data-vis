@@ -22,7 +22,7 @@
 #     Inpatient
 #     Observation
 #     Transfer
-#     Exit Without Care
+#     Exit w/o Care
 #     Expired
 #
 # Ambulatory arrivals are defined using the arrival-method grouping logic
@@ -44,8 +44,6 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from matplotlib.patches import Patch
-
-
 from utils.vis_helpers import (
     normalize_params,
     format_date_range,
@@ -53,36 +51,15 @@ from utils.vis_helpers import (
     get_display_parameters,
     save_title_png,
     save_legend_png,
-    map_arrival_method
+    map_arrival_method,
+    map_disposition
 )
+from utils.date_helpers import prepare_dates
+from utils.col_helpers import add_common_helper_columns
 
 logger = logging.getLogger(__name__)
 
 VISUAL_ID = "vis_20"
-
-def _map_disposition(val):
-
-    if pd.isna(val):
-        return "Exit Without Care"
-
-    val = str(val).lower()
-
-    if "discharge" in val:
-        return "Discharge"
-
-    if "admit" in val:
-        return "Inpatient"
-
-    if "observation" in val:
-        return "Observation"
-
-    if "transfer" in val:
-        return "Transfer"
-
-    if "expired" in val:
-        return "Expired"
-
-    return "Exit Without Care"
 
 def run(
     df,
@@ -134,12 +111,20 @@ def run(
 
     required_cols = {
         "arrival_dtm",
-        "arrival_method",
+        "arrival_group",
         "esi",
         "triage_start_dtm",
+        "has_triage",
         "tmt_start_dtm",
-        "disch_disp_desc"
+        "has_ed",
+        "disposition"
     }
+
+    # --------------------------------------------------
+    # HELP MY DATAFRAME
+    # --------------------------------------------------
+    df = prepare_dates(df, start_date, end_date)
+    df = add_common_helper_columns(df)
 
     if df is None:
         logger.warning(f"[{VISUAL_ID}] dataframe is None")
@@ -155,74 +140,11 @@ def run(
 
     df = df.copy()
 
-    df["arrival_dtm"] = pd.to_datetime(
-        df["arrival_dtm"],
-        errors="coerce"
-    )
-
-    df["triage_start_dtm"] = pd.to_datetime(
-        df["triage_start_dtm"],
-        errors="coerce"
-    )
-
-    df["tmt_start_dtm"] = pd.to_datetime(
-        df["tmt_start_dtm"],
-        errors="coerce"
-    )
-
-    df["esi"] = pd.to_numeric(
-        df["esi"],
-        errors="coerce"
-    )
-
-    df = df.dropna(df=["arrival_dtm"])
-
-    # =========================
-    # DATE WINDOW FILTER
-    # =========================
-    if "tmt_stop_dtm" in df.columns:
-        # Include any record whose interval overlaps the requested window
-        df = df[
-            (df["arrival_dtm"] <= end_date) &
-            (df["tmt_stop_dtm"] >= start_date)
-        ].copy()
-    else:
-        # Fallback for datasets without tmt_stop_dtm:
-        # arrival_dtm must fall within the requested window
-        df = df[
-            (df["arrival_dtm"] >= start_date) &
-            (df["arrival_dtm"] <= end_date)
-        ].copy()
-
-    if df.empty:
-        logging.warning(f"{VISUAL_ID}: no data after date window filtering")
-        return
-
-    df["arrival_type"] = (
-        df["arrival_method"]
-        .apply(map_arrival_method)
-    )
-
     df = df[
-        df["arrival_type"] == "EMT"
+        df["arrival_group"] == "EMT"
     ]
 
-    df = df[
-        df["esi"].isin([1, 2, 3, 4, 5])
-    ]
-
-    df["has_triage"] = (
-        df["triage_start_dtm"].notna()
-    )
-
-    df["has_ed"] = (
-        df["tmt_start_dtm"].notna()
-    )
-
-    df["disposition"] = (
-        df["disch_disp_desc"]
-        .apply(_map_disposition)
-    )
+    df = df[(df["valid_esi"] == 1)]
 
     esi_min = int(
         params.get(
@@ -253,8 +175,9 @@ def run(
         "Inpatient",
         "Observation",
         "Transfer",
-        "Exit Without Care",
-        "Expired"
+        "Exit w/o Care",
+        "Expired",
+        "Unknown"
     ]
 
     esi_levels = [1, 2, 3, 4, 5]
@@ -575,7 +498,7 @@ def run(
         "Inpatient",
         "Observation",
         "Transfer",
-        "Exit Without Care",
+        "Exit w/o Care",
         "Expired"
     ]
 

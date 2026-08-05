@@ -3,7 +3,7 @@
 #
 # Description :
 # Generates a distribution analysis of Facility arrivals by
-# day of week. Facility arrival timestamps are assigned to weekday categories
+# day of week. Facility arrival timestamps are assigned to arrival_weekday categories
 # and aggregated to determine the proportion of total arrivals occurring
 # on each day.
 #
@@ -24,18 +24,18 @@
 #   - end_date     : Reporting period end date
 #
 # Outputs :
-#   - PNG bar chart showing percent distribution of arrivals by weekday
+#   - PNG bar chart showing percent distribution of arrivals by arrival_weekday
 #       * X-axis: Day of Week
 #       * Y-axis: Percent of Arrivals
 #   - RDB records containing:
 #       * Total arrivals (denominator)
-#       * Arrival counts by weekday
+#       * Arrival counts by arrival_weekday
 #       * Weekday distribution metrics for downstream reporting
 #
 # Key Metrics :
 #   - Total Facility arrivals
-#   - Arrivals by weekday
-#   - Percent of arrivals by weekday
+#   - Arrivals by arrival_weekday
+#   - Percent of arrivals by arrival_weekday
 #   - Weekly arrival distribution pattern
 # =============================================================================
 
@@ -56,6 +56,10 @@ from utils.vis_helpers import (
     save_parameter_table_png,
     save_title_png
 )
+from utils.date_helpers import prepare_dates
+from utils.col_helpers import add_common_helper_columns
+
+logger = logging.getLogger(__name__)
 
 VISUAL_ID = "vis_06"
 
@@ -64,7 +68,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     Visualization 06: Weekday Arrival Distribution
     """
 
-    logging.info(f"Starting {VISUAL_ID}")
+    logger.info(f"Starting {VISUAL_ID}")
     params = normalize_params(params)
 
     try:
@@ -143,55 +147,28 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             cfg.get("x_tick_rotation", 0) or 0
         )
 
+        # --------------------------------------------------
+        # HELP MY DATAFRAME
+        # --------------------------------------------------
+        df = prepare_dates(df, start_date, end_date)
+        df = add_common_helper_columns(df)
+
+        logger.info(
+            f"[{VISUAL_ID}] Dataset received after helper preparation. "
+            f"Rows available for weekday analysis: {len(df):,}"
+        )
+
         # =============================
         # VALIDATION
         # =============================
-        required_cols = ["arrival_dtm"]
+        required_cols = ["arrival_weekday"]
         missing_cols = [col for col in required_cols if col not in df.columns]
 
         if missing_cols:
-            logging.error(f"{VISUAL_ID} missing required columns: {missing_cols}")
+            logger.error(f"{VISUAL_ID} missing required columns: {missing_cols}")
             return
 
         df = df.copy()
-
-        # =========================
-        # DATE WINDOW FILTER
-        # =========================
-        if "tmt_stop_dtm" in df.columns:
-            # Include any record whose interval overlaps the requested window
-            df = df[
-                (df["arrival_dtm"] <= end_date) &
-                (df["tmt_stop_dtm"] >= start_date)
-            ].copy()
-        else:
-            # Fallback for datasets without tmt_stop_dtm:
-            # arrival_dtm must fall within the requested window
-            df = df[
-                (df["arrival_dtm"] >= start_date) &
-                (df["arrival_dtm"] <= end_date)
-            ].copy()
-
-        if df.empty:
-            logging.warning(f"{VISUAL_ID}: no data after date window filtering")
-            return
-
-        # =============================
-        # DERIVE WEEKDAY
-        # =============================
-        df["weekday_num"] = df["arrival_dtm"].dt.dayofweek
-
-        weekday_map = {
-            0: "Mon",
-            1: "Tue",
-            2: "Wed",
-            3: "Thu",
-            4: "Fri",
-            5: "Sat",
-            6: "Sun",
-        }
-
-        df["weekday"] = df["weekday_num"].map(weekday_map)
 
         ordered_days = [
             "Sun",
@@ -206,16 +183,26 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # =============================
         # AGGREGATION
         # =============================
+        logger.info(
+            f"[{VISUAL_ID}] Calculating weekday distribution from "
+            f"{len(df):,} arrivals."
+        )
+
         counts = (
-            df["weekday"]
+            df["arrival_weekday"]
             .value_counts()
             .reindex(ordered_days, fill_value=0)
         )
 
         total = counts.sum()
 
+        logger.info(
+            f"[{VISUAL_ID}] Weekday distribution denominator: "
+            f"{int(total):,} arrivals."
+        )
+
         if total == 0:
-            logging.warning(f"{VISUAL_ID}: Total encounters = 0")
+            logger.warning(f"{VISUAL_ID}: Total encounters = 0")
             return
 
         percents = counts / total
@@ -356,7 +343,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             height=legend_height
         )
 
-        logging.info(
+        logger.info(
             f"{VISUAL_ID} legend written: "
             f"{legend_output_file}"
         )
@@ -390,7 +377,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             title_weight=title_weight
         )
 
-        logging.info(
+        logger.info(
             f"{VISUAL_ID} title written: "
             f"{title_output_file}"
         )
@@ -398,7 +385,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
         plt.close()
 
-        logging.info(f"{VISUAL_ID} saved to {output_path}")
+        logger.info(f"{VISUAL_ID} saved to {output_path}")
 
         # =============================
         # RDB OUTPUT
@@ -420,7 +407,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                     "domain_cohort":
                         f"{params.get('domain')}.{params.get('cohort_id')}",
 
-                    "dimension": "weekday",
+                    "dimension": "arrival_weekday",
                     "dimension_value": day,
                     "dimension_value_label": day,
 
@@ -451,7 +438,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                     "domain_cohort":
                         f"{params.get('domain')}.{params.get('cohort_id')}",
 
-                    "dimension": "weekday",
+                    "dimension": "arrival_weekday",
                     "dimension_value": day,
                     "dimension_value_label": day,
 
@@ -474,7 +461,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         }
 
     except Exception as e:
-        logging.error(
+        logger.error(
             f"{VISUAL_ID} failed: {str(e)}",
             exc_info=True
         )

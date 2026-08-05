@@ -34,9 +34,7 @@ import logging
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-
 from matplotlib.patches import Patch
-
 from utils.vis_helpers import (
     normalize_params,
     format_date_range,
@@ -46,10 +44,12 @@ from utils.vis_helpers import (
     save_title_png,
     map_arrival_method
 )
-
-VISUAL_ID = "vis_13"
+from utils.date_helpers import prepare_dates
+from utils.col_helpers import add_common_helper_columns
 
 logger = logging.getLogger(__name__)
+
+VISUAL_ID = "vis_13"
 
 def run(
     df,
@@ -126,7 +126,13 @@ def run(
         params.get("tick_fontsize", 8) or 8
     )
 
-    required_cols = ["arrival_method", "esi"]
+    # --------------------------------------------------
+    # HELP MY DATAFRAME
+    # --------------------------------------------------
+    prepare_dates(df, start_date, end_date)
+    add_common_helper_columns(df)
+
+    required_cols = ["arrival_group", "esi"]
 
     missing_cols = [c for c in required_cols if c not in df.columns]
 
@@ -137,40 +143,7 @@ def run(
 
     df = df.copy()
 
-    # =========================
-    # DATE WINDOW FILTER
-    # =========================
-    if "tmt_stop_dtm" in df.columns:
-        # Include any record whose interval overlaps the requested window
-        df = df[
-            (df["arrival_dtm"] <= end_date) &
-            (df["tmt_stop_dtm"] >= start_date)
-        ].copy()
-    else:
-        # Fallback for datasets without tmt_stop_dtm:
-        # arrival_dtm must fall within the requested window
-        df = df[
-            (df["arrival_dtm"] >= start_date) &
-            (df["arrival_dtm"] <= end_date)
-        ].copy()
-
-    if df.empty:
-        logging.warning(f"{VISUAL_ID}: no data after date window filtering")
-        return
-
-    df["esi"] = pd.to_numeric(
-        df["esi"],
-        errors="coerce"
-    )
-
-    df = df[
-        df["esi"].isin([1, 2, 3, 4, 5])
-    ]
-
-    df["arrival_group"] = (
-        df["arrival_method"]
-        .apply(map_arrival_method)
-    )
+    df = df[(df["valid_esi"] == 1)]
 
     arrival_order = [
         "EMT",
@@ -439,11 +412,11 @@ def run(
                     "domain": params.get("domain"),
                     "cohort_id": params.get("cohort_id"),
                     "visual_id": VISUAL_ID,
-                    "arrival_type": arrival,
+                    "arrival_group": arrival,
                     "esi": esi,
                     "arrival_total": int(arrival_total),
                     "encounter_count": count,
-                    "pct_within_arrival_type": round(
+                    "pct_within_arrival_group": round(
                         pct_arrival,
                         2
                     ),

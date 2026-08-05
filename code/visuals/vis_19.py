@@ -46,7 +46,6 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
-
 from utils.vis_helpers import (
     normalize_params,
     format_date_range,
@@ -56,11 +55,12 @@ from utils.vis_helpers import (
     save_title_png,
     map_arrival_method
 )
-
-VISUAL_ID = "vis_19"
+from utils.date_helpers import prepare_dates
+from utils.col_helpers import add_common_helper_columns
 
 logger = logging.getLogger(__name__)
 
+VISUAL_ID = "vis_19"
 
 def _safe_param(params, key, default, cast_type=None):
     try:
@@ -87,7 +87,7 @@ def run(
     params = normalize_params(params)
 
     required_cols = [
-        "arrival_method",
+        "arrival_group",
         "esi",
         "arrival_dtm",
         "tmt_stop_dtm"
@@ -272,17 +272,13 @@ def run(
             )
     }
 
+    # --------------------------------------------------
+    # HELP MY DATAFRAME
+    # --------------------------------------------------
+    df = prepare_dates(df, start_date, end_date)
+    df = add_common_helper_columns(df)
+
     df = df.copy()
-
-    df["arrival_dtm"] = pd.to_datetime(
-        df["arrival_dtm"],
-        errors="coerce"
-    )
-
-    df["tmt_stop_dtm"] = pd.to_datetime(
-        df["tmt_stop_dtm"],
-        errors="coerce"
-    )
 
     df = df.dropna(
         subset=[
@@ -291,52 +287,7 @@ def run(
         ]
     )
 
-    start_dt = pd.to_datetime(start_date)
-    end_dt = pd.to_datetime(end_date)
-
-    # =========================
-    # DATE WINDOW FILTER
-    # =========================
-    if "tmt_stop_dtm" in df.columns:
-        # Include any record whose interval overlaps the requested window
-        df = df[
-            (df["arrival_dtm"] <= end_date) &
-            (df["tmt_stop_dtm"] >= start_date)
-        ].copy()
-    else:
-        # Fallback for datasets without tmt_stop_dtm:
-        # arrival_dtm must fall within the requested window
-        df = df[
-            (df["arrival_dtm"] >= start_date) &
-            (df["arrival_dtm"] <= end_date)
-        ].copy()
-
-    if df.empty:
-        logging.warning(f"{VISUAL_ID}: no data after date window filtering")
-        return
-
-    logger.info(
-        f"[{VISUAL_ID}] Rows after date filtering: "
-        f"{len(df):,}"
-    )
-
-    df["esi"] = pd.to_numeric(
-        df["esi"],
-        errors="coerce"
-    )
-
-    df = df[
-        df["esi"].isin([1, 2, 3, 4, 5])
-    ]
-
-    df["los_hours"] = (
-        (
-            df["tmt_stop_dtm"]
-            -
-            df["arrival_dtm"]
-        ).dt.total_seconds()
-        / 3600
-    )
+    df = df[(df["valid_esi"] == 1)]
 
     df = df[
         df["los_hours"] >= min_los_hours
@@ -349,11 +300,6 @@ def run(
     df = df[
         df["los_hours"] > 0
     ]
-
-    df["arrival_type"] = (
-        df["arrival_method"]
-        .apply(map_arrival_method)
-    )
 
     arrival_order = [
         "EMT",
@@ -370,7 +316,7 @@ def run(
         for esi in [1, 2, 3, 4, 5]:
 
             subset = df[
-                (df["arrival_type"] == arrival)
+                (df["arrival_group"] == arrival)
                 &
                 (df["esi"] == esi)
             ]
@@ -408,7 +354,7 @@ def run(
 
             summary_rows.append(
                 {
-                    "arrival_type": arrival,
+                    "arrival_group": arrival,
                     "esi": esi,
                     "count": count,
                     **stats,
@@ -494,7 +440,7 @@ def run(
             for esi in esi_values:
 
                 row = summary_df[
-                    (summary_df["arrival_type"] == arrival)
+                    (summary_df["arrival_group"] == arrival)
                     &
                     (summary_df["esi"] == esi)
                 ].iloc[0]
@@ -545,7 +491,7 @@ def run(
 
                 vals = df.loc[
                     (
-                        df["arrival_type"]
+                        df["arrival_group"]
                         == arrival
                     )
                     &
@@ -603,10 +549,10 @@ def run(
 
     annotation = (
         f"Highest LOS: "
-        f"{highest_los_category['arrival_type']} "
+        f"{highest_los_category['arrival_group']} "
         f"ESI {highest_los_category['esi']}\n"
         f"Highest Census: "
-        f"{highest_census_category['arrival_type']} "
+        f"{highest_census_category['arrival_group']} "
         f"ESI {highest_census_category['esi']}"
     )
 
@@ -724,7 +670,7 @@ def run(
         .head(5)
         [
             [
-                "arrival_type",
+                "arrival_group",
                 "esi",
                 "count",
                 "mean_los",
@@ -784,7 +730,7 @@ def run(
     )
 
     column_widths = {
-        0: 0.18,  # arrival_type
+        0: 0.18,  # arrival_group
         1: 0.035,  # esi
         2: 0.10,  # count
         3: 0.10,  # mean_los
@@ -976,13 +922,13 @@ def run(
                         f"{params.get('cohort_id')}",
 
                     "dimension":
-                        "arrival_type",
+                        "arrival_group",
 
                     "dimension_value":
-                        row["arrival_type"],
+                        row["arrival_group"],
 
                     "dimension_value_label":
-                        row["arrival_type"],
+                        row["arrival_group"],
 
                     "secondary_dimension":
                         "esi",
@@ -1042,7 +988,7 @@ def run(
                     f"{params.get('cohort_id')}",
 
                 "dimension":
-                    "arrival_type",
+                    "arrival_group",
 
                 "dimension_value":
                     "Overall",
@@ -1077,11 +1023,11 @@ def run(
 
         for metric_name, metric_value in {
             "highest_los_category":
-                f"{highest_los_category['arrival_type']}|ESI {highest_los_category['esi']}",
+                f"{highest_los_category['arrival_group']}|ESI {highest_los_category['esi']}",
             "highest_median_los_category":
-                f"{highest_median_category['arrival_type']}|ESI {highest_median_category['esi']}",
+                f"{highest_median_category['arrival_group']}|ESI {highest_median_category['esi']}",
             "highest_census_category":
-                f"{highest_census_category['arrival_type']}|ESI {highest_census_category['esi']}"
+                f"{highest_census_category['arrival_group']}|ESI {highest_census_category['esi']}"
         }.items():
 
             rdb_rows.append({
@@ -1092,7 +1038,7 @@ def run(
                 "cohort_id": params.get("cohort_id"),
                 "domain_cohort":
                     f"{params.get('domain')}.{params.get('cohort_id')}",
-                "dimension": "arrival_type",
+                "dimension": "arrival_group",
                 "dimension_value": "Overall",
                 "dimension_value_label": "Overall",
                 "secondary_dimension": None,

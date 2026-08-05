@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as mtick
 import os
 import logging
+import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -494,12 +495,8 @@ def generate_census(df, start_date, end_date):
     try:
         df = df.copy()
 
-        # =========================================================
-        # DATETIME PREP
-        # =========================================================
         df["arrival_dtm"] = pd.to_datetime(df["arrival_dtm"], errors="coerce")
         df["tmt_stop_dtm"] = pd.to_datetime(df["tmt_stop_dtm"], errors="coerce")
-
         df = df.dropna(subset=["arrival_dtm"])
 
         # =========================================================
@@ -508,8 +505,12 @@ def generate_census(df, start_date, end_date):
         start_date = pd.to_datetime(start_date)
         end_date = pd.to_datetime(end_date)
 
-        if end_date.hour == 0 and end_date.minute == 0 and end_date.second == 0:
-            end_date = end_date + pd.Timedelta(days=1) - pd.Timedelta(minutes=1)
+        if start_date.time() == datetime.time(0,0):
+                end_date = (
+                    end_date
+                    + pd.Timedelta(days=1)
+                    - pd.Timedelta(minutes=1)
+                )
 
         # =========================
         # DATE WINDOW FILTER
@@ -607,7 +608,8 @@ def map_arrival_method(value):
         "tc als stretcher",
         "tc critical care team",
         "tc pals stretcher",
-        "tc bariatric"
+        "tc bariatric",
+        "ems"
     ]
 
     if any(term in txt for term in ambulance_terms):

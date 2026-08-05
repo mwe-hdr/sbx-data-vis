@@ -11,11 +11,12 @@ from utils.vis_helpers import (
     save_title_png,
     save_legend_png
 )
-
-VISUAL_ID = "vis_15"
+from utils.date_helpers import prepare_dates
+from utils.col_helpers import add_common_helper_columns
 
 logger = logging.getLogger(__name__)
 
+VISUAL_ID = "vis_15"
 
 def _safe_param(params, key, default, cast_type=None):
     try:
@@ -186,61 +187,17 @@ def run(
             int
         )
 
+        # --------------------------------------------------
+        # HELP MY DATAFRAME
+        # --------------------------------------------------
+        df = prepare_dates(df, start_date, end_date)
+        df = add_common_helper_columns(df)
+
         # =====================================================
         # DATA PREP
         # =====================================================
 
         df = df.copy()
-
-        # =====================================================
-        # REPORTING PERIOD FILTER
-        # =====================================================
-
-        report_start = pd.to_datetime(start_date)
-        report_end = pd.to_datetime(end_date)
-
-        if (
-            report_end.hour == 0
-            and report_end.minute == 0
-            and report_end.second == 0
-        ):
-            report_end = (
-                report_end
-                + pd.Timedelta(days=1)
-                - pd.Timedelta(minutes=1)
-            )
-
-        df["arrival_dtm"] = pd.to_datetime(
-            df["arrival_dtm"],
-            errors="coerce"
-        )
-
-        df = df[
-            (df["arrival_dtm"] >= report_start)
-            &
-            (df["arrival_dtm"] <= report_end)
-        ].copy()
-
-        logger.info(
-            f"[{VISUAL_ID}] Rows after date filtering: "
-            f"{len(df):,}"
-        )
-
-        if df.empty:
-            logger.warning(
-                f"[{VISUAL_ID}] No encounters after date filtering"
-            )
-            return
-
-        df["arrival_dtm"] = pd.to_datetime(
-            df["arrival_dtm"],
-            errors="coerce"
-        )
-
-        df["tmt_stop_dtm"] = pd.to_datetime(
-            df["tmt_stop_dtm"],
-            errors="coerce"
-        )
 
         df = df.dropna(
             df=[
@@ -249,31 +206,13 @@ def run(
             ]
         )
 
-        df["esi"] = (
-            pd.to_numeric(
-                df["esi"],
-                errors="coerce"
-            )
-            .fillna(0)
-            .astype(int)
-        )
-
-        df = df[df["esi"].isin([1, 2, 3, 4, 5])]
+        df = df[(df["valid_esi"] == 1)]
 
         if df.empty:
             logger.warning(
                 f"[{VISUAL_ID}] No valid ESI records"
             )
             return
-
-        los_hours = (
-            (
-                df["tmt_stop_dtm"] -
-                df["arrival_dtm"]
-            )
-            .dt.total_seconds()
-            / 3600
-        )
 
         los_hours = los_hours.clip(lower=0.0167)
 

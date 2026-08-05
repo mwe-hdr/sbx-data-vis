@@ -69,6 +69,7 @@ import numpy as np
 import plotly.graph_objects as go
 from matplotlib.patches import Patch
 from utils.vis_helpers import (
+    crop_image,
     normalize_params,
     format_date_range,
     apply_axis_range,
@@ -77,9 +78,14 @@ from utils.vis_helpers import (
     format_display_value,
     get_display_parameters,
     save_parameter_table_png,
-    save_title_png
+    save_title_png,
+    map_disposition
 )
+from utils.date_helpers import prepare_dates
+from utils.col_helpers import add_common_helper_columns
+
 logger = logging.getLogger(__name__)
+
 VISUAL_ID = "vis_09"
 
 def run(df, params, start_date, end_date, output_dir, generate_output_name):
@@ -122,11 +128,17 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
     p = {**default_params, **(params or {})}
 
+    # --------------------------------------------------
+    # HELP MY DATAFRAME
+    # --------------------------------------------------
+    df = prepare_dates(df, start_date, end_date)
+    df = add_common_helper_columns(df)
+
     required_cols = {
         "arrival_dtm",
-        "triage_start_dtm",
-        "tmt_start_dtm",
-        "disch_disp_desc"
+        "has_triage",
+        "has_ed",
+        "disposition"
     }
 
     if df is None:
@@ -145,41 +157,9 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         logger.warning(f"[{VISUAL_ID}] Input dataframe is empty. Skipping.")
         return
 
-    # -----------------------------
-    # BASIC PREP
-    # -----------------------------
     df = df.copy()
-    df["arrival_dtm"] = pd.to_datetime(df["arrival_dtm"], errors="coerce")
-    df["triage_start_dtm"] = pd.to_datetime(df["triage_start_dtm"], errors="coerce")
-    df["tmt_start_dtm"] = pd.to_datetime(df["tmt_start_dtm"], errors="coerce")
-
-    df = df.dropna(subset=["arrival_dtm"])
-
-    # =========================
-    # DATE WINDOW FILTER
-    # =========================
-    if "tmt_stop_dtm" in df.columns:
-        # Include any record whose interval overlaps the requested window
-        df = df[
-            (df["arrival_dtm"] <= end_date) &
-            (df["tmt_stop_dtm"] >= start_date)
-        ].copy()
-    else:
-        # Fallback for datasets without tmt_stop_dtm:
-        # arrival_dtm must fall within the requested window
-        df = df[
-            (df["arrival_dtm"] >= start_date) &
-            (df["arrival_dtm"] <= end_date)
-        ].copy()
-
-    if df.empty:
-        logging.warning(f"{VISUAL_ID}: no data after date window filtering")
-        return
 
     total_arrivals = len(df)
-
-    df["has_triage"] = df["triage_start_dtm"].notna()
-    df["has_ed"] = df["tmt_start_dtm"].notna()
 
     triage_count = df["has_triage"].sum()
     no_triage_count = total_arrivals - triage_count
@@ -188,44 +168,24 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     ed_from_triage = triage_df["has_ed"].sum()
     left_before_ed = len(triage_df) - ed_from_triage
 
-    # -----------------------------
-    # DISPOSITION
-    # -----------------------------
-    def map_disposition(val):
-        if pd.isna(val):
-            return "Exit Without Care"
-        val = str(val).lower()
-        if "discharge" in val:
-            return "Discharge"
-        elif "admit" in val:
-            return "Inpatient"
-        elif "observation" in val:
-            return "Observation"
-        elif "transfer" in val:
-            return "Transfer"
-        elif "expired" in val:
-            return "Expired"
-        else:
-            return "Exit Without Care"
-
     ed_df = df[df["has_ed"]].copy()
-    ed_df["disposition"] = ed_df["disch_disp_desc"].apply(map_disposition)
 
     disp_counts = ed_df["disposition"].value_counts().to_dict()
 
-    categories = [
+    DISPOSITIONS = [
         "Discharge",
         "Inpatient",
         "Observation",
         "Transfer",
-        "Exit Without Care",
-        "Expired"
+        "Exit w/o Care",
+        "Expired",
+        "Unknown"
     ]
+
+    categories = DISPOSITIONS.copy()
 
     for c in categories:
         disp_counts.setdefault(c, 0)
-
-    categories = sorted(categories, key=lambda x: -disp_counts[x])
 
     # -----------------------------
     # LABELS
@@ -243,29 +203,40 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             f"</span>"
         )
 
-    nodes = [
-        label("Arrival", total_arrivals),
-        label("Triage", triage_count),
-        label("No Triage", no_triage_count),
-        label("Treatment", ed_from_triage),
-        label("Left Before Treatment", left_before_ed),
+    node_counts = {
+        "Arrival": total_arrivals,
+        "Triage": triage_count,
+        "No Triage": no_triage_count,
+        "Treatment": ed_from_triage,
+        "Left Before Treatment": left_before_ed,
+        **disp_counts
+    }
+
+    FLOW_NODES = [
+        "Arrival",
+        "Triage",
+        "No Triage",
+        "Treatment",
+        "Left Before Treatment",
+        *DISPOSITIONS
     ]
 
-    for c in categories:
-        nodes.append(label(c, disp_counts[c]))
+    nodes = [
+        label(node, node_counts.get(node, 0))
+        for node in FLOW_NODES
+    ]
 
-    idx = {name: i for i, name in enumerate([
-        "Arrival", "Triage", "No Triage",
-        "Treatment", "Left Before Treatment",
-        *categories
-    ])}
+    idx = {
+        name: i
+        for i, name in enumerate(FLOW_NODES)
+    }
 
     # -----------------------------
     # COLOR SCALE (FIXED ORDERED FLOW)
     # -----------------------------
 
     blue_scale = [
-        "#0B3C5D",  
+        "#0B3C5D",
         "#0E4E73",
         "#145DA0",
         "#1B6FAF",
@@ -275,31 +246,18 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         "#76B5C5",
         "#9DCBE0",
         "#C3DDF0",
-        "#E3F2FA"   
+        "#E3F2FA",
+        "#F2F8FC"
     ]
 
     # Define logical flow order (NOT tied to rendering order)
-    ordered_flow = [
-        "Arrival",
-        "Triage",
-        "Treatment",
-        "Discharge",
-        "Inpatient",
-        "Observation",
-        "Transfer",
-        "Exit Without Care",
-        "Expired",
-        "Left Before Treatment",
-        "No Triage"
-    ]
+    ordered_flow = FLOW_NODES
 
     # Assign scale progressively
-    color_map = {}
-    for i, name in enumerate(ordered_flow):
-        color_map = {
-            name: blue_scale[i]
-            for i, name in enumerate(ordered_flow)
-        }
+    color_map = {
+        name: blue_scale[i]
+        for i, name in enumerate(ordered_flow)
+    }
 
     # Apply colors in ACTUAL node order (preserves layout)
     node_colors = [
@@ -334,12 +292,13 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         "No Triage": 0.30,
         "Treatment": 0.55,
         "Left Before Treatment": 0.45,
-        "Discharge": 0.85,
+        "Discharge": 0.92,
         "Inpatient": 0.85,
         "Observation": 0.85,
         "Transfer": 0.85,
-        "Exit Without Care": 0.85,
-        "Expired": 0.85
+        "Exit w/o Care": 0.85,
+        "Expired": 0.85,
+        "Unknown": 0.85
     }
 
     node_x = [node_x_map.get(n, 0.5) for n in idx.keys()]
@@ -352,34 +311,26 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     n_nodes = len(nodes)
     node_y = [0.5] * n_nodes
 
-    # Top spine (HARD LOCK)
-    for node in ["Arrival", "Triage", "Treatment", categories[0]]:
+    for node in ["Arrival", "Triage", "Treatment"]:
         node_y[idx[node]] = TOP_Y
 
     # Middle nodes
     node_y[idx["No Triage"]] = TOP_Y + 0.45
     node_y[idx["Left Before Treatment"]] = TOP_Y + 0.40
 
-    # ---------------------------------
-    # RIGHT-SIDE CASCADE (EVEN SPACING)
-    # ---------------------------------
+    disposition_y = {
+        "Discharge": 0.01,
+        "Inpatient": 0.75,
+        "Observation": 0.82,
+        "Transfer": 0.87,
+        "Exit w/o Care": 0.91,
+        "Expired": 0.95,
+        "Unknown": 0.98
+    }
 
-    remaining = categories[1:]
-
-    if remaining:
-        start_y = TOP_Y + float(p["cascade_start_offset"])
-        end_y = 0.90  # leave bottom margin for title
-
-        positions = [
-            start_y +
-            (
-                i * float(p["cascade_step"])
-            )
-            for i in range(len(remaining))
-        ]
-
-        for c, y in zip(remaining, positions):
-            node_y[idx[c]] = y
+    for disp, y in disposition_y.items():
+        if disp in idx:
+            node_y[idx[disp]] = y
 
     # -----------------------------
     # BUILD FIGURE
@@ -438,7 +389,6 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     )
 
     fig.write_image(output_file)
-    from PIL import Image
 
     crop_top_pct = float(
         p.get(
@@ -477,59 +427,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         ]
     ):
 
-        img = Image.open(output_file)
-
-        width, height = img.size
-
-        left = int(
-            width *
-            (
-                crop_left_pct / 100.0
-            )
-        )
-
-        right = int(
-            width *
-            (
-                1 -
-                crop_right_pct / 100.0
-            )
-        )
-
-        upper = int(
-            height *
-            (
-                crop_top_pct / 100.0
-            )
-        )
-
-        lower = int(
-            height *
-            (
-                1 -
-                crop_bottom_pct / 100.0
-            )
-        )
-
-        img = img.crop(
-            (
-                left,
-                upper,
-                right,
-                lower
-            )
-        )
-
-        img.save(output_file)
-
-        logger.info(
-            f"[{VISUAL_ID}] Image cropped "
-            f"(top={crop_top_pct}%, "
-            f"bottom={crop_bottom_pct}%, "
-            f"left={crop_left_pct}%, "
-            f"right={crop_right_pct}%)"
-        )
-
+        crop_image(output_file, crop_top=crop_top_pct, crop_bottom=crop_bottom_pct, crop_left=crop_left_pct, crop_right=crop_right_pct)
 
     logger.info(f"[{VISUAL_ID}] Output saved to {output_file}")
 
@@ -572,7 +470,9 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
     legend_labels = []
 
-    for node_name in ordered_flow:
+    legend_nodes = FLOW_NODES
+
+    for node_name in legend_nodes:
 
         legend_handles.append(
             Patch(

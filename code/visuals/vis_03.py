@@ -44,11 +44,16 @@ from utils.vis_helpers import (
     save_parameter_table_png,
     save_title_png
 )
+from utils.date_helpers import prepare_dates
+from utils.col_helpers import add_common_helper_columns
+
+logger = logging.getLogger(__name__)
+
 VISUAL_ID = "vis_03"
 
 def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
-    logging.info(f"[{VISUAL_ID}] Starting visualization")
+    logger.info(f"[{VISUAL_ID}] Starting visualization")
     params = normalize_params(params)
 
     # =========================
@@ -86,7 +91,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         if params:
             default_params.update(params)
     except Exception as e:
-        logging.warning(f"[{VISUAL_ID}] Failed to parse params: {e}")
+        logger.warning(f"[{VISUAL_ID}] Failed to parse params: {e}")
 
     p = default_params
     font_family = str(
@@ -134,53 +139,28 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         p.get("x_tick_rotation", 0) or 0
     )
 
-    # =========================
-    # VALIDATION
-    # =========================
-    required_columns = ["arrival_dtm"]
+    # --------------------------------------------------
+    # HELP MY DATAFRAME
+    # --------------------------------------------------
+    df = prepare_dates(df, start_date, end_date)
+    df = add_common_helper_columns(df)
 
-    for col in required_columns:
-        if col not in df.columns:
-            logging.error(f"[{VISUAL_ID}] Missing required column: {col}")
-            return
-
-    df = df.copy()
-
-    # =========================
-    # DATA PREP
-    # =========================
-    try:
-        df = df.dropna(subset=["arrival_dtm"])
-    except Exception as e:
-        logging.error(f"[{VISUAL_ID}] Failed to process arrival_dtm: {e}")
-        return
-
-    df["arrival_dtm"] = pd.to_datetime(
-        df["arrival_dtm"],
-        errors="coerce"
+    logger.info(
+        f"[{VISUAL_ID}] Dataset received after helper preparation. "
+        f"Rows available for aggregation: {len(df):,}"
     )
 
     # =========================
-    # DATE WINDOW FILTER
+    # VALIDATION
     # =========================
-    # arrival_dtm must fall within the requested window
-    df = df[
-        (df["arrival_dtm"] >= start_date) &
-        (df["arrival_dtm"] <= end_date)
-    ].copy()
+    required_columns = ["arrival_year"]
 
-    if df.empty:
-        logging.warning(f"{VISUAL_ID}: no data after date window filtering")
-        return
+    for col in required_columns:
+        if col not in df.columns:
+            logger.error(f"[{VISUAL_ID}] Missing required column: {col}")
+            return
 
-    # =========================
-    # FEATURE ENGINEERING
-    # =========================
-    try:
-        df["arrival_year"] = df["arrival_dtm"].dt.year
-    except Exception as e:
-        logging.error(f"[{VISUAL_ID}] Failed to derive year: {e}")
-        return
+    df = df.copy()
 
     # =========================
     # AGGREGATION
@@ -194,11 +174,11 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         )
     
     except Exception as e:
-        logging.error(f"[{VISUAL_ID}] Aggregation failed: {e}")
+        logger.error(f"[{VISUAL_ID}] Aggregation failed: {e}")
         return
 
     if yearly.empty:
-        logging.warning(f"[{VISUAL_ID}] No aggregated data available")
+        logger.warning(f"[{VISUAL_ID}] No aggregated data available")
         return
 
     # =========================
@@ -249,7 +229,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             dpi=int(p["dpi"])
         )
     except Exception as e:
-        logging.error(f"[{VISUAL_ID}] Failed to create figure: {e}")
+        logger.error(f"[{VISUAL_ID}] Failed to create figure: {e}")
         return
 
     # =========================
@@ -262,7 +242,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             color=p["bar_color"]
         )
     except Exception as e:
-        logging.error(f"[{VISUAL_ID}] Plotting failed: {e}")
+        logger.error(f"[{VISUAL_ID}] Plotting failed: {e}")
         return
 
     legend_handles = [
@@ -297,7 +277,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                     fontfamily=font_family
                 )
     except Exception as e:
-        logging.warning(f"[{VISUAL_ID}] Labeling failed: {e}")
+        logger.warning(f"[{VISUAL_ID}] Labeling failed: {e}")
 
     # =========================
     # TITLES & AXES
@@ -315,7 +295,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             fontfamily=font_family
         )
     except Exception as e:
-        logging.warning(f"[{VISUAL_ID}] Axis labeling failed: {e}")
+        logger.warning(f"[{VISUAL_ID}] Axis labeling failed: {e}")
 
     ax.tick_params(
         axis="both",
@@ -348,7 +328,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                 mtick.StrMethodFormatter(format_str)
             )
     except Exception as e:
-        logging.warning(f"[{VISUAL_ID}] Y-axis formatting failed: {e}")
+        logger.warning(f"[{VISUAL_ID}] Y-axis formatting failed: {e}")
 
     # =========================
     # SAVE OUTPUT
@@ -400,7 +380,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             height=legend_height
         )
 
-        logging.info(
+        logger.info(
             f"[{VISUAL_ID}] Legend saved: "
             f"{legend_output_file}"
         )
@@ -435,18 +415,18 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             title_weight=title_weight
         )
 
-        logging.info(
+        logger.info(
             f"[{VISUAL_ID}] Title saved: "
             f"{title_output_file}"
         )
 
         plt.close()
 
-        logging.info(
+        logger.info(
             f"[{VISUAL_ID}] Output saved: {output_path}"
         )
 
-        logging.info(
+        logger.info(
             f"[{VISUAL_ID}] Generated "
             f"{len(rdb_rows):,} RDB rows"
         )
@@ -457,7 +437,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         }
 
     except Exception as e:
-        logging.error(
+        logger.error(
             f"[{VISUAL_ID}] Failed to save output: {e}"
         )
         return

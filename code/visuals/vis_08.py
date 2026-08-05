@@ -63,18 +63,43 @@ from utils.vis_helpers import (
     save_title_png,
     generate_census
 )
+from utils.date_helpers import prepare_dates
+from utils.col_helpers import add_common_helper_columns
+
+logger = logging.getLogger(__name__)
+
 VISUAL_ID = "vis_08"
 
-
 def run(df, params, start_date, end_date, output_dir, generate_output_name):
-    logging.info(f"[{VISUAL_ID}] Starting census generation")
+    logger.info(f"[{VISUAL_ID}] Starting census generation")
     params = normalize_params(params)
 
     try:
+
+        # --------------------------------------------------
+        # HELP MY DATAFRAME
+        # --------------------------------------------------
+        df = add_common_helper_columns(df)
+
+        logger.info(
+            f"[{VISUAL_ID}] Dataset received after helper preparation. "
+            f"Rows available for census generation: {len(df):,}"
+        )
+
+        logger.info(
+            f"[{VISUAL_ID}] Building census timeline from "
+            f"{len(df):,} encounters."
+        )
+
         ts, census_df = generate_census(
             df,
             start_date,
             end_date
+        )
+
+        logger.info(
+            f"[{VISUAL_ID}] Census dataset generated. "
+            f"Intervals: {len(ts):,}"
         )
 
         enable_rdb = int(params.get("rdb_write", 0))
@@ -546,7 +571,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                     "report_title": chart_title
                 })        
 
-        logging.info(f"[{VISUAL_ID}] Outputs saved: CSV and PNG")
+        logger.info(f"[{VISUAL_ID}] Outputs saved: CSV and PNG")
 
         return {
             "output_path": png_path,
@@ -554,4 +579,4 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         }
 
     except Exception as e:
-        logging.error(f"[{VISUAL_ID}] Failed: {str(e)}")
+        logger.error(f"[{VISUAL_ID}] Failed: {str(e)}")

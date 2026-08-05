@@ -71,7 +71,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 from PIL import Image
-
 from utils.vis_helpers import (
     format_date_range,
     normalize_params,
@@ -80,10 +79,12 @@ from utils.vis_helpers import (
     generate_census,
     crop_image
 )
+from utils.date_helpers import prepare_dates
+from utils.col_helpers import add_common_helper_columns
 
-VISUAL_ID = "vis_11"
 logger = logging.getLogger(__name__)
 
+VISUAL_ID = "vis_11"
 
 def _safe_param(params, key, default, cast_type=None):
     try:
@@ -101,21 +102,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         if df is None or df.empty:
             logger.warning("Input dataframe is empty")
             return
-
-        # =========================
-        # DATE WINDOW FILTER
-        # =========================
-        # arrival_dtm must fall within the requested window
-        df["arrival_dtm"] = pd.to_datetime(df["arrival_dtm"], errors="coerce")
-        df_visits = df[
-            (df["arrival_dtm"] >= start_date) &
-            (df["arrival_dtm"] <= end_date)
-        ].copy()
-
-        if df_visits.empty:
-            logging.warning(f"{VISUAL_ID}: no data after date window filtering")
-            return
-
+ 
         ESI_LABELS = {
             0: "0-Unknown",
             1: "1-Immediate",
@@ -188,11 +175,17 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             params.get("tick_fontsize", 10) or 10
         )
 
+        # --------------------------------------------------
+        # HELP MY DATAFRAME
+        # --------------------------------------------------
+        prepare_dates(df, start_date, end_date)
+        add_common_helper_columns(df)
+
         # =========================================================
         # VALIDATION
         # =========================================================
         if not all(col in df.columns for col in ["arrival_dtm", "tmt_stop_dtm","esi"]):
-            logging.error(f"[{VISUAL_ID}] Missing required columns")
+            logger.error(f"[{VISUAL_ID}] Missing required columns")
             return pd.DataFrame()
 
         df["esi"] = pd.to_numeric(df["esi"], errors="coerce")
