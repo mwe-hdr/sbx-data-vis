@@ -60,7 +60,7 @@ VISUAL_ID = "vis_02"
 
 def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
-    logger.info("Starting vis_02: Length of Stay Distribution")
+    logger.info(f"[{VISUAL_ID}] Starting Length of Stay Distribution")
     params = normalize_params(params)
 
     try:
@@ -137,14 +137,14 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             try:
                 p[key] = float(p[key])
             except Exception:
-                logger.warning(f"Invalid param for {key}, using default")
+                logger.warning(f"[{VISUAL_ID}] Invalid param for {key}, using default")
                 p[key] = defaults[key]
 
         if p["max_bucket"] not in (None, ""):
             try:
                 p["max_bucket"] = int(p["max_bucket"])
             except Exception:
-                logger.warning("Invalid max_bucket, ignoring")
+                logger.warning(f"[{VISUAL_ID}] Invalid max_bucket, ignoring")
                 p["max_bucket"] = None
 
         # --------------------------------------------------
@@ -159,7 +159,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         required_cols = ["arrival_dtm", "tmt_stop_dtm", "valid_los"]
         for col in required_cols:
             if col not in df.columns:
-                logger.error(f"{VISUAL_ID}: Missing required column: {col}")
+                logger.error(f"[{VISUAL_ID}] Missing required column: {col}")
                 return
 
         logger.info(
@@ -189,7 +189,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         )
 
         if df.empty:
-            logger.warning("vis_02: No valid LOS values")
+            logger.warning(f"[{VISUAL_ID}] No valid LOS values")
             return
 
         # --------------------------------------------------
@@ -442,7 +442,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         plt.savefig(output_path, dpi=int(p["dpi"]))
         plt.close()
 
-        logger.info(f"vis_02 saved to {output_path}")
+        logger.info(f"[{VISUAL_ID}] saved to {output_path}")
 
         legend_output_file = os.path.join(
             output_dir,
@@ -467,7 +467,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         )
 
         logger.info(
-            f"vis_02 legend written: "
+            f"[{VISUAL_ID}] legend written: "
             f"{legend_output_file}"
         )
 
@@ -502,7 +502,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         )
 
         logger.info(
-            f"vis_02 title written: "
+            f"[{VISUAL_ID}] title written: "
             f"{title_output_file}"
         )
 
@@ -512,4 +512,4 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         }
 
     except Exception as e:
-        logger.error(f"vis_02 failed: {str(e)}")
+        logger.error(f"[{VISUAL_ID}] failed: {str(e)}")

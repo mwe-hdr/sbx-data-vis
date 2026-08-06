@@ -188,8 +188,31 @@ def run_visuals(
             continue
 
         cohort_meta = cohorts.get(cohort_id)
+
+        driver_filter = row.get("filter_str")
+        current_filter = cohort_meta.get("filter")
+
+        if str(driver_filter).strip() != str(current_filter).strip():
+
+            logging.warning(
+                "[main] Cohort filter mismatch "
+                f"cohort={cohort_id} "
+                f"driver_filter={driver_filter} "
+                f"runtime_filter={current_filter}"
+            )
+
         if not cohort_meta:
-            logging.warning(f"[main] Unknown cohort_id in processing driver: {cohort_id}")
+
+            logging.error(
+                "[main] Processing driver references "
+                f"unknown cohort_id={cohort_id}"
+            )
+
+            logging.error(
+                f"[main] Available cohorts: "
+                f"{list(cohorts.keys())}"
+            )
+
             continue
 
         if cohort_id not in cohort_cache:
@@ -225,8 +248,14 @@ def run_visuals(
         if vis_func is None:
             continue
 
-        logging.info(f"[main] Injecting cohort_desc: {cohort_meta.get('description')}")
-
+        logging.info(
+            "[main] Executing "
+            f"visual={report_id} "
+            f"cohort={cohort_id} "
+            f"cohort_file={cohort_meta.get('cohort_file')} "
+            f"cohort_desc={cohort_meta.get('description')}"
+        )
+        
         result = vis_func(
             cohort_df,
             params,

@@ -71,31 +71,84 @@ def load_cohort_params(cohort_root_dir):
             # e.g. emergency/beaufort → emergency.beaufort
             cohort_group = ".".join(parts)
 
+            # for _, row in df.iterrows():
+
+            #     sub_name = str(row["name"]).strip()
+            #     cohort_id = f"{cohort_group}.{sub_name}"
+
+            #     param = row["param"]
+            #     value = row["value"]
+            #     desc = row.get("description")
+            #     domain = row.get("domain")
+            #     cohort_file = row.get("cohort_file") if "cohort_file" in df.columns else None
+
+            #     if pd.isna(domain) or str(domain).strip() == "":
+            #         domain = parts[0] if parts else None
+
+            #     if cohort_id in cohorts:
+
+            #         logging.warning(
+            #             "[load_cohort_params] "
+            #             f"Duplicate cohort definition encountered: "
+            #             f"{cohort_id} "
+            #             f"from file {file_path}"
+            #         )
+
+            #     cohorts[cohort_id] = {
+            #         "group": cohort_group,
+            #         "name": sub_name,
+            #         "filter": value if param == "filter" else None,
+            #         "description": str(desc).strip() if pd.notna(desc) else None,
+            #         "domain": str(domain).strip() if pd.notna(domain) else None,
+            #         "cohort_file": str(cohort_file).strip() if pd.notna(cohort_file) else None
+            #     }
+
+            #     logging.info(f"[load_cohort_params] FINAL cohort_id: {cohort_id}")
+            #     logging.info(f"[load_cohort_params] DATA: {cohorts[cohort_id]}")
+
             for _, row in df.iterrows():
 
                 sub_name = str(row["name"]).strip()
+
                 cohort_id = f"{cohort_group}.{sub_name}"
 
-                param = row["param"]
-                value = row["value"]
-                desc = row.get("description")
-                domain = row.get("domain")
-                cohort_file = row.get("cohort_file") if "cohort_file" in df.columns else None
+                if cohort_id not in cohorts:
 
-                if pd.isna(domain) or str(domain).strip() == "":
-                    domain = parts[0] if parts else None
+                    desc = row.get("description")
+                    domain = row.get("domain")
 
-                cohorts[cohort_id] = {
-                    "group": cohort_group,
-                    "name": sub_name,
-                    "filter": value if param == "filter" else None,
-                    "description": str(desc).strip() if pd.notna(desc) else None,
-                    "domain": str(domain).strip() if pd.notna(domain) else None,
-                    "cohort_file": str(cohort_file).strip() if pd.notna(cohort_file) else None
-                }
+                    if pd.isna(domain) or str(domain).strip() == "":
+                        domain = parts[0] if parts else None
 
-                logging.info(f"[load_cohort_params] FINAL cohort_id: {cohort_id}")
-                logging.info(f"[load_cohort_params] DATA: {cohorts[cohort_id]}")
+                    cohort_file = (
+                        row.get("cohort_file")
+                        if "cohort_file" in df.columns
+                        else None
+                    )
+
+                    cohorts[cohort_id] = {
+                        "group": cohort_group,
+                        "name": sub_name,
+                        "description":
+                            str(desc).strip()
+                            if pd.notna(desc)
+                            else None,
+                        "domain":
+                            str(domain).strip()
+                            if pd.notna(domain)
+                            else None,
+                        "cohort_file":
+                            str(cohort_file).strip()
+                            if pd.notna(cohort_file)
+                            else None
+                    }
+
+                param = str(row["param"]).strip()
+
+                cohorts[cohort_id][param] = row["value"]
+
+                if param == "filter":
+                    cohorts[cohort_id]["filter"] = row["value"]
 
     logging.info(f"[load_cohort_params] Loaded {len(cohorts)} cohorts")
     return cohorts

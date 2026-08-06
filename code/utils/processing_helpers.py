@@ -225,7 +225,7 @@ RUNS_DIR = os.path.join(BASE_DIR, "data", "runs")
 
 def initialize_run():
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
 
     run_dir = os.path.join(RUNS_DIR, f"run_{timestamp}")
     output_dir = os.path.join(run_dir, "outputs")

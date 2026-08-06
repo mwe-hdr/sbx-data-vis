@@ -201,788 +201,967 @@ Focus on maintaining compatibility with the existing production reporting enviro
 DEBUGGING REQUEST
 -------------------------------------------------------------------------------
 
-The primary file I want assistance with is:
-vis 11:
-# =============================================================================
-# Domain      : ED (Emergency Department)
-# Report Name : ED Peak Census and Room Need by Acuity
-#
-# Description :
-# Calculates Emergency Department peak census levels and estimated room
-# requirements by Emergency Severity Index (ESI) acuity category.
-# Patient census is derived from ED arrival and departure timestamps and
-# grouped according to ESI classification levels to evaluate capacity
-# requirements for distinct patient acuity populations.
-#
-# Census profiles are generated independently for each acuity category
-# using a minute-level occupancy model. Average census by hour is calculated
-# for each group and the highest hourly census value is identified as the
-# peak operating census. Optional growth assumptions may be applied to
-# projected demand volumes before capacity calculations are performed.
-#
-# Estimated room requirements are calculated by adjusting peak census
-# values according to a user-defined target utilization rate, providing
-# a planning benchmark for treatment space allocation across acuity levels.
-#
-# Key planning metrics include:
-#   - Peak census by acuity
-#   - Growth-adjusted peak census
-#   - Estimated room need by acuity
-#   - Total ED peak census
-#   - Total ED room requirement
-#
-# This report supports:
-#   - ED capacity planning
-#   - Treatment room allocation analysis
-#   - Acuity-specific demand assessment
-#   - Space programming and facility planning
-#   - Operational capacity benchmarking
-#   - Growth forecasting and scenario planning
-#
-# Inputs :
-#   - ed_start_dtm            : ED arrival/start datetime
-#   - ed_stop_dtm             : ED departure/stop datetime
-#   - esi                     : Emergency Severity Index acuity level
-#   - start_date              : Reporting period start date/time
-#   - end_date                : Reporting period end date/time
-#   - variable_10_year_growth : Projected growth adjustment factor
-#   - utilization             : Target operational utilization rate
-#
-# Outputs :
-#   - PNG table displaying:
-#       * Acuity category
-#       * Peak census by acuity
-#       * Estimated room need by acuity
-#       * Grand total peak census
-#       * Grand total room need
-#
-#   - RDB records containing:
-#       * Peak census values by acuity
-#       * Room need values by acuity
-#       * Total ED benchmarks
-#
-# Key Metrics :
-#   - Peak census by ESI level
-#   - Growth-adjusted peak census
-#   - Room need by acuity
-#   - Total ED peak census
-#   - Total ED room requirement
-#   - Capacity utilization benchmark
-# =============================================================================
+The primary file I want assistance with is attached, with contextual code below:
+main.py:
+import os
+import logging
+import shutil
+import pandas as pd
+import importlib
+import argparse
 
+from utils.io_helpers import (
+    load_data,
+    load_driver,
+    load_params,
+    load_cohort_params
+)
+
+from utils.processing_helpers import (
+    apply_filter,
+    initialize_run,
+    generate_output_name,
+    build_processing_driver,
+    load_processing_driver,
+    row_to_params
+)
+
+# =========================
+# CONFIG
+# =========================
+DOMAINS = {
+    "inpatient": {
+        "data_file": "ecu_hospital_encounters_export.csv",
+        "cohort_dir": "hospital_encounters",
+        "domain": "hospital_encounters"
+    },
+
+    "surgery": {
+        "data_file": "ecu_surgery_export.csv",
+        "cohort_dir": "surgery",
+        "domain": "surgery"
+    },
+
+    "emergency": {
+        "data_file": "rmc_emergency_export.csv",
+        "cohort_dir": "ed",
+        "domain": "ed"
+    }
+}
+
+BASE_DIR = os.getcwd()
+INPUT_DIR = os.path.join(BASE_DIR, "data", "input")
+COHORT_LOCATIONS_FILE = os.path.join(
+    INPUT_DIR,
+    "geo",
+    "cohort_locations",
+    "cohort_locations.csv"
+)
+PARAM_DIR = os.path.join(INPUT_DIR, "params")
+VIS_DRIVER_FILE = os.path.join(PARAM_DIR, "vis_driver.csv")
+PROCESSING_MODE = os.getenv("PROCESSING_MODE", "full_reports").strip().lower()
+if PROCESSING_MODE in {"full_processing", "full_reports"}:
+    PROCESSING_MODE = "full_reports"
+elif PROCESSING_MODE != "parameters_only":
+    raise ValueError(f"[main] Unsupported PROCESSING_MODE: {PROCESSING_MODE}")
+
+# =========================
+# DYNAMIC VISUAL LOADER
+# =========================
+def get_visual_function(visual_id):
+    try:
+        module = importlib.import_module(f"visuals.{visual_id}")
+        return module.run
+    except Exception as e:
+        logging.error(f"[main] Failed to load {visual_id}: {str(e)}")
+        return None
+
+
+def mirror_processing_driver_to_params(run_dir):
+
+    source_file = os.path.join(
+        run_dir,
+        "processing_driver.csv"
+    )
+
+    destination_file = os.path.join(
+        PARAM_DIR,
+        "processing_driver.csv"
+    )
+
+    if not os.path.exists(source_file):
+        logging.warning(
+            f"[main] Processing driver not found: {source_file}"
+        )
+        logging.info(f"[main] No processing driver found in {run_dir}")
+        return
+
+    if os.path.exists(destination_file):
+
+        backup_file = (
+            destination_file
+            + "."
+            + run_id
+            + ".bak"
+        )
+
+        shutil.copy2(
+            destination_file,
+            backup_file
+        )
+
+        logging.info(
+            f"[main] Created backup: {backup_file}"
+        )
+
+    shutil.copy2(
+        source_file,
+        destination_file
+    )
+
+    logging.info(
+        f"[main] Copied processing driver to: {destination_file}"
+    )
+
+# =========================
+# PROCESSING DRIVER BUILDER
+# =========================
+def load_all_cohorts():
+
+    all_cohorts = {}
+
+    for domain, config in DOMAINS.items():
+
+        domain_cohorts = load_cohort_params(
+            os.path.join(
+                PARAM_DIR,
+                "cohorts",
+                config["cohort_dir"]
+            )
+        )
+
+        all_cohorts.update(domain_cohorts)
+
+    return all_cohorts
+
+# =========================
+# MAIN EXECUTION LOOP
+# =========================
+def run_visuals(
+    df,
+    driver_df,
+    cohorts,
+    output_dir,
+    enabled_visuals
+):
+
+    rdb_records = []
+    cohort_cache = {}
+
+    logging.info("[main] Loaded cohort keys:")
+    for k in cohorts.keys():
+        logging.info(f"[main] - {k}")
+
+    for _, row in driver_df.iterrows():
+
+        if str(row.get("active_flag", "Y")).upper() not in {"Y", "YES", "TRUE", "1"}:
+            continue
+
+        try:
+            if int(row.get("enabled", 0)) != 1:
+                continue
+        except (TypeError, ValueError):
+            if str(row.get("enabled", "")).upper() not in {"Y", "YES", "TRUE", "1"}:
+                continue
+
+        if str(row.get("type", "")).lower() != "cohort":
+            continue
+
+        report_id = row.get("visual_id") or row.get("report_id")
+        if not report_id:
+            logging.warning("[main] Skipping driver row without report identifier")
+            continue
+        if report_id not in enabled_visuals:
+            logging.info(
+                f"[main] Skipping disabled visual: {report_id}"
+            )
+            continue
+
+        cohort_id = row.get("cohort_id")
+        if not cohort_id:
+            logging.warning("[main] Skipping driver row without cohort identifier")
+            continue
+
+        cohort_meta = cohorts.get(cohort_id)
+        if not cohort_meta:
+            logging.warning(f"[main] Unknown cohort_id in processing driver: {cohort_id}")
+            continue
+
+        if cohort_id not in cohort_cache:
+            cohort_cache[cohort_id] = apply_filter(df, cohort_meta.get("filter"))
+
+        cohort_df = cohort_cache[cohort_id]
+        if cohort_df.empty:
+            logging.warning(f"[main] No data for {cohort_id}")
+            continue
+
+        cohort_output_dir = os.path.join(output_dir, cohort_id)
+        os.makedirs(cohort_output_dir, exist_ok=True)
+
+        params = row_to_params(row)
+        params.update({
+            "cohort_id": cohort_id,
+            "filter_str": cohort_meta.get("filter"),
+            "cohort_desc": cohort_meta.get("description"),
+            "visual_name": row.get("name"),
+            "run_id": run_id,
+            "domain": cohort_meta.get("domain"),
+            "client_name": row.get("client_name"),
+            "cohort_locations_file": COHORT_LOCATIONS_FILE,
+            "year_type": row.get("year_type"),
+            "write_rdb": row.get("write_rdb"),
+            "start_date": row.get("start_date"),
+            "end_date": row.get("end_date"),
+            "visual_id": report_id,
+            "report_id": report_id
+        })
+
+        vis_func = get_visual_function(report_id)
+        if vis_func is None:
+            continue
+
+        logging.info(f"[main] Injecting cohort_desc: {cohort_meta.get('description')}")
+
+        result = vis_func(
+            cohort_df,
+            params,
+            row.get("start_date"),
+            row.get("end_date"),
+            cohort_output_dir,
+            generate_output_name
+        )
+
+        if result and "rdb" in result:
+            for rec in result["rdb"]:
+                rec["visual_id"] = report_id
+                rec["visual_name"] = row.get("name")
+            rdb_records.extend(result["rdb"])
+
+    return rdb_records
+
+# =========================
+# ENTRY POINT
+# =========================
+parser = argparse.ArgumentParser()
+
+parser.add_argument(
+    "--update-processing-driver",
+    action="store_true",
+    help=(
+        "Overwrite input/params/processing_driver.csv "
+        "when rebuilding processing driver"
+    )
+)
+
+args = parser.parse_args()
+
+if __name__ == "__main__":
+
+    run_dir, output_dir = initialize_run()
+
+    logging.info(f"[main] Run initialized: {run_dir}")
+
+    run_id = os.path.basename(run_dir)
+
+    driver_df = load_driver(VIS_DRIVER_FILE)
+
+    enabled_visuals = set(
+        driver_df[
+            pd.to_numeric(
+                driver_df["enabled"],
+                errors="coerce"
+            ).fillna(0).astype(int) == 1
+        ]["visual_id"]
+    )
+
+    processing_driver_file = os.path.join(run_dir, "processing_driver.csv")
+
+    if PROCESSING_MODE == "parameters_only":
+
+        all_cohorts = load_all_cohorts()
+
+        build_processing_driver(
+            cohorts=all_cohorts,
+            visual_driver_df=driver_df,
+            param_dir=PARAM_DIR,
+            output_file=processing_driver_file
+        )
+
+        logging.info(
+            f"[main] Processing driver generated successfully."
+        )
+
+        if args.update_processing_driver:
+            mirror_processing_driver_to_params(run_dir)
+
+            logging.info(
+                f"[main] Updated input/params/processing_driver.csv"
+            )
+
+        raise SystemExit(0)
+
+    processing_driver_file = os.path.join(PARAM_DIR, "processing_driver.csv")
+    if not os.path.exists(processing_driver_file):
+        logging.error(f"[main] Missing processing driver: {processing_driver_file}")
+        raise SystemExit(1)
+
+    processing_driver_df = load_processing_driver(processing_driver_file)
+
+    if processing_driver_df.empty:
+        logging.error(f"[main] Processing driver file is empty.")
+        raise SystemExit(1)
+
+    logging.info(f"[main] Using processing driver: {processing_driver_file}")
+
+    all_rdb_records = []
+
+    for domain, config in DOMAINS.items():
+
+        logging.info(f"[main] Starting domain: {domain}")
+
+        expected_domain = str(config.get("domain", domain)).strip().lower()
+
+        domain_driver_df = processing_driver_df[
+            processing_driver_df["domain"].astype(str).str.strip().str.lower() == expected_domain
+        ].copy()
+
+        if domain_driver_df.empty:
+            logging.info(
+                f"[main] No processing requests for domain {domain}; skipping."
+            )
+            continue
+
+        df = load_data(
+            os.path.join(
+                INPUT_DIR,
+                config["data_file"]
+            )
+        )
+
+        cohorts = load_cohort_params(
+            os.path.join(
+                PARAM_DIR,
+                "cohorts",
+                config["cohort_dir"]
+            )
+        )
+
+        rdb = run_visuals(
+            df,
+            domain_driver_df,
+            cohorts,
+            output_dir,
+            enabled_visuals
+        )
+
+        if rdb:
+            all_rdb_records.extend(rdb)
+
+    master_rdb_df = pd.DataFrame(all_rdb_records)
+
+    master_rdb_df.to_csv(
+        os.path.join(
+            output_dir,
+            "rdb_domain_cohort_metrics.csv"
+        ),
+        index=False
+    )
+
+processing_helpers:
+from datetime import datetime
 import os
 import logging
 import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
 
-from utils.vis_helpers import format_date_range, normalize_params
+from utils.io_helpers import load_params
 
-VISUAL_ID = "vis_11"
-logger = logging.getLogger(__name__)
-
-
-def _safe_param(params, key, default, cast_type=None):
-    try:
-        val = params.get(key, default)
-        return cast_type(val) if cast_type else val
-    except Exception:
-        logger.warning(f"Invalid param for {key}; using default {default}")
-        return default
-
-
-def _generate_census(df, start_date, end_date):
+def build_processing_driver(
+    cohorts,
+    visual_driver_df,
+    param_dir,
+    output_file
+):
     """
-    Minimal vis_08-equivalent census generation.
-    Builds hourly time-series census from encounter windows.
+    Build processing driver file.
+
+    Creates one row per cohort x report combination using each report
+    parameter file as the default parameter set.
     """
-    try:
-        df = df.copy()
 
-        # =========================================================
-        # VALIDATION
-        # =========================================================
-        if not all(col in df.columns for col in ["ed_start_dtm", "ed_stop_dtm"]):
-            logging.error(f"[{VISUAL_ID}] Missing required columns")
-            return pd.DataFrame()
+    logging.info("Building processing driver")
 
-        # =========================================================
-        # DATETIME PREP
-        # =========================================================
-        df["ed_start_dtm"] = pd.to_datetime(df["ed_start_dtm"], errors="coerce")
-        df["ed_stop_dtm"] = pd.to_datetime(df["ed_stop_dtm"], errors="coerce")
+    driver_rows = []
 
-        df = df.dropna(subset=["ed_start_dtm", "ed_stop_dtm"])
+    enabled_reports = visual_driver_df.copy()
 
-        invalid_mask = df["ed_stop_dtm"] < df["ed_start_dtm"]
-        zero_mask = df["ed_stop_dtm"] == df["ed_start_dtm"]
-
-        df.loc[invalid_mask, "ed_stop_dtm"] = (
-            df.loc[invalid_mask, "ed_start_dtm"] + pd.Timedelta(minutes=1)
-        )
-        df.loc[zero_mask, "ed_stop_dtm"] = (
-            df.loc[zero_mask, "ed_start_dtm"] + pd.Timedelta(minutes=1)
-        )
-
-        if "encounter_id" in df.columns:
-            df = df.drop_duplicates(subset=["encounter_id"])
-
-        # =========================================================
-        # DATE RANGE
-        # =========================================================
-        start_date = pd.to_datetime(start_date)
-        end_date = pd.to_datetime(end_date)
-
-        if end_date.hour == 0 and end_date.minute == 0 and end_date.second == 0:
-            end_date = end_date + pd.Timedelta(days=1) - pd.Timedelta(minutes=1)
-
-        # =========================================================
-        # FILTER
-        # =========================================================
-        df = df[
-            (df["ed_start_dtm"] <= end_date) &
-            (df["ed_stop_dtm"] >= start_date)
-        ].copy()
-
-        if df.empty:
-            logging.warning(f"[{VISUAL_ID}] No data after filtering")
-            return
-
-        # =========================================================
-        # VISIT WINDOWS
-        # =========================================================
-        df["start"] = df["ed_start_dtm"]
-        df["end"] = df["ed_stop_dtm"]
-
-        df["end"] = df["end"].clip(lower=start_date, upper=end_date)
-        df["end"] = df["end"] + pd.Timedelta(minutes=1)
-
-        # =========================================================
-        # TIME GRID
-        # =========================================================
-        intervals = pd.date_range(start=start_date, end=end_date, freq="min")
-        base = pd.DataFrame({"interval": intervals})
-
-        # =========================================================
-        # EVENTS
-        # =========================================================
-        start_events = df[["start"]].rename(columns={"start": "interval"})
-        start_events["delta"] = 1
-
-        end_events = df[["end"]].rename(columns={"end": "interval"})
-        end_events["delta"] = -1
-
-        events = pd.concat([start_events, end_events])
-
-        events = events[
-            (events["interval"] >= start_date) &
-            (events["interval"] <= end_date)
+    if "enabled" in enabled_reports.columns:
+        enabled_reports = enabled_reports[
+            enabled_reports["enabled"]
+            .astype(str)
+            .str.upper()
+            .isin(["Y", "YES", "TRUE", "1"])
         ]
 
-        events = (
-            events.groupby("interval", as_index=False)["delta"]
-            .sum()
-            .sort_values("interval")
-        )
+    for _, report_row in enabled_reports.iterrows():
 
-        # =========================================================
-        # MERGE + CENSUS
-        # =========================================================
-        ts = base.merge(events, on="interval", how="left")
-        ts["delta"] = ts["delta"].fillna(0)
+        report_id = report_row.get("visual_id") or report_row.get("report_id")
 
-        initial_count = df[
-            (df["ed_start_dtm"] < start_date) &
-            (df["ed_stop_dtm"] >= start_date)
-        ].shape[0]
+        if not report_id:
+            logging.warning("[build_processing_driver] Skipping row without report identifier")
+            continue
 
-        ts["census"] = ts["delta"].cumsum()
-        ts["census"] += initial_count
+        try:
+            params_df = load_params(param_dir, report_id)
+        except Exception as e:
 
-        ts["census"] = (
-            pd.to_numeric(ts["census"], errors="coerce")
-            .round()
-            .astype("Int64")
-        )
-
-        return ts
-
-    except Exception as e:
-        logger.error(f"Census generation failed: {e}")
-        return pd.DataFrame()
-    
-def run(df, params, start_date, end_date, output_dir, generate_output_name):
-    logger.info(f"[{VISUAL_ID}] Starting run")
-    params = normalize_params(params)
-
-    try:
-        if df is None or df.empty:
-            logger.warning("Input dataframe is empty")
-            return
-        
-        ESI_LABELS = {
-            0: "0-Unknown",
-            1: "1-Immediate",
-            2: "2-Emergent",
-            3: "3-Urgent",
-            4: "4-Less Urgent",
-            5: "5-Non-Urgent"
-        }
-
-        # =========================
-        # PARAMETERS
-        # =========================
-        utilization = _safe_param(params, "utilization", 0.85, float)
-        growth = _safe_param(params, "variable_10_year_growth", 0.0, float)
-        fig_width = _safe_param(params, "fig_width", 14, float)
-        fig_height = _safe_param(params, "fig_height", 7, float)
-        dpi = _safe_param(params, "dpi", 100, int)
-
-        if "esi" not in df.columns:
-            logger.error(f"[{VISUAL_ID}] Missing required column: esi")
-            return
-
-        df["esi"] = pd.to_numeric(df["esi"], errors="coerce")
-        df["esi"] = df["esi"].fillna(0).astype(int)
-        df["acuity_name"] = df["esi"].map(ESI_LABELS).fillna("0-Unknown")
-
-        results = []
-
-        for esi_value, group_df in df.groupby("acuity_name"):
-
-            ts = _generate_census(
-                group_df,
-                start_date,
-                end_date
+            logging.error(
+                f"[build_processing_driver] Unable to load params for {report_id}: {e}"
             )
 
-            if ts is None or ts.empty:
+            continue
+
+        report_domain = str(report_row.get("domain", "")).strip().lower()
+
+        for cohort_id, cohort_meta in cohorts.items():
+
+            cohort_meta = cohort_meta or {}
+
+            cohort_domain = str(
+                cohort_meta.get("domain") or cohort_meta.get("group") or ""
+            ).strip().lower()
+
+            if cohort_domain and report_domain and cohort_domain != report_domain:
                 continue
 
-            ts["interval"] = pd.to_datetime(ts["interval"])
+            row = {
+                "active_flag": "Y",
+                "report_id": report_id,
+                "visual_id": report_id,
+                "domain": cohort_meta.get("domain"),
+                "cohort_id": cohort_id,
+                "cohort_file": cohort_meta.get("cohort_file"),
+                "cohort_desc": cohort_meta.get("description"),
+                "filter_str": cohort_meta.get("filter"),
+                "group": cohort_meta.get("group"),
+                "name": cohort_meta.get("name")
+            }
 
-            ts["adj_census"] = ts["census"] * (1 + growth)
+            # include vis_driver metadata
+            for col in visual_driver_df.columns:
+                if col not in row:
+                    row[col] = report_row[col]
 
-            ts["hour"] = ts["interval"].dt.hour
+            # flatten report parameters
+            if not params_df.empty:
 
-            hourly = (
-                ts.groupby("hour")["adj_census"]
-                .mean()
-                .reindex(range(24), fill_value=0)
-                .reset_index()
-            )
+                for _, param_row in params_df.iterrows():
 
-            peak_census = hourly["adj_census"].max()
+                    param_name = str(param_row["param"]).strip()
 
-            room_need = (
-                peak_census / utilization
-                if utilization > 0
-                else peak_census
-            )
+                    row[param_name] = param_row.get("value")
 
-            results.append({
-                "acuity_name": esi_value,
-                "peak_census": peak_census,
-                "room_need": room_need
-            })
-
-        ts_total = _generate_census(
-            df,
-            start_date,
-            end_date
-        )
-
-        ts_total["adj_census"] = (
-            ts_total["census"] * (1 + growth)
-        )
-
-        ts_total["hour"] = ts_total["interval"].dt.hour
-
-        hourly_total = (
-            ts_total.groupby("hour")["adj_census"]
-            .mean()
-            .reset_index()
-        )
-
-        grand_peak = hourly_total["adj_census"].max()
-
-        grand_room_need = (
-            grand_peak / utilization
-            if utilization > 0
-            else grand_peak
-        )
-
-        results.append({
-            "acuity_name": "Grand Total",
-            "peak_census": grand_peak,
-            "room_need": grand_room_need
-        })
-
-        table_df = pd.DataFrame(results)
-
-        sort_order = {
-            "0-Unknown": 0,
-            "1-Immediate": 1,
-            "2-Emergent": 2,
-            "3-Urgent": 3,
-            "4-Less Urgent": 4,
-            "5-Non-Urgent": 5,
-            "Grand Total": 99
-        }
-
-        table_df["sort"] = table_df["acuity_name"].map(sort_order)
-
-        table_df = (
-            table_df
-            .sort_values("sort")
-            .drop(columns="sort")
-        )
-
-        fig, ax = plt.subplots(figsize=(fig_width, fig_height), dpi=dpi)
-
-        ax.axis("off")
-
-        display_df = table_df.copy()
-
-        display_df["peak_census"] = (
-            display_df["peak_census"]
-            .round(1)
-        )
-
-        display_df["room_need"] = (
-            display_df["room_need"]
-            .round(1)
-        )
-
-        col_widths = [
-            float(params.get("table_col_width_acuity", 0.40)),
-            float(params.get("table_col_width_peak", 0.25)),
-            float(params.get("table_col_width_room", 0.25))
-        ]
-
-        tbl = ax.table(
-            cellText=display_df.values,
-            colLabels=[
-                "Acuity Name",
-                "ED Peak Census",
-                "ED Room Need"
-            ],
-            colWidths=col_widths,
-            loc="center"
-        )
-
-        tbl.auto_set_font_size(False)
-        tbl.set_fontsize(
-            int(params.get("table_font_size", 10))
-        )
-        tbl.scale(
-            float(params.get("table_scale_x", 1.2)),
-            float(params.get("table_scale_y", 1.5))
-        )
-
-        font_family = params.get(
-            "table_font_family",
-            "Arial"
-        )
-
-        for cell in tbl.get_celld().values():
-            cell.get_text().set_fontfamily(font_family)
-
-        header_color = params.get(
-            "table_header_color",
-            "#e8e8e8"
-        )
-
-        header_font_size = int(
-            params.get(
-                "table_header_font_size",
-                12
-            )
-        )
-
-        for col in range(len(display_df.columns)):
-
-            cell = tbl[(0, col)]
-
-            cell.set_facecolor(header_color)
-
-            cell.get_text().set_weight("bold")
-
-            cell.get_text().set_fontsize(
-                header_font_size
-            )
-
-        band_color = params.get(
-            "table_band_color",
-            "#f2f2f2"
-        )
-
-        grand_total_row = len(display_df)
-
-        for row in range(1, grand_total_row):
-
-            if row % 2 == 1:
-
-                for col in range(len(display_df.columns)):
-
-                    tbl[(row, col)].set_facecolor(
-                        band_color
+                    row[f"{param_name}_desc"] = (
+                        param_row.get("description")
                     )
 
-        grand_total_color = params.get(
-            "table_grand_total_color",
-            "#e6e6e6"
+                    row[f"{param_name}_display"] = (
+                        param_row.get("display")
+                    )
+
+                    row[f"{param_name}_format"] = (
+                        param_row.get("display_format")
+                    )
+
+            driver_rows.append(row)
+
+    driver_df = pd.DataFrame(driver_rows)
+
+    if driver_df.empty:
+        logging.warning("[build_processing_driver] No processing driver rows generated")
+        return driver_df
+
+    system_cols = [
+        "active_flag",
+        "report_id",
+        "visual_id",
+        "domain",
+        "cohort_id",
+        "cohort_file",
+        "cohort_desc",
+        "filter_str",
+        "group",
+        "name"
+    ]
+
+    other_cols = [
+        c for c in driver_df.columns
+        if c not in system_cols
+    ]
+
+    driver_df = driver_df[
+        system_cols + sorted(other_cols, key=str)
+    ]
+
+    os.makedirs(
+        os.path.dirname(output_file),
+        exist_ok=True
+    )
+
+    driver_df.to_csv(
+        output_file,
+        index=False
+    )
+
+    logging.info(
+        f"[build_processing_driver] Generated processing driver with {len(driver_df):,} rows"
+    )
+    logging.info(f"[build_processing_driver] Saved processing driver: {output_file}")
+
+    return driver_df
+
+
+def load_processing_driver(file_path):
+
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(
+            f"[build_processing_driver] Missing processing driver: {file_path}"
         )
 
-        grand_total_row = len(display_df)
+    return pd.read_csv(file_path)
 
-        for col in range(len(display_df.columns)):
 
-            cell = tbl[(grand_total_row, col)]
+def row_to_params(row):
 
-            cell.set_facecolor(grand_total_color)
+    system_fields = {
+        "execution_id",
+        "active_flag",
+        "report_id",
+        "visual_id",
+        "domain",
+        "cohort_id",
+        "cohort_file",
+        "cohort_desc",
+        "filter_str",
+        "group",
+        "name",
+        "client_name",
+        "year_type",
+        "write_rdb",
+        "start_date",
+        "end_date",
+        "enabled",
+        "type"
+    }
 
-            cell.set_linewidth(1.0)
+    return {
+        k: v
+        for k, v in row.items()
+        if k not in system_fields
+    }
 
-            cell.get_text().set_weight("bold")
+def apply_filter(df, filter_str):
+    if df is None or df.empty:
+        logging.warning("[apply_filter] input dataframe is empty")
+        return df
 
-        tbl[(0, 0)].get_text().set_ha("left")
+    if not filter_str or pd.isna(filter_str):
+        logging.info("[apply_filter] no filter provided; returning original dataframe")
+        return df
 
-        tbl[(0, 1)].get_text().set_ha("right")
+    try:
+        before_count = len(df)
 
-        tbl[(0, 2)].get_text().set_ha("right")
+        # Minimal normalization (safe + cheap)
+        df_copy = df.copy()
+        for col in df_copy.select_dtypes(include="object").columns:
+            df_copy[col] = df_copy[col].str.strip()
 
-        for row in range(1, len(display_df) + 1):
+        filtered_df = df_copy.query(filter_str, engine="python")
 
-            tbl[(row, 0)].get_text().set_ha("left")
+        after_count = len(filtered_df)
 
-            tbl[(row, 1)].get_text().set_ha("right")
-
-            tbl[(row, 2)].get_text().set_ha("right")
-
-        border_color = params.get(
-            "table_border_color",
-            "#cccccc"
+        logging.info(
+            f"[apply_filter] rows {before_count:,} -> {after_count:,} | filter: {filter_str}"
         )
 
-        border_width = float(
-            params.get(
-                "table_border_width",
-                0.4
-            )
-        )
-
-        grand_total_border_width = float(
-            params.get(
-                "table_grand_total_border_width",
-                1.0
-            )
-        )
-
-        for cell in tbl.get_celld().values():
-
-            cell.set_edgecolor(border_color)
-
-            cell.set_linewidth(border_width)
-
-        output_file = os.path.join(
-            output_dir,
-            generate_output_name(
-                visual_id=VISUAL_ID,
-                start_date=start_date,
-                end_date=end_date,
-                cohort_id=params.get("cohort_id"),
-                ext="png"
-            )
-        )
-
-        plt.tight_layout(pad=0.25)
-        plt.savefig(output_file, bbox_inches="tight")
-        plt.close()
-
-        # =========================
-        # RDB OUTPUT
-        # =========================
-        write_rdb = int(params.get("write_rdb", 0))
-        rdb_rows = []
-
-        if write_rdb == 1:
-
-            report_title = "ED Peak Census and Room Need by Acuity"
-
-            for _, row in table_df.iterrows():
-
-                # Peak Census
-                rdb_rows.append({
-                    "run_id": params.get("run_id"),
-                    "visual_id": VISUAL_ID,
-                    "client_name": params.get("client_name"),
-
-                    "domain": params.get("domain"),
-                    "cohort_id": params.get("cohort_id"),
-
-                    "domain_cohort":
-                        f"{params.get('domain')}.{params.get('cohort_id')}",
-
-                    "dimension": "acuity",
-                    "dimension_value": row["acuity_name"],
-                    "dimension_value_label": row["acuity_name"],
-
-                    "secondary_dimension": None,
-                    "secondary_dimension_value": None,
-
-                    "metric": "peak_census",
-                    "metric_type": "value",
-                    "value": float(row["peak_census"]),
-
-                    "start_date": start_date,
-                    "end_date": end_date,
-
-                    "report_title": report_title
-                })
-
-                # Room Need
-                rdb_rows.append({
-                    "run_id": params.get("run_id"),
-                    "visual_id": VISUAL_ID,
-                    "client_name": params.get("client_name"),
-
-                    "domain": params.get("domain"),
-                    "cohort_id": params.get("cohort_id"),
-
-                    "domain_cohort":
-                        f"{params.get('domain')}.{params.get('cohort_id')}",
-
-                    "dimension": "acuity",
-                    "dimension_value": row["acuity_name"],
-                    "dimension_value_label": row["acuity_name"],
-
-                    "secondary_dimension": None,
-                    "secondary_dimension_value": None,
-
-                    "metric": "room_need",
-                    "metric_type": "value",
-                    "value": float(row["room_need"]),
-
-                    "start_date": start_date,
-                    "end_date": end_date,
-
-                    "report_title": report_title
-                })
-
-        logger.info(f"[{VISUAL_ID}] Output saved to {output_file}")
-
-        return {
-            "output_path": output_file,
-            "rdb": rdb_rows
-        }
+        return filtered_df
 
     except Exception as e:
-            logger.error(f"[{VISUAL_ID}] Execution failed: {e}")
+        logging.error(f"[apply_filter] failed: {str(e)}")
+        return df.iloc[0:0]
+    
+BASE_DIR = os.getcwd()
+RUNS_DIR = os.path.join(BASE_DIR, "data", "runs")
+
+def initialize_run():
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    run_dir = os.path.join(RUNS_DIR, f"run_{timestamp}")
+    output_dir = os.path.join(run_dir, "outputs")
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    # setup logging
+    log_file = os.path.join(run_dir, "logfile.txt")
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s | %(levelname)s | %(message)s",
+        handlers=[
+            logging.FileHandler(log_file),
+            logging.StreamHandler()
+        ]
+    )
+
+    return run_dir, output_dir
 
 
+def generate_output_name(
+    *,
+    visual_id,
+    start_date,
+    end_date,
+    cohort_id=None,
+    ext="csv"
+):
+    def clean(val):
+        if val is None:
+            return ""
+
+        return (
+            str(val)
+            .replace("/", "-")
+            .replace("\\", "-")
+            .replace(" ", "_")
+            .replace(".", "_")
+            .replace(":", "-")
+        )
+
+    parts = [clean(visual_id)]
+
+    if cohort_id:
+        parts.append(clean(cohort_id))
+
+    if start_date and end_date:
+        parts.append(f"{clean(start_date)}_to_{clean(end_date)}")
+
+    filename = "__".join(parts) + f".{ext}"
+
+    return filename
+
+io_helpers:
+import os
+import pandas as pd
+import logging
+
+def load_data(file_path):
+    logging.info("[load_data] Loading data")
+    df = pd.read_csv(file_path, low_memory=False)
+
+    # defensive datetime parsing
+    if "visit_dtm" in df.columns:
+        df["visit_dtm"] = pd.to_datetime(df["visit_dtm"], errors="coerce")
+
+    return df
+
+
+def load_driver(file_path):
+    logging.info("[load_driver] Loading visual driver")
+    return pd.read_csv(file_path)
+
+
+def load_params(param_dir, visual_id):
+
+    param_file = os.path.join(param_dir, f"{visual_id}.csv")
+
+    if not os.path.exists(param_file):
+        logging.warning(f"[load_params] No params found for {visual_id}")
+        return pd.DataFrame()
+
+    try:
+        return pd.read_csv(param_file)
+
+    except Exception as e:
+        logging.error(
+            f"[load_params] Failed to load params for {visual_id}: {str(e)}"
+        )
+        return pd.DataFrame()
+    
+def load_cohort_params(cohort_root_dir):
+    """
+    Recursively load all cohort CSVs.
+    Supports existing structure:
+        cohorts/<domain>/<file>.csv
+
+    Each row = subcohort
+    """
+
+    cohorts = {}
+
+    for root, _, files in os.walk(cohort_root_dir):
+        for file in files:
+            if not file.endswith(".csv"):
+                continue
+
+            file_path = os.path.join(root, file)
+
+            try:
+                df = pd.read_csv(file_path)
+            except Exception as e:
+                logging.error(f"[load_cohort_params] Failed to read {file_path}: {e}")
+                continue
+
+            required_cols = {"name", "param", "value"}
+            if not required_cols.issubset(df.columns):
+                logging.warning(f"[load_cohort_params] Skipping {file_path} (invalid columns)")
+                continue
+
+            # derive namespace from folder + filename
+            relative_path = os.path.relpath(file_path, cohort_root_dir)
+            parts = relative_path.replace(".csv", "").split(os.sep)
+
+            # e.g. emergency/beaufort → emergency.beaufort
+            cohort_group = ".".join(parts)
+
+            for _, row in df.iterrows():
+
+                sub_name = str(row["name"]).strip()
+                cohort_id = f"{cohort_group}.{sub_name}"
+
+                param = row["param"]
+                value = row["value"]
+                desc = row.get("description")
+                domain = row.get("domain")
+                cohort_file = row.get("cohort_file") if "cohort_file" in df.columns else None
+
+                if pd.isna(domain) or str(domain).strip() == "":
+                    domain = parts[0] if parts else None
+
+                cohorts[cohort_id] = {
+                    "group": cohort_group,
+                    "name": sub_name,
+                    "filter": value if param == "filter" else None,
+                    "description": str(desc).strip() if pd.notna(desc) else None,
+                    "domain": str(domain).strip() if pd.notna(domain) else None,
+                    "cohort_file": str(cohort_file).strip() if pd.notna(cohort_file) else None
+                }
+
+                logging.info(f"[load_cohort_params] FINAL cohort_id: {cohort_id}")
+                logging.info(f"[load_cohort_params] DATA: {cohorts[cohort_id]}")
+
+    logging.info(f"[load_cohort_params] Loaded {len(cohorts)} cohorts")
+    return cohorts
 
 The problem I'm experiencing is:
-See the below terminal output, it does not appear vis 11 respected the contract with main.py, or perhaps another issue:
-& C:\Users\medwards\.conda\sbx-data-vis\python.exe c:/lwf/sbx-data-vis/code/main.py
-INFO:root:Generated processing driver with 21 rows
-INFO:root:Saved processing driver: C:\lwf\sbx-data-vis\data\runs\run_20260715_160028\processing_driver.csv
-INFO:root:Processing driver generated successfully.
-INFO:root:Created backup: C:\lwf\sbx-data-vis\data\input\params\processing_driver.csv.run_20260715_160028.bak
-INFO:root:Copied processing driver to: C:\lwf\sbx-data-vis\data\input\params\processing_driver.csv
-INFO:root:Updated input/params/processing_driver.csv
+
+My processing_driver run seems to be keying off a different cohort file then what my full_reports run then uses?  It's strange because the output processing_driver.csv ends up being as desired, but the saved logfile.txt shows only the paramaters_only run, although the output folder contains the fruit of the subsequent processing_only run...  Help me debug.
+
+$env:PROCESSING_MODE="parameters_only"
+(C:\Users\medwards\.conda\sbx-data-vis) PS C:\lwf\sbx-data-vis> $env:PROCESSING_MODE="parameters_only"
+(C:\Users\medwards\.conda\sbx-data-vis) PS C:\lwf\sbx-data-vis> & C:\Users\medwards\.conda\sbx-data-vis\python.exe c:/lwf/sbx-data-vis/code/main.py --update-processing-driver
+
+& C:\Users\medwards\.conda\sbx-data-vis\python.exe c:/lwf/sbx-data-vis/code/main.py --update-processing-driver
+2026-08-06 10:47:26,199 | INFO | [main] Run initialized: C:\lwf\sbx-data-vis\data\runs\run_20260806_104726
+2026-08-06 10:47:26,200 | INFO | [load_driver] Loading visual driver
+2026-08-06 10:47:26,205 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.med_center.all.inpatient
+2026-08-06 10:47:26,205 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'med_center.all.inpatient', 'filter': 'hospital_name == "RL ECUH MEDICAL CENTER HOSPITAL" and patient_class == "Inpatient"', 'description': 'RL ECUH MEDICAL CENTER HOSPITAL - All Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,205 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.med_center.maternal.services
+2026-08-06 10:47:26,215 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'med_center.maternal.services', 'filter': 'hospital_name == "RL ECUH MEDICAL CENTER HOSPITAL" and patient_class == "Inpatient" and service_line in ["Pediatrics", "Neonatology", "NEWBORN", "Obstetrics/Gyn", "Obstetrics", "Gynecology", "Maternal-Fetal Med"]', 'description': 'RL ECUH MEDICAL CENTER HOSPITAL - Maternal Services', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,215 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.med_center.inpatient.excl.maternal.services
+2026-08-06 10:47:26,215 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'med_center.inpatient.excl.maternal.services', 'filter': 'hospital_name == "RL ECUH MEDICAL CENTER HOSPITAL" and patient_class == "Inpatient" and service_line not in ["Pediatrics", "Neonatology", "NEWBORN", "Obstetrics/Gyn", "Obstetrics", "Gynecology", "Maternal-Fetal Med"]', 'description': 'RL ECUH MEDICAL CENTER HOSPITAL - Inpatient Excluding Maternal Services', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,215 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.med_center.psychiatry.inpatient
+2026-08-06 10:47:26,216 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'med_center.psychiatry.inpatient', 'filter': 'hospital_name == "RL ECUH MEDICAL CENTER HOSPITAL" and patient_class == "Psych Inpatient"', 'description': 'RL ECUH MEDICAL CENTER HOSPITAL - Psychiatry Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,216 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.med_center.rehab.inpatient
+2026-08-06 10:47:26,216 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'med_center.rehab.inpatient', 'filter': 'hospital_name == "RL ECUH MEDICAL CENTER HOSPITAL" and patient_class == "Rehab Inpatient"', 'description': 'RL ECUH MEDICAL CENTER HOSPITAL - Rehab Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,216 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.med_center.observation
+2026-08-06 10:47:26,216 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'med_center.observation', 'filter': 'hospital_name == "RL ECUH MEDICAL CENTER HOSPITAL" and patient_class == "Observation"', 'description': 'RL ECUH MEDICAL CENTER HOSPITAL - Observation', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,216 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.chowan.all.inpatient
+2026-08-06 10:47:26,217 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'chowan.all.inpatient', 'filter': 'hospital_name == "RL ECUH CHOWAN HOSPITAL" and patient_class == "Inpatient"', 'description': 'RL ECUH CHOWAN HOSPITAL - All Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,217 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.chowan.maternal.services
+2026-08-06 10:47:26,217 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'chowan.maternal.services', 'filter': 'hospital_name == "RL ECUH CHOWAN HOSPITAL" and patient_class == "Inpatient" and service_line in ["Pediatrics", "Neonatology", "NEWBORN", "Obstetrics/Gyn", "Obstetrics", "Gynecology", "Maternal-Fetal Med"]', 'description': 'RL ECUH CHOWAN HOSPITAL - Maternal Services', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,217 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.chowan.inpatient.excl.maternal.services
+2026-08-06 10:47:26,217 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'chowan.inpatient.excl.maternal.services', 'filter': 'hospital_name == "RL ECUH CHOWAN HOSPITAL" and patient_class == "Inpatient" and service_line not in ["Pediatrics", "Neonatology", "NEWBORN", "Obstetrics/Gyn", "Obstetrics", "Gynecology", "Maternal-Fetal Med"]', 'description': 'RL ECUH CHOWAN HOSPITAL - Inpatient Excluding Maternal Services', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,217 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.chowan.psychiatry.inpatient
+2026-08-06 10:47:26,218 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'chowan.psychiatry.inpatient', 'filter': 'hospital_name == "RL ECUH CHOWAN HOSPITAL" and patient_class == "Psych Inpatient"', 'description': 'RL ECUH CHOWAN HOSPITAL - Psychiatry Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,218 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.chowan.rehab.inpatient
+2026-08-06 10:47:26,218 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'chowan.rehab.inpatient', 'filter': 'hospital_name == "RL ECUH CHOWAN HOSPITAL" and patient_class == "Rehab Inpatient"', 'description': 'RL ECUH CHOWAN HOSPITAL - Rehab Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,218 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.chowan.observation
+2026-08-06 10:47:26,218 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'chowan.observation', 'filter': 'hospital_name == "RL ECUH CHOWAN HOSPITAL" and patient_class == "Observation"', 'description': 'RL ECUH CHOWAN HOSPITAL - Observation', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,218 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.outer_banks.all.inpatient
+2026-08-06 10:47:26,218 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'outer_banks.all.inpatient', 'filter': 'hospital_name == "RL OUTER BANKS HEALTH" and patient_class == "Inpatient"', 'description': 'RL OUTER BANKS HEALTH - All Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,219 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.outer_banks.maternal.services
+2026-08-06 10:47:26,219 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'outer_banks.maternal.services', 'filter': 'hospital_name == "RL OUTER BANKS HEALTH" and patient_class == "Inpatient" and service_line in ["Pediatrics", "Neonatology", "NEWBORN", "Obstetrics/Gyn", "Obstetrics", "Gynecology", "Maternal-Fetal Med"]', 'description': 'RL OUTER BANKS HEALTH - Maternal Services', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,219 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.outer_banks.inpatient.excl.maternal.services
+2026-08-06 10:47:26,219 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'outer_banks.inpatient.excl.maternal.services', 'filter': 'hospital_name == "RL OUTER BANKS HEALTH" and patient_class == "Inpatient" and service_line not in ["Pediatrics", "Neonatology", "NEWBORN", "Obstetrics/Gyn", "Obstetrics", "Gynecology", "Maternal-Fetal Med"]', 'description': 'RL OUTER BANKS HEALTH - Inpatient Excluding Maternal Services', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,219 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.outer_banks.psychiatry.inpatient
+2026-08-06 10:47:26,219 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'outer_banks.psychiatry.inpatient', 'filter': 'hospital_name == "RL OUTER BANKS HEALTH" and patient_class == "Psych Inpatient"', 'description': 'RL OUTER BANKS HEALTH - Psychiatry Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,219 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.outer_banks.rehab.inpatient
+2026-08-06 10:47:26,219 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'outer_banks.rehab.inpatient', 'filter': 'hospital_name == "RL OUTER BANKS HEALTH" and patient_class == "Rehab Inpatient"', 'description': 'RL OUTER BANKS HEALTH - Rehab Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,219 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.outer_banks.observation
+2026-08-06 10:47:26,219 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'outer_banks.observation', 'filter': 'hospital_name == "RL OUTER BANKS HEALTH" and patient_class == "Observation"', 'description': 'RL OUTER BANKS HEALTH - Observation', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,220 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.edgecombe.all.inpatient
+2026-08-06 10:47:26,220 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'edgecombe.all.inpatient', 'filter': 'hospital_name == "RL ECUH EDGECOMBE HOSPITAL" and patient_class == "Inpatient"', 'description': 'RL ECUH EDGECOMBE HOSPITAL - All Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,220 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.edgecombe.maternal.services
+2026-08-06 10:47:26,220 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'edgecombe.maternal.services', 'filter': 'hospital_name == "RL ECUH EDGECOMBE HOSPITAL" and patient_class == "Inpatient" and service_line in ["Pediatrics", "Neonatology", "NEWBORN", "Obstetrics/Gyn", "Obstetrics", "Gynecology", "Maternal-Fetal Med"]', 'description': 'RL ECUH EDGECOMBE HOSPITAL - Maternal Services', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,221 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.edgecombe.inpatient.excl.maternal.services
+2026-08-06 10:47:26,221 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'edgecombe.inpatient.excl.maternal.services', 'filter': 'hospital_name == "RL ECUH EDGECOMBE HOSPITAL" and patient_class == "Inpatient" and service_line not in ["Pediatrics", "Neonatology", "NEWBORN", "Obstetrics/Gyn", "Obstetrics", "Gynecology", "Maternal-Fetal Med"]', 'description': 'RL ECUH EDGECOMBE HOSPITAL - Inpatient Excluding Maternal Services', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,222 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.edgecombe.psychiatry.inpatient
+2026-08-06 10:47:26,222 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'edgecombe.psychiatry.inpatient', 'filter': 'hospital_name == "RL ECUH EDGECOMBE HOSPITAL" and patient_class == "Psych Inpatient"', 'description': 'RL ECUH EDGECOMBE HOSPITAL - Psychiatry Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,222 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.edgecombe.rehab.inpatient
+2026-08-06 10:47:26,222 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'edgecombe.rehab.inpatient', 'filter': 'hospital_name == "RL ECUH EDGECOMBE HOSPITAL" and patient_class == "Rehab Inpatient"', 'description': 'RL ECUH EDGECOMBE HOSPITAL - Rehab Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,222 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.edgecombe.observation
+2026-08-06 10:47:26,222 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'edgecombe.observation', 'filter': 'hospital_name == "RL ECUH EDGECOMBE HOSPITAL" and patient_class == "Observation"', 'description': 'RL ECUH EDGECOMBE HOSPITAL - Observation', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,222 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.duplin.all.inpatient
+2026-08-06 10:47:26,223 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'duplin.all.inpatient', 'filter': 'hospital_name == "RL ECUH DUPLIN HOSPITAL" and patient_class == "Inpatient"', 'description': 'RL ECUH DUPLIN HOSPITAL - All Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,223 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.duplin.maternal.services
+2026-08-06 10:47:26,223 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'duplin.maternal.services', 'filter': 'hospital_name == "RL ECUH DUPLIN HOSPITAL" and patient_class == "Inpatient" and service_line in ["Pediatrics", "Neonatology", "NEWBORN", "Obstetrics/Gyn", "Obstetrics", "Gynecology", "Maternal-Fetal Med"]', 'description': 'RL ECUH DUPLIN HOSPITAL - Maternal Services', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,223 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.duplin.inpatient.excl.maternal.services
+2026-08-06 10:47:26,223 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'duplin.inpatient.excl.maternal.services', 'filter': 'hospital_name == "RL ECUH DUPLIN HOSPITAL" and patient_class == "Inpatient" and service_line not in ["Pediatrics", "Neonatology", "NEWBORN", "Obstetrics/Gyn", "Obstetrics", "Gynecology", "Maternal-Fetal Med"]', 'description': 'RL ECUH DUPLIN HOSPITAL - Inpatient Excluding Maternal Services', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,223 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.duplin.psychiatry.inpatient
+2026-08-06 10:47:26,223 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'duplin.psychiatry.inpatient', 'filter': 'hospital_name == "RL ECUH DUPLIN HOSPITAL" and patient_class == "Psych Inpatient"', 'description': 'RL ECUH DUPLIN HOSPITAL - Psychiatry Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,223 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.duplin.rehab.inpatient
+2026-08-06 10:47:26,223 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'duplin.rehab.inpatient', 'filter': 'hospital_name == "RL ECUH DUPLIN HOSPITAL" and patient_class == "Rehab Inpatient"', 'description': 'RL ECUH DUPLIN HOSPITAL - Rehab Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,223 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.duplin.observation
+2026-08-06 10:47:26,223 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'duplin.observation', 'filter': 'hospital_name == "RL ECUH DUPLIN HOSPITAL" and patient_class == "Observation"', 'description': 'RL ECUH DUPLIN HOSPITAL - Observation', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,223 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.beaufort.all.inpatient
+2026-08-06 10:47:26,223 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'beaufort.all.inpatient', 'filter': 'hospital_name == "RL ECUH BEAUFORT HOSPITAL" and patient_class == "Inpatient"', 'description': 'RL ECUH BEAUFORT HOSPITAL - All Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,223 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.beaufort.maternal.services
+2026-08-06 10:47:26,223 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'beaufort.maternal.services', 'filter': 'hospital_name == "RL ECUH BEAUFORT HOSPITAL" and patient_class == "Inpatient" and service_line in ["Pediatrics", "Neonatology", "NEWBORN", "Obstetrics/Gyn", "Obstetrics", "Gynecology", "Maternal-Fetal Med"]', 'description': 'RL ECUH BEAUFORT HOSPITAL - Maternal Services', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,223 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.beaufort.inpatient.excl.maternal.services
+2026-08-06 10:47:26,223 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'beaufort.inpatient.excl.maternal.services', 'filter': 'hospital_name == "RL ECUH BEAUFORT HOSPITAL" and patient_class == "Inpatient" and service_line not in ["Pediatrics", "Neonatology", "NEWBORN", "Obstetrics/Gyn", "Obstetrics", "Gynecology", "Maternal-Fetal Med"]', 'description': 'RL ECUH BEAUFORT HOSPITAL - Inpatient Excluding Maternal Services', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,223 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.beaufort.psychiatry.inpatient
+2026-08-06 10:47:26,226 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'beaufort.psychiatry.inpatient', 'filter': 'hospital_name == "RL ECUH BEAUFORT HOSPITAL" and patient_class == "Psych Inpatient"', 'description': 'RL ECUH BEAUFORT HOSPITAL - Psychiatry Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,226 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.beaufort.rehab.inpatient
+2026-08-06 10:47:26,226 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'beaufort.rehab.inpatient', 'filter': 'hospital_name == "RL ECUH BEAUFORT HOSPITAL" and patient_class == "Rehab Inpatient"', 'description': 'RL ECUH BEAUFORT HOSPITAL - Rehab Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,226 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.beaufort.observation
+2026-08-06 10:47:26,226 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'beaufort.observation', 'filter': 'hospital_name == "RL ECUH BEAUFORT HOSPITAL" and patient_class == "Observation"', 'description': 'RL ECUH BEAUFORT HOSPITAL - Observation', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,227 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.north.all.inpatient
+2026-08-06 10:47:26,227 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'north.all.inpatient', 'filter': 'hospital_name == "RL ECUH NORTH HOSPITAL" and patient_class == "Inpatient"', 'description': 'RL ECUH NORTH HOSPITAL - All Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,227 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.north.maternal.services
+2026-08-06 10:47:26,227 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'north.maternal.services', 'filter': 'hospital_name == "RL ECUH NORTH HOSPITAL" and patient_class == "Inpatient" and service_line in ["Pediatrics", "Neonatology", "NEWBORN", "Obstetrics/Gyn", "Obstetrics", "Gynecology", "Maternal-Fetal Med"]', 'description': 'RL ECUH NORTH HOSPITAL - Maternal Services', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,227 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.north.inpatient.excl.maternal.services
+2026-08-06 10:47:26,227 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'north.inpatient.excl.maternal.services', 'filter': 'hospital_name == "RL ECUH NORTH HOSPITAL" and patient_class == "Inpatient" and service_line not in ["Pediatrics", "Neonatology", "NEWBORN", "Obstetrics/Gyn", "Obstetrics", "Gynecology", "Maternal-Fetal Med"]', 'description': 'RL ECUH NORTH HOSPITAL - Inpatient Excluding Maternal Services', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,227 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.north.psychiatry.inpatient
+2026-08-06 10:47:26,228 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'north.psychiatry.inpatient', 'filter': 'hospital_name == "RL ECUH NORTH HOSPITAL" and patient_class == "Psych Inpatient"', 'description': 'RL ECUH NORTH HOSPITAL - Psychiatry Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,228 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.north.rehab.inpatient
+2026-08-06 10:47:26,228 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'north.rehab.inpatient', 'filter': 'hospital_name == "RL ECUH NORTH HOSPITAL" and patient_class == "Rehab Inpatient"', 'description': 'RL ECUH NORTH HOSPITAL - Rehab Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,228 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.north.observation
+2026-08-06 10:47:26,228 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'north.observation', 'filter': 'hospital_name == "RL ECUH NORTH HOSPITAL" and patient_class == "Observation"', 'description': 'RL ECUH NORTH HOSPITAL - Observation', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,228 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.roanoke_chowan.all.inpatient
+2026-08-06 10:47:26,228 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'roanoke_chowan.all.inpatient', 'filter': 'hospital_name == "RL ECUH ROANOKE CHOWAN HOSPITAL" and patient_class == "Inpatient"', 'description': 'RL ECUH ROANOKE CHOWAN HOSPITAL - All Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,229 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.roanoke_chowan.maternal.services
+2026-08-06 10:47:26,229 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'roanoke_chowan.maternal.services', 'filter': 'hospital_name == "RL ECUH ROANOKE CHOWAN HOSPITAL" and patient_class == "Inpatient" and service_line in ["Pediatrics", "Neonatology", "NEWBORN", "Obstetrics/Gyn", "Obstetrics", "Gynecology", "Maternal-Fetal Med"]', 'description': 'RL ECUH ROANOKE CHOWAN HOSPITAL - Maternal Services', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,229 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.roanoke_chowan.inpatient.excl.maternal.services
+2026-08-06 10:47:26,230 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'roanoke_chowan.inpatient.excl.maternal.services', 'filter': 'hospital_name == "RL ECUH ROANOKE CHOWAN HOSPITAL" and patient_class == "Inpatient" and service_line not in ["Pediatrics", "Neonatology", "NEWBORN", "Obstetrics/Gyn", "Obstetrics", "Gynecology", "Maternal-Fetal Med"]', 'description': 'RL ECUH ROANOKE CHOWAN HOSPITAL - Inpatient Excluding Maternal Services', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,230 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.roanoke_chowan.psychiatry.inpatient
+2026-08-06 10:47:26,230 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'roanoke_chowan.psychiatry.inpatient', 'filter': 'hospital_name == "RL ECUH ROANOKE CHOWAN HOSPITAL" and patient_class == "Psych Inpatient"', 'description': 'RL ECUH ROANOKE CHOWAN HOSPITAL - Psychiatry Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,230 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.roanoke_chowan.rehab.inpatient
+2026-08-06 10:47:26,230 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'roanoke_chowan.rehab.inpatient', 'filter': 'hospital_name == "RL ECUH ROANOKE CHOWAN HOSPITAL" and patient_class == "Rehab Inpatient"', 'description': 'RL ECUH ROANOKE CHOWAN HOSPITAL - Rehab Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,230 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.roanoke_chowan.observation
+2026-08-06 10:47:26,230 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'roanoke_chowan.observation', 'filter': 'hospital_name == "RL ECUH ROANOKE CHOWAN HOSPITAL" and patient_class == "Observation"', 'description': 'RL ECUH ROANOKE CHOWAN HOSPITAL - Observation', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,230 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.bertie.all.inpatient
+2026-08-06 10:47:26,230 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'bertie.all.inpatient', 'filter': 'hospital_name == "RL ECUH BERTIE HOSPITAL" and patient_class == "Inpatient"', 'description': 'RL ECUH BERTIE HOSPITAL - All Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,230 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.bertie.maternal.services
+2026-08-06 10:47:26,230 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'bertie.maternal.services', 'filter': 'hospital_name == "RL ECUH BERTIE HOSPITAL" and patient_class == "Inpatient" and service_line in ["Pediatrics", "Neonatology", "NEWBORN", "Obstetrics/Gyn", "Obstetrics", "Gynecology", "Maternal-Fetal Med"]', 'description': 'RL ECUH BERTIE HOSPITAL - Maternal Services', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,232 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.bertie.inpatient.excl.maternal.services
+2026-08-06 10:47:26,232 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'bertie.inpatient.excl.maternal.services', 'filter': 'hospital_name == "RL ECUH BERTIE HOSPITAL" and patient_class == "Inpatient" and service_line not in ["Pediatrics", "Neonatology", "NEWBORN", "Obstetrics/Gyn", "Obstetrics", "Gynecology", "Maternal-Fetal Med"]', 'description': 'RL ECUH BERTIE HOSPITAL - Inpatient Excluding Maternal Services', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,232 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.bertie.psychiatry.inpatient
+2026-08-06 10:47:26,232 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'bertie.psychiatry.inpatient', 'filter': 'hospital_name == "RL ECUH BERTIE HOSPITAL" and patient_class == "Psych Inpatient"', 'description': 'RL ECUH BERTIE HOSPITAL - Psychiatry Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,232 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.bertie.rehab.inpatient
+2026-08-06 10:47:26,232 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'bertie.rehab.inpatient', 'filter': 'hospital_name == "RL ECUH BERTIE HOSPITAL" and patient_class == "Rehab Inpatient"', 'description': 'RL ECUH BERTIE HOSPITAL - Rehab Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,232 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.bertie.observation
+2026-08-06 10:47:26,232 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'bertie.observation', 'filter': 'hospital_name == "RL ECUH BERTIE HOSPITAL" and patient_class == "Observation"', 'description': 'RL ECUH BERTIE HOSPITAL - Observation', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,232 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.surgicenter.all.inpatient
+2026-08-06 10:47:26,232 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'surgicenter.all.inpatient', 'filter': 'hospital_name == "RL SURGICENTER" and patient_class == "Inpatient"', 'description': 'RL SURGICENTER - All Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,232 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.surgicenter.maternal.services
+2026-08-06 10:47:26,232 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'surgicenter.maternal.services', 'filter': 'hospital_name == "RL SURGICENTER" and patient_class == "Inpatient" and service_line in ["Pediatrics", "Neonatology", "NEWBORN", "Obstetrics/Gyn", "Obstetrics", "Gynecology", "Maternal-Fetal Med"]', 'description': 'RL SURGICENTER - Maternal Services', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,232 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.surgicenter.inpatient.excl.maternal.services
+2026-08-06 10:47:26,232 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'surgicenter.inpatient.excl.maternal.services', 'filter': 'hospital_name == "RL SURGICENTER" and patient_class == "Inpatient" and service_line not in ["Pediatrics", "Neonatology", "NEWBORN", "Obstetrics/Gyn", "Obstetrics", "Gynecology", "Maternal-Fetal Med"]', 'description': 'RL SURGICENTER - Inpatient Excluding Maternal Services', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,232 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.surgicenter.psychiatry.inpatient
+2026-08-06 10:47:26,232 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'surgicenter.psychiatry.inpatient', 'filter': 'hospital_name == "RL SURGICENTER" and patient_class == "Psych Inpatient"', 'description': 'RL SURGICENTER - Psychiatry Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,232 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.surgicenter.rehab.inpatient
+2026-08-06 10:47:26,232 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'surgicenter.rehab.inpatient', 'filter': 'hospital_name == "RL SURGICENTER" and patient_class == "Rehab Inpatient"', 'description': 'RL SURGICENTER - Rehab Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,232 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.surgicenter.observation
+2026-08-06 10:47:26,232 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'surgicenter.observation', 'filter': 'hospital_name == "RL SURGICENTER" and patient_class == "Observation"', 'description': 'RL SURGICENTER - Observation', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
+2026-08-06 10:47:26,232 | INFO | [load_cohort_params] Loaded 60 cohorts
+2026-08-06 10:47:26,232 | INFO | [load_cohort_params] Loaded 0 cohorts
+2026-08-06 10:47:26,238 | INFO | [load_cohort_params] FINAL cohort_id: ed.ed.psych
+2026-08-06 10:47:26,238 | INFO | [load_cohort_params] DATA: {'group': 'ed', 'name': 'ed.psych', 'filter': 'psych_patient_flag == "Yes"', 'description': 'Psych ED encounters', 'domain': 'ed', 'cohort_file': 'ed_cohort_gen.singlefile.psych.nonpsych.ps1'}
+2026-08-06 10:47:26,238 | INFO | [load_cohort_params] FINAL cohort_id: ed.ed.non_psych
+2026-08-06 10:47:26,238 | INFO | [load_cohort_params] DATA: {'group': 'ed', 'name': 'ed.non_psych', 'filter': 'psych_patient_flag == "No"', 'description': 'Non-Psych ED encounters', 'domain': 'ed', 'cohort_file': 'ed_cohort_gen.singlefile.psych.nonpsych.ps1'}
+2026-08-06 10:47:26,238 | INFO | [load_cohort_params] Loaded 2 cohorts
+2026-08-06 10:47:26,238 | INFO | Building processing driver
+2026-08-06 10:47:26,243 | INFO | [build_processing_driver] Generated processing driver with 2 rows
+2026-08-06 10:47:26,243 | INFO | [build_processing_driver] Saved processing driver: C:\lwf\sbx-data-vis\data\runs\run_20260806_104726\processing_driver.csv
+2026-08-06 10:47:26,243 | INFO | [main] Processing driver generated successfully.
+2026-08-06 10:47:26,254 | INFO | [main] Created backup: C:\lwf\sbx-data-vis\data\input\params\processing_driver.csv.run_20260806_104726.bak
+2026-08-06 10:47:26,256 | INFO | [main] Copied processing driver to: C:\lwf\sbx-data-vis\data\input\params\processing_driver.csv
+2026-08-06 10:47:26,257 | INFO | [main] Updated input/params/processing_driver.csv
 (C:\Users\medwards\.conda\sbx-data-vis) PS C:\lwf\sbx-data-vis> 
-(C:\Users\medwards\.conda\sbx-data-vis) PS C:\lwf\sbx-data-vis> $env:PROCESSING_MODE="full_reports"
+
+$env:PROCESSING_MODE="full_reports"
 (C:\Users\medwards\.conda\sbx-data-vis) PS C:\lwf\sbx-data-vis> & C:\Users\medwards\.conda\sbx-data-vis\python.exe c:/lwf/sbx-data-vis/code/main.py
-INFO:root:Loading visual driver
-INFO:root:Using processing driver: C:\lwf\sbx-data-vis\data\input\params\processing_driver.csv
-INFO:root:Starting domain: inpatient
-INFO:root:No processing requests for domain inpatient; skipping.
-INFO:root:Starting domain: surgery
-INFO:root:No processing requests for domain surgery; skipping.
-INFO:root:Starting domain: emergency
-INFO:root:Loading data
-INFO:root:[loader] FINAL cohort_id: ed.ed.non_psych
-INFO:root:[loader] DATA: {'group': 'ed', 'name': 'ed.non_psych', 'filter': 'psych_patient_flag == "No"', 'description': 'Non-Psych ED encounters', 'domain': 'ed', 'cohort_file': 'ed_cohort_gen.singlefile.psych.nonpsych.ps1'}
-INFO:root:[loader] FINAL cohort_id: ed.save.ed.psych
-INFO:root:[loader] DATA: {'group': 'ed.save', 'name': 'ed.psych', 'filter': 'psych_patient_flag == "Yes"', 'description': 'Psych ED encounters', 'domain': 'ed.save', 'cohort_file': 'ed_cohort_gen.singlefile.psych.nonpsych.ps1'}
-INFO:root:[loader] FINAL cohort_id: ed.save.ed.non_psych
-INFO:root:[loader] DATA: {'group': 'ed.save', 'name': 'ed.non_psych', 'filter': 'psych_patient_flag == "No"', 'description': 'Non-Psych ED encounters', 'domain': 'ed.save', 'cohort_file': 'ed_cohort_gen.singlefile.psych.nonpsych.ps1'}
-INFO:root:Loaded 3 cohorts
-INFO:root:[main] Loaded cohort keys:
-INFO:root:[main] - ed.ed.non_psych
-INFO:root:[main] - ed.save.ed.psych
-INFO:root:[main] - ed.save.ed.non_psych
-INFO:root:apply_filter: rows 233096 → 227477 | filter: psych_patient_flag == "No"
-INFO:root:[main] Injecting cohort_desc: Non-Psych ED encounters
-INFO:root:Running vis_01_ed_hourly_arrivals
-INFO:root:vis_01 legend written: C:\lwf\sbx-data-vis\data\runs\run_20260715_160029\outputs\ed.ed.non_psych\vis_01_legend__ed_ed_non_psych__1-1-2025_to_12-31-2025.png
-INFO:root:vis_01 output written: C:\lwf\sbx-data-vis\data\runs\run_20260715_160029\outputs\ed.ed.non_psych\vis_01__ed_ed_non_psych__1-1-2025_to_12-31-2025.png
-INFO:root:[main] Injecting cohort_desc: Non-Psych ED encounters
-INFO:root:Starting vis_02: Length of Stay Distribution
-INFO:root:vis_02 saved to C:\lwf\sbx-data-vis\data\runs\run_20260715_160029\outputs\ed.ed.non_psych\vis_02__ed_ed_non_psych__1-1-2025_to_12-31-2025.png
-INFO:root:[main] Injecting cohort_desc: Non-Psych ED encounters
-INFO:root:[vis_03] Starting visualization
-INFO:matplotlib.category:Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
-INFO:matplotlib.category:Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
-INFO:root:[vis_03] Output saved: C:\lwf\sbx-data-vis\data\runs\run_20260715_160029\outputs\ed.ed.non_psych\vis_03__ed_ed_non_psych__1-1-2023_to_12-31-2025.png
-INFO:root:[vis_03] Generated 3 RDB rows
-INFO:root:[main] Injecting cohort_desc: Non-Psych ED encounters
-INFO:root:[vis_04] Starting visualization
-INFO:root:[vis_04] Saved output to C:\lwf\sbx-data-vis\data\runs\run_20260715_160029\outputs\ed.ed.non_psych\vis_04__ed_ed_non_psych__1-1-2025_to_12-31-2025.png
-INFO:root:[main] Injecting cohort_desc: Non-Psych ED encounters
-INFO:root:Starting vis_05
-INFO:root:vis_05: Saved output to C:\lwf\sbx-data-vis\data\runs\run_20260715_160029\outputs\ed.ed.non_psych\vis_05__ed_ed_non_psych__1-1-2025_to_12-31-2025.png
-INFO:root:[main] Injecting cohort_desc: Non-Psych ED encounters
-INFO:root:Starting vis_06
-INFO:matplotlib.category:Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
-INFO:matplotlib.category:Using categorical units to plot a list of strings that are all parsable as floats or dates. If these strings should be plotted as numbers, cast to the appropriate data type before plotting.
-INFO:root:vis_06 saved to C:\lwf\sbx-data-vis\data\runs\run_20260715_160029\outputs\ed.ed.non_psych\vis_06__ed_ed_non_psych__1-1-2025_to_12-31-2025.png
-INFO:root:[main] Injecting cohort_desc: Non-Psych ED encounters
-INFO:root:Starting vis_07
-INFO:root:vis_07: Saved to C:\lwf\sbx-data-vis\data\runs\run_20260715_160029\outputs\ed.ed.non_psych\vis_07__ed_ed_non_psych__1-1-2025_to_12-31-2025.png
-INFO:root:[main] Injecting cohort_desc: Non-Psych ED encounters
-INFO:root:[vis_08] Starting census generation
-INFO:root:[vis_08] Outputs saved: CSV and PNG
-INFO:root:[main] Injecting cohort_desc: Non-Psych ED encounters
-INFO:visuals.vis_09:[vis_09] Starting execution
-INFO:choreographer.browsers.chromium:Chromium init'ed with kwargs {}
-INFO:choreographer.browsers.chromium:Found chromium path: C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe
-INFO:choreographer.utils._tmpfile:Temp directory created: C:\Users\medwards\AppData\Local\Temp\tmphz1q74ho.
-INFO:choreographer.browser_async:Opening browser.
-INFO:choreographer.utils._tmpfile:Temp directory created: C:\Users\medwards\AppData\Local\Temp\tmpgbrp39ct.
-INFO:choreographer.browsers.chromium:Temporary directory at: C:\Users\medwards\AppData\Local\Temp\tmpgbrp39ct
-INFO:kaleido.kaleido:Conforming 1 to file:///C:/Users/medwards/AppData/Local/Temp/tmphz1q74ho/index.html
-INFO:kaleido.kaleido:Getting tab from queue (has 1)
-INFO:kaleido.kaleido:Got 78BF
-INFO:kaleido.kaleido:Reloading tab 78BF before return.
-INFO:kaleido.kaleido:Putting tab 78BF back (queue size: 0).
-INFO:kaleido.kaleido:Waiting for all cleanups to finish.
-INFO:kaleido.kaleido:Exiting Kaleido.
-INFO:choreographer.utils._tmpfile:TemporaryDirectory.cleanup() worked.
-INFO:choreographer.utils._tmpfile:shutil.rmtree worked.
-INFO:choreographer.browser_async:Closing browser.
-INFO:choreographer.utils._tmpfile:TemporaryDirectory.cleanup() worked.
-INFO:choreographer.utils._tmpfile:shutil.rmtree worked.
-INFO:choreographer.browser_async:Closing browser.
-INFO:kaleido.kaleido:Cancelling tasks.
-INFO:kaleido.kaleido:Exiting Kaleido/Choreo.
-INFO:choreographer.utils._tmpfile:TemporaryDirectory.cleanup() worked.
-INFO:choreographer.utils._tmpfile:shutil.rmtree worked.
-INFO:kaleido.kaleido:Cancelling tasks.
-INFO:kaleido.kaleido:Exiting Kaleido/Choreo.
-INFO:visuals.vis_09:[vis_09] Output saved to C:\lwf\sbx-data-vis\data\runs\run_20260715_160029\outputs\ed.ed.non_psych\vis_09__ed_ed_non_psych__1-1-2025_to_12-31-2025.png
-INFO:root:[main] Injecting cohort_desc: Non-Psych ED encounters
-INFO:visuals.vis_10:[vis_10] Starting run
-INFO:choreographer.utils._tmpfile:TemporaryDirectory.cleanup() worked.
-INFO:choreographer.utils._tmpfile:shutil.rmtree worked.
-INFO:visuals.vis_10:[vis_10] Capacity Metrics | Peak Census: 51.21 | Room Need: 68.28 | Utilization: 0.75
-INFO:visuals.vis_10:[vis_10] Output saved to C:\lwf\sbx-data-vis\data\runs\run_20260715_160029\outputs\ed.ed.non_psych\vis_10__ed_ed_non_psych__2025-01-01_00-00-00_to_2025-12-31_00-00-00.png
-INFO:visuals.vis_10:[vis_10] Parameter table saved to C:\lwf\sbx-data-vis\data\runs\run_20260715_160029\outputs\ed.ed.non_psych\vis_10_parameters__ed_ed_non_psych__2025-01-01_00-00-00_to_2025-12-31_00-00-00.png
-INFO:root:[main] Injecting cohort_desc: Non-Psych ED encounters
-INFO:visuals.vis_11:[vis_11] Starting run
-ERROR:visuals.vis_11:[vis_11] Execution failed: int() argument must be a string, a bytes-like object or a real number, not 'NoneType'
-INFO:root:[main] Injecting cohort_desc: Non-Psych ED encounters
-INFO:root:Running vis_12_ed_geo_catchment
-INFO:root:vis_12 output written: C:\lwf\sbx-data-vis\data\runs\run_20260715_160029\outputs\ed.ed.non_psych\vis_12__ed_ed_non_psych__1-1-2025_to_12-31-2025.png
-INFO:root:[main] Injecting cohort_desc: Non-Psych ED encounters
-INFO:visuals.vis_13:[vis_13] Starting execution
-INFO:visuals.vis_13:[vis_13] Complete
-INFO:root:[main] Injecting cohort_desc: Non-Psych ED encounters
-INFO:visuals.vis_14:[vis_14] Starting run
-INFO:visuals.vis_14:ESI 1 multiplier=1.00 current_rows=5,299 scenario_rows=5,299
-INFO:visuals.vis_14:ESI 2 multiplier=1.00 current_rows=47,652 scenario_rows=47,652
-INFO:visuals.vis_14:ESI 3 multiplier=0.95 current_rows=130,866 scenario_rows=124,323
-INFO:visuals.vis_14:ESI 4 multiplier=0.85 current_rows=37,565 scenario_rows=31,930
-INFO:visuals.vis_14:ESI 5 multiplier=0.80 current_rows=3,989 scenario_rows=3,191
-INFO:visuals.vis_14:Census Totals | Current=39.35 | Scenario=37.57 | Difference=-1.78
-INFO:visuals.vis_14:Current encounters: 227,477
-INFO:visuals.vis_14:Scenario encounters: 212,395
-INFO:visuals.vis_14:Peak Census | Current=86.00 | Scenario=82.00
-INFO:visuals.vis_14:Room Need | Current=114.67 | Scenario=109.33 | Utilization=75.00%
-INFO:visuals.vis_14:[vis_14] Parameter table saved to C:\lwf\sbx-data-vis\data\runs\run_20260715_160029\outputs\ed.ed.non_psych\vis_14_parameters__ed_ed_non_psych__1-1-2025_to_12-31-2025.png
-INFO:visuals.vis_14:[vis_14] Exec Summary Table saved to C:\lwf\sbx-data-vis\data\runs\run_20260715_160029\outputs\ed.ed.non_psych\vis_14_summary__ed_ed_non_psych__1-1-2025_to_12-31-2025.png
-INFO:visuals.vis_14:[vis_14] Scenario table saved to C:\lwf\sbx-data-vis\data\runs\run_20260715_160029\outputs\ed.ed.non_psych\vis_14__ed_ed_non_psych__1-1-2025_to_12-31-2025.png
-INFO:root:[main] Injecting cohort_desc: Non-Psych ED encounters
-INFO:visuals.vis_15:[vis_15] Starting run
-WARNING:visuals.vis_15:Parameter image generation failed: save_parameter_table_png() got an unexpected keyword argument 'visual_id'
-WARNING:visuals.vis_15:Legend generation failed: save_legend_png() got an unexpected keyword argument 'legend_items'
-INFO:visuals.vis_15:[vis_15] Output saved to C:\lwf\sbx-data-vis\data\runs\run_20260715_160029\outputs\ed.ed.non_psych\vis_15__ed_ed_non_psych__1-1-2025_to_12-31-2025.png
-INFO:root:[main] Injecting cohort_desc: Non-Psych ED encounters
-INFO:visuals.vis_16:[vis_16] Starting execution
-C:\Users\medwards\.conda\sbx-data-vis\Lib\site-packages\mapclassify\classifiers.py:1767: UserWarning: Not enough unique values in array to form 5 classes. Setting k to 4.
-  self.bins = quantile(y, k=k)
-INFO:visuals.vis_16:[vis_16] Complete
-INFO:root:[main] Injecting cohort_desc: Non-Psych ED encounters
-INFO:visuals.vis_17:[vis_17] Starting execution
-INFO:visuals.vis_17:[vis_17] Complete
-INFO:root:[main] Injecting cohort_desc: Non-Psych ED encounters
-INFO:visuals.vis_18:[vis_18] Starting execution
-INFO:visuals.vis_18:[vis_18] Complete
-INFO:root:[main] Injecting cohort_desc: Non-Psych ED encounters
-INFO:visuals.vis_19:[vis_19] Starting execution
-INFO:visuals.vis_19:[vis_19] Complete
-INFO:root:[main] Injecting cohort_desc: Non-Psych ED encounters
-INFO:visuals.vis_20:[vis_20] Starting execution
-INFO:choreographer.browsers.chromium:Chromium init'ed with kwargs {}
-INFO:choreographer.browsers.chromium:Found chromium path: C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe
-INFO:choreographer.utils._tmpfile:Temp directory created: C:\Users\medwards\AppData\Local\Temp\tmp2efjtvf7.
-INFO:choreographer.browser_async:Opening browser.
-INFO:choreographer.utils._tmpfile:Temp directory created: C:\Users\medwards\AppData\Local\Temp\tmpx9ay0rov.
-INFO:choreographer.browsers.chromium:Temporary directory at: C:\Users\medwards\AppData\Local\Temp\tmpx9ay0rov
-INFO:kaleido.kaleido:Conforming 1 to file:///C:/Users/medwards/AppData/Local/Temp/tmp2efjtvf7/index.html
-INFO:kaleido.kaleido:Getting tab from queue (has 1)
-INFO:kaleido.kaleido:Got 7C5F
-INFO:kaleido.kaleido:Reloading tab 7C5F before return.
-INFO:kaleido.kaleido:Putting tab 7C5F back (queue size: 0).
-INFO:kaleido.kaleido:Waiting for all cleanups to finish.
-INFO:kaleido.kaleido:Exiting Kaleido.
-INFO:choreographer.utils._tmpfile:TemporaryDirectory.cleanup() worked.
-INFO:choreographer.utils._tmpfile:shutil.rmtree worked.
-INFO:choreographer.browser_async:Closing browser.
-INFO:choreographer.utils._tmpfile:TemporaryDirectory.cleanup() worked.
-INFO:choreographer.utils._tmpfile:shutil.rmtree worked.
-INFO:choreographer.browser_async:Closing browser.
-INFO:kaleido.kaleido:Cancelling tasks.
-INFO:kaleido.kaleido:Exiting Kaleido/Choreo.
-INFO:choreographer.utils._tmpfile:TemporaryDirectory.cleanup() worked.
-INFO:choreographer.utils._tmpfile:shutil.rmtree worked.
-INFO:kaleido.kaleido:Cancelling tasks.
-INFO:kaleido.kaleido:Exiting Kaleido/Choreo.
-INFO:choreographer.utils._tmpfile:TemporaryDirectory.cleanup() worked.
-INFO:choreographer.utils._tmpfile:shutil.rmtree worked.
-INFO:choreographer.browsers.chromium:Chromium init'ed with kwargs {}
-INFO:choreographer.browsers.chromium:Found chromium path: C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe
-INFO:choreographer.utils._tmpfile:Temp directory created: C:\Users\medwards\AppData\Local\Temp\tmpxror0r62.
-INFO:choreographer.browser_async:Opening browser.
-INFO:choreographer.utils._tmpfile:Temp directory created: C:\Users\medwards\AppData\Local\Temp\tmp0nhrant4.
-INFO:choreographer.browsers.chromium:Temporary directory at: C:\Users\medwards\AppData\Local\Temp\tmp0nhrant4
-INFO:kaleido.kaleido:Conforming 1 to file:///C:/Users/medwards/AppData/Local/Temp/tmpxror0r62/index.html
-INFO:kaleido.kaleido:Getting tab from queue (has 1)
-INFO:kaleido.kaleido:Got 858F
-INFO:kaleido.kaleido:Reloading tab 858F before return.
-INFO:kaleido.kaleido:Putting tab 858F back (queue size: 0).
-INFO:kaleido.kaleido:Waiting for all cleanups to finish.
-INFO:kaleido.kaleido:Exiting Kaleido.
-INFO:choreographer.utils._tmpfile:TemporaryDirectory.cleanup() worked.
-INFO:choreographer.utils._tmpfile:shutil.rmtree worked.
-INFO:choreographer.browser_async:Closing browser.
-INFO:choreographer.utils._tmpfile:TemporaryDirectory.cleanup() worked.
-INFO:choreographer.utils._tmpfile:shutil.rmtree worked.
-INFO:choreographer.browser_async:Closing browser.
-INFO:kaleido.kaleido:Cancelling tasks.
-INFO:kaleido.kaleido:Exiting Kaleido/Choreo.
-INFO:choreographer.utils._tmpfile:TemporaryDirectory.cleanup() worked.
-INFO:choreographer.utils._tmpfile:shutil.rmtree worked.
-INFO:kaleido.kaleido:Cancelling tasks.
-INFO:kaleido.kaleido:Exiting Kaleido/Choreo.
-INFO:visuals.vis_20:[vis_20] Complete
-INFO:choreographer.utils._tmpfile:TemporaryDirectory.cleanup() worked.
-INFO:choreographer.utils._tmpfile:shutil.rmtree worked.
-INFO:root:[main] Injecting cohort_desc: Non-Psych ED encounters
-INFO:visuals.tbl_03:[tbl_03] Starting execution
-INFO:visuals.tbl_03:[tbl_03] Columns:
-INFO:visuals.tbl_03:['patient_id', 'encounter_id', 'visit_dtm', 'triage_start_dtm', 'triage_stop_dtm', 'ed_start_dtm', 'ed_stop_dtm', 'boarding_start_dtm', 'boarding_end_dtm', 'patient_type', 'patient_age', 'patient_gender', 'patient_zipcode', 'fast_track_patient_flag', 'psych_patient_flag', 'isolation_patient_flag', 'trauma_level', 'esi', 'acuity_level', 'arrival_method', 'facility_id', 'facility_name', 'er_room', 'principal_diagnosis', 'principal_procedure', 'secondary_procedure_1', 'secondary_procedure_2', 'secondary_procedure_3', 'secondary_procedure_4', 'secondary_procedure_5', 'disch_disp_code', 'disch_disp_desc', 'acuity_name']
+
+& C:\Users\medwards\.conda\sbx-data-vis\python.exe c:/lwf/sbx-data-vis/code/main.py
+2026-08-06 10:47:26,933 | INFO | [main] Run initialized: C:\lwf\sbx-data-vis\data\runs\run_20260806_104726
+2026-08-06 10:47:26,933 | INFO | [load_driver] Loading visual driver
+2026-08-06 10:47:26,933 | INFO | [main] Using processing driver: C:\lwf\sbx-data-vis\data\input\params\processing_driver.csv
+2026-08-06 10:47:26,933 | INFO | [main] Starting domain: inpatient
+2026-08-06 10:47:26,947 | INFO | [main] No processing requests for domain inpatient; skipping.
+2026-08-06 10:47:26,948 | INFO | [main] Starting domain: surgery
+2026-08-06 10:47:26,950 | INFO | [main] No processing requests for domain surgery; skipping.
+2026-08-06 10:47:26,950 | INFO | [main] Starting domain: emergency
+2026-08-06 10:47:26,951 | INFO | [load_data] Loading data
+2026-08-06 10:47:28,020 | INFO | [load_cohort_params] FINAL cohort_id: ed.ed.psych
+2026-08-06 10:47:28,020 | INFO | [load_cohort_params] DATA: {'group': 'ed', 'name': 'ed.psych', 'filter': 'psych_patient_flag == "Yes"', 'description': 'Psych ED encounters', 'domain': 'ed', 'cohort_file': 'ed_cohort_gen.singlefile.psych.nonpsych.ps1'}
+2026-08-06 10:47:28,020 | INFO | [load_cohort_params] FINAL cohort_id: ed.ed.non_psych
+2026-08-06 10:47:28,020 | INFO | [load_cohort_params] DATA: {'group': 'ed', 'name': 'ed.non_psych', 'filter': 'psych_patient_flag == "No"', 'description': 'Non-Psych ED encounters', 'domain': 'ed', 'cohort_file': 'ed_cohort_gen.singlefile.psych.nonpsych.ps1'}
+2026-08-06 10:47:28,020 | INFO | [load_cohort_params] Loaded 2 cohorts
+2026-08-06 10:47:28,020 | INFO | [main] Loaded cohort keys:
+2026-08-06 10:47:28,020 | INFO | [main] - ed.ed.psych
+2026-08-06 10:47:28,020 | INFO | [main] - ed.ed.non_psych
+2026-08-06 10:47:28,402 | INFO | [apply_filter] rows 233,096 -> 5,619 | filter: psych_patient_flag == "Yes"
+2026-08-06 10:47:28,757 | INFO | [main] Injecting cohort_desc: Psych ED encounters
+2026-08-06 10:47:28,757 | INFO | [vis_02] Starting Length of Stay Distribution
+2026-08-06 10:47:28,795 | INFO | [date helper] Filtering null arrival_dtm values. Rows before filter: 5,619
+2026-08-06 10:47:28,804 | INFO | [date helper] Completed arrival_dtm null filter. Rows after filter: 5,619
+2026-08-06 10:47:28,804 | INFO | [date helper] Applying arrival_dtm date filter. Start=2025-01-01 00:00:00, End=2025-12-31 23:59:59.999999, Rows before filter: 5,619
+2026-08-06 10:47:28,804 | INFO | [date helper] Completed arrival_dtm date filter. Start=2025-01-01 00:00:00, End=2025-12-31 23:59:59.999999, Rows after filter: 2,024
+2026-08-06 10:47:28,814 | INFO | [date helper] Returning 5,619 total rows and 2,024 arrival-filtered rows.
+2026-08-06 10:47:28,838 | INFO | [vis_02] Filtering records with null arrival_dtm or tmt_stop_dtm. Rows before filter: 2,024
+2026-08-06 10:47:28,838 | INFO | [vis_02] Completed timestamp filter. Rows after filter: 2,021
+2026-08-06 10:47:28,838 | INFO | [vis_02] Filtering to valid_los == 1. Rows before filter: 2,021
+2026-08-06 10:47:28,838 | INFO | [vis_02] Completed valid_los filter. Rows after filter: 2,021
+2026-08-06 10:47:29,145 | INFO | vis_02 saved to C:\lwf\sbx-data-vis\data\runs\run_20260806_104726\outputs\ed.ed.psych\vis_02__ed_ed_psych__1-1-2025_to_12-31-2025.png
+2026-08-06 10:47:29,164 | INFO | vis_02 legend written: C:\lwf\sbx-data-vis\data\runs\run_20260806_104726\outputs\ed.ed.psych\vis_02_legend__ed_ed_psych__1-1-2025_to_12-31-2025.png
+2026-08-06 10:47:29,204 | INFO | vis_02 title written: C:\lwf\sbx-data-vis\data\runs\run_20260806_104726\outputs\ed.ed.psych\vis_02_title__ed_ed_psych__1-1-2025_to_12-31-2025.png
+2026-08-06 10:47:29,591 | INFO | [apply_filter] rows 233,096 -> 227,477 | filter: psych_patient_flag == "No"
+2026-08-06 10:47:29,606 | INFO | [main] Injecting cohort_desc: Non-Psych ED encounters
+2026-08-06 10:47:29,606 | INFO | [vis_02] Starting Length of Stay Distribution
+2026-08-06 10:47:30,635 | INFO | [date helper] Filtering null arrival_dtm values. Rows before filter: 227,477
+2026-08-06 10:47:30,673 | INFO | [date helper] Completed arrival_dtm null filter. Rows after filter: 227,477
+2026-08-06 10:47:30,673 | INFO | [date helper] Applying arrival_dtm date filter. Start=2025-01-01 00:00:00, End=2025-12-31 23:59:59.999999, Rows before filter: 227,477
+2026-08-06 10:47:30,716 | INFO | [date helper] Completed arrival_dtm date filter. Start=2025-01-01 00:00:00, End=2025-12-31 23:59:59.999999, Rows after filter: 75,974
+2026-08-06 10:47:30,836 | INFO | [date helper] Returning 227,477 total rows and 75,974 arrival-filtered rows.
+2026-08-06 10:47:30,969 | INFO | [vis_02] Filtering records with null arrival_dtm or tmt_stop_dtm. Rows before filter: 75,974
+2026-08-06 10:47:30,992 | INFO | [vis_02] Completed timestamp filter. Rows after filter: 73,027
+2026-08-06 10:47:30,992 | INFO | [vis_02] Filtering to valid_los == 1. Rows before filter: 73,027
+2026-08-06 10:47:30,992 | INFO | [vis_02] Completed valid_los filter. Rows after filter: 73,027
+2026-08-06 10:47:31,278 | INFO | vis_02 saved to C:\lwf\sbx-data-vis\data\runs\run_20260806_104726\outputs\ed.ed.non_psych\vis_02__ed_ed_non_psych__1-1-2025_to_12-31-2025.png
+2026-08-06 10:47:31,303 | INFO | vis_02 legend written: C:\lwf\sbx-data-vis\data\runs\run_20260806_104726\outputs\ed.ed.non_psych\vis_02_legend__ed_ed_non_psych__1-1-2025_to_12-31-2025.png
+2026-08-06 10:47:31,337 | INFO | vis_02 title written: C:\lwf\sbx-data-vis\data\runs\run_20260806_104726\outputs\ed.ed.non_psych\vis_02_title__ed_ed_non_psych__1-1-2025_to_12-31-2025.png
+(C:\Users\medwards\.conda\sbx-data-vis) PS C:\lwf\sbx-data-vis> 
 
 
 Please analyze the implementation in the context of the attached framework and identify:
