@@ -54,11 +54,11 @@ COHORT_LOCATIONS_FILE = os.path.join(
 )
 PARAM_DIR = os.path.join(INPUT_DIR, "params")
 VIS_DRIVER_FILE = os.path.join(PARAM_DIR, "vis_driver.csv")
-PROCESSING_MODE = os.getenv("PROCESSING_MODE", "parameters_only").strip().lower()
+PROCESSING_MODE = os.getenv("PROCESSING_MODE", "full_reports").strip().lower()
 if PROCESSING_MODE in {"full_processing", "full_reports"}:
     PROCESSING_MODE = "full_reports"
 elif PROCESSING_MODE != "parameters_only":
-    raise ValueError(f"Unsupported PROCESSING_MODE: {PROCESSING_MODE}")
+    raise ValueError(f"[main] Unsupported PROCESSING_MODE: {PROCESSING_MODE}")
 
 # =========================
 # DYNAMIC VISUAL LOADER
@@ -68,7 +68,7 @@ def get_visual_function(visual_id):
         module = importlib.import_module(f"visuals.{visual_id}")
         return module.run
     except Exception as e:
-        logging.error(f"Failed to load {visual_id}: {str(e)}")
+        logging.error(f"[main] Failed to load {visual_id}: {str(e)}")
         return None
 
 
@@ -86,8 +86,9 @@ def mirror_processing_driver_to_params(run_dir):
 
     if not os.path.exists(source_file):
         logging.warning(
-            f"Processing driver not found: {source_file}"
+            f"[main] Processing driver not found: {source_file}"
         )
+        logging.info(f"[main] No processing driver found in {run_dir}")
         return
 
     if os.path.exists(destination_file):
@@ -105,7 +106,7 @@ def mirror_processing_driver_to_params(run_dir):
         )
 
         logging.info(
-            f"Created backup: {backup_file}"
+            f"[main] Created backup: {backup_file}"
         )
 
     shutil.copy2(
@@ -114,7 +115,7 @@ def mirror_processing_driver_to_params(run_dir):
     )
 
     logging.info(
-        f"Copied processing driver to: {destination_file}"
+        f"[main] Copied processing driver to: {destination_file}"
     )
 
 # =========================
@@ -196,7 +197,7 @@ def run_visuals(
 
         cohort_df = cohort_cache[cohort_id]
         if cohort_df.empty:
-            logging.warning(f"No data for {cohort_id}")
+            logging.warning(f"[main] No data for {cohort_id}")
             continue
 
         cohort_output_dir = os.path.join(output_dir, cohort_id)
@@ -263,7 +264,7 @@ if __name__ == "__main__":
 
     run_dir, output_dir = initialize_run()
 
-    logging.info(f"Run initialized: {run_dir}")
+    logging.info(f"[main] Run initialized: {run_dir}")
 
     run_id = os.path.basename(run_dir)
 
@@ -292,36 +293,36 @@ if __name__ == "__main__":
         )
 
         logging.info(
-            "Processing driver generated successfully."
+            f"[main] Processing driver generated successfully."
         )
 
         if args.update_processing_driver:
             mirror_processing_driver_to_params(run_dir)
 
             logging.info(
-                "Updated input/params/processing_driver.csv"
+                f"[main] Updated input/params/processing_driver.csv"
             )
 
         raise SystemExit(0)
 
     processing_driver_file = os.path.join(PARAM_DIR, "processing_driver.csv")
     if not os.path.exists(processing_driver_file):
-        logging.error(f"Missing processing driver: {processing_driver_file}")
+        logging.error(f"[main] Missing processing driver: {processing_driver_file}")
         raise SystemExit(1)
 
     processing_driver_df = load_processing_driver(processing_driver_file)
 
     if processing_driver_df.empty:
-        logging.error("Processing driver file is empty.")
+        logging.error(f"[main] Processing driver file is empty.")
         raise SystemExit(1)
 
-    logging.info(f"Using processing driver: {processing_driver_file}")
+    logging.info(f"[main] Using processing driver: {processing_driver_file}")
 
     all_rdb_records = []
 
     for domain, config in DOMAINS.items():
 
-        logging.info(f"Starting domain: {domain}")
+        logging.info(f"[main] Starting domain: {domain}")
 
         expected_domain = str(config.get("domain", domain)).strip().lower()
 
@@ -331,7 +332,7 @@ if __name__ == "__main__":
 
         if domain_driver_df.empty:
             logging.info(
-                f"No processing requests for domain {domain}; skipping."
+                f"[main] No processing requests for domain {domain}; skipping."
             )
             continue
 

@@ -490,14 +490,10 @@ def crop_image(crop_file, crop_top=0, crop_bottom=0, crop_left=0, crop_right=0):
     except Exception as e:
         logger.error(f"Image cropping failed: {e}")
 
-def generate_census(df, start_date, end_date):
+def generate_census(df, start_date, end_date, ao_duration_minutes=30):
 
     try:
         df = df.copy()
-
-        df["arrival_dtm"] = pd.to_datetime(df["arrival_dtm"], errors="coerce")
-        df["tmt_stop_dtm"] = pd.to_datetime(df["tmt_stop_dtm"], errors="coerce")
-        df = df.dropna(subset=["arrival_dtm"])
 
         # =========================================================
         # DATE RANGE
@@ -505,29 +501,81 @@ def generate_census(df, start_date, end_date):
         start_date = pd.to_datetime(start_date)
         end_date = pd.to_datetime(end_date)
 
-        if start_date.time() == datetime.time(0,0):
-                end_date = (
-                    end_date
-                    + pd.Timedelta(days=1)
-                    - pd.Timedelta(minutes=1)
-                )
+        if end_date.time() == datetime.time(0, 0):
+            end_date = (
+                end_date
+                + pd.Timedelta(days=1)
+                - pd.Timedelta(microseconds=1)
+            )
 
         # =========================
         # DATE WINDOW FILTER
-        # =========================
+        # =========================        
+        df["effective_start"] = df["arrival_dtm"]
+        df["effective_end"] = df["tmt_stop_dtm"]
+
+        # PATIENTS WHO ARE BEING ACTIVELY TREATED (tmt_start_dtm is not null) → use arrival_dtm as effective start, tmt_stop_dtm as effective end (or end_date if null)
+        mask_treatment = df["tmt_start_dtm"].notna()
+
+        df.loc[mask_treatment, "effective_start"] = (
+            df.loc[mask_treatment, "arrival_dtm"]
+        )
+
+        df.loc[mask_treatment, "effective_end"] = (
+            df.loc[mask_treatment, "tmt_stop_dtm"]
+            .fillna(end_date)
+        )        
+
+        # PATIENTS WHO ARRIVED ONLY (tmt_start_dtm is null) → use arrival_dtm as effective start, arrival_dtm + 30 minutes as effective end
+        mask_arrival_only = (
+            df["tmt_start_dtm"].isna() &
+            df["tmt_stop_dtm"].isna()
+        )
+
+        df.loc[mask_arrival_only, "effective_end"] = (
+            df.loc[mask_arrival_only, "arrival_dtm"]
+            + pd.Timedelta(minutes=ao_duration_minutes)
+        )
+
+        arrival_only_count = mask_arrival_only.sum()
+
+        logger.info(
+            f"[CENSUS] Imputed {ao_duration_minutes}-minute census intervals for "
+            f"{arrival_only_count:,} arrival-only encounters."
+        )
+
+        bad_window_mask = (
+            df["effective_start"].isna() |
+            df["effective_end"].isna() |
+            (df["effective_end"] < df["effective_start"])
+        )
+
+        bad_window_count = bad_window_mask.sum()
+
+        if bad_window_count > 0:
+            logger.warning(
+                f"[CENSUS] Excluding {bad_window_count:,} encounters"
+                f"[CENSUS] Invalid window breakdown: "
+                f"null_start={df['effective_start'].isna().sum():,}, "
+                f"null_end={df['effective_end'].isna().sum():,}, "
+                f"end_before_start={(df['effective_end'] < df['effective_start']).sum():,}"
+            )
+
+        df = df[~bad_window_mask].copy()
+
         # Include any record whose interval overlaps the requested window
         df = df[
-            (df["arrival_dtm"] <= end_date) &
-            (df["tmt_stop_dtm"] >= start_date)
+            (df["effective_start"] <= end_date) &
+            (df["effective_end"] >= start_date)
         ].copy()
  
         # =========================================================
         # VISIT WINDOWS
         # =========================================================
-        df["start"] = df["arrival_dtm"]
+        df["start"] = df["effective_start"]
 
         df["end"] = (
-            df["tmt_stop_dtm"]
+            df["effective_end"]
             .clip(
                 lower=start_date,
                 upper=end_date
@@ -545,8 +593,8 @@ def generate_census(df, start_date, end_date):
         # EVENTS
         # =========================================================
         start_events = (
-            df[df["arrival_dtm"] >= start_date][["arrival_dtm"]]
-            .rename(columns={"arrival_dtm": "interval"})
+            df[df["start"] >= start_date][["start"]]
+            .rename(columns={"start": "interval"})
         )
 
         start_events["delta"] = 1
@@ -574,8 +622,8 @@ def generate_census(df, start_date, end_date):
         ts["delta"] = ts["delta"].fillna(0)
 
         initial_count = df[
-            (df["arrival_dtm"] < start_date) &
-            (df["tmt_stop_dtm"] >= start_date)
+            (df["effective_start"] < start_date) &
+            (df["effective_end"] >= start_date)
         ].shape[0]
 
         ts["census"] = ts["delta"].cumsum()

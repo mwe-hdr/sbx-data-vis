@@ -178,7 +178,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # --------------------------------------------------
         # HELP MY DATAFRAME
         # --------------------------------------------------
-        prepare_dates(df, start_date, end_date)
+        df, _ = prepare_dates(df, start_date, end_date)
         add_common_helper_columns(df)
 
         # =========================================================

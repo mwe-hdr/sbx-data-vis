@@ -79,6 +79,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # --------------------------------------------------
         # HELP MY DATAFRAME
         # --------------------------------------------------
+        _, df = prepare_dates(df, start_date, end_date)
         df = add_common_helper_columns(df)
 
         logger.info(

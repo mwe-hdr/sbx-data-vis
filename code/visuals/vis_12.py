@@ -592,7 +592,7 @@ def run(
     # --------------------------------------------------
     # HELP MY DATAFRAME
     # --------------------------------------------------
-    prepare_dates(df, start_date, end_date)
+    _, df = prepare_dates(df, start_date, end_date)
     add_common_helper_columns(df)
 
     # ============================================================

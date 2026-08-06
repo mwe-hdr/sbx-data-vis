@@ -169,7 +169,7 @@ def run(
     # --------------------------------------------------
     # HELP MY DATAFRAME
     # --------------------------------------------------
-    df = prepare_dates(df, start_date, end_date)
+    _, df = prepare_dates(df, start_date, end_date)
     df = add_common_helper_columns(df)
 
     required_cols = [

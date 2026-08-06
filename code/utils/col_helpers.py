@@ -19,8 +19,9 @@ def add_common_helper_columns(df):
     }
 
     df["esi_category"] = (
-    df["esi"]
-    .map(ESI_MAP)
+        df["esi"]
+        .map(ESI_MAP)
+        .fillna("Unknown ESI")
     )
 
     df["valid_esi"] = (

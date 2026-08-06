@@ -3,7 +3,7 @@ import pandas as pd
 import logging
 
 def load_data(file_path):
-    logging.info("Loading data")
+    logging.info("[load_data] Loading data")
     df = pd.read_csv(file_path, low_memory=False)
 
     # defensive datetime parsing
@@ -14,7 +14,7 @@ def load_data(file_path):
 
 
 def load_driver(file_path):
-    logging.info("Loading visual driver")
+    logging.info("[load_driver] Loading visual driver")
     return pd.read_csv(file_path)
 
 
@@ -23,7 +23,7 @@ def load_params(param_dir, visual_id):
     param_file = os.path.join(param_dir, f"{visual_id}.csv")
 
     if not os.path.exists(param_file):
-        logging.warning(f"No params found for {visual_id}")
+        logging.warning(f"[load_params] No params found for {visual_id}")
         return pd.DataFrame()
 
     try:
@@ -31,7 +31,7 @@ def load_params(param_dir, visual_id):
 
     except Exception as e:
         logging.error(
-            f"Failed to load params for {visual_id}: {str(e)}"
+            f"[load_params] Failed to load params for {visual_id}: {str(e)}"
         )
         return pd.DataFrame()
     
@@ -56,12 +56,12 @@ def load_cohort_params(cohort_root_dir):
             try:
                 df = pd.read_csv(file_path)
             except Exception as e:
-                logging.error(f"Failed to read {file_path}: {e}")
+                logging.error(f"[load_cohort_params] Failed to read {file_path}: {e}")
                 continue
 
             required_cols = {"name", "param", "value"}
             if not required_cols.issubset(df.columns):
-                logging.warning(f"Skipping {file_path} (invalid columns)")
+                logging.warning(f"[load_cohort_params] Skipping {file_path} (invalid columns)")
                 continue
 
             # derive namespace from folder + filename
@@ -94,8 +94,8 @@ def load_cohort_params(cohort_root_dir):
                     "cohort_file": str(cohort_file).strip() if pd.notna(cohort_file) else None
                 }
 
-                logging.info(f"[loader] FINAL cohort_id: {cohort_id}")
-                logging.info(f"[loader] DATA: {cohorts[cohort_id]}")
+                logging.info(f"[load_cohort_params] FINAL cohort_id: {cohort_id}")
+                logging.info(f"[load_cohort_params] DATA: {cohorts[cohort_id]}")
 
-    logging.info(f"Loaded {len(cohorts)} cohorts")
+    logging.info(f"[load_cohort_params] Loaded {len(cohorts)} cohorts")
     return cohorts

@@ -37,7 +37,7 @@ def build_processing_driver(
         report_id = report_row.get("visual_id") or report_row.get("report_id")
 
         if not report_id:
-            logging.warning("Skipping row without report identifier")
+            logging.warning("[build_processing_driver] Skipping row without report identifier")
             continue
 
         try:
@@ -45,7 +45,7 @@ def build_processing_driver(
         except Exception as e:
 
             logging.error(
-                f"Unable to load params for {report_id}: {e}"
+                f"[build_processing_driver] Unable to load params for {report_id}: {e}"
             )
 
             continue
@@ -107,7 +107,7 @@ def build_processing_driver(
     driver_df = pd.DataFrame(driver_rows)
 
     if driver_df.empty:
-        logging.warning("No processing driver rows generated")
+        logging.warning("[build_processing_driver] No processing driver rows generated")
         return driver_df
 
     system_cols = [
@@ -143,9 +143,9 @@ def build_processing_driver(
     )
 
     logging.info(
-        f"Generated processing driver with {len(driver_df):,} rows"
+        f"[build_processing_driver] Generated processing driver with {len(driver_df):,} rows"
     )
-    logging.info(f"Saved processing driver: {output_file}")
+    logging.info(f"[build_processing_driver] Saved processing driver: {output_file}")
 
     return driver_df
 
@@ -154,7 +154,7 @@ def load_processing_driver(file_path):
 
     if not os.path.exists(file_path):
         raise FileNotFoundError(
-            f"Missing processing driver: {file_path}"
+            f"[build_processing_driver] Missing processing driver: {file_path}"
         )
 
     return pd.read_csv(file_path)
@@ -191,11 +191,11 @@ def row_to_params(row):
 
 def apply_filter(df, filter_str):
     if df is None or df.empty:
-        logging.warning("apply_filter: input dataframe is empty")
+        logging.warning("[apply_filter] input dataframe is empty")
         return df
 
     if not filter_str or pd.isna(filter_str):
-        logging.info("apply_filter: no filter provided; returning original dataframe")
+        logging.info("[apply_filter] no filter provided; returning original dataframe")
         return df
 
     try:
@@ -211,13 +211,13 @@ def apply_filter(df, filter_str):
         after_count = len(filtered_df)
 
         logging.info(
-            f"apply_filter: rows {before_count} → {after_count} | filter: {filter_str}"
+            f"[apply_filter] rows {before_count:,} -> {after_count:,} | filter: {filter_str}"
         )
 
         return filtered_df
 
     except Exception as e:
-        logging.error(f"apply_filter failed: {str(e)}")
+        logging.error(f"[apply_filter] failed: {str(e)}")
         return df.iloc[0:0]
     
 BASE_DIR = os.getcwd()

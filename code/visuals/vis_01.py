@@ -52,17 +52,17 @@ VISUAL_ID = "vis_01"
 
 def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
-    logger.info("Running vis_01_hourly_arrivals")
+    logger.info(f"[{VISUAL_ID}] Running vis_01_hourly_arrivals")
 
     # --------------------------------------------------
     # HELP MY DATAFRAME
     # --------------------------------------------------
-    df = prepare_dates(df, start_date, end_date)
+    _, df = prepare_dates(df, start_date, end_date)
     df = add_common_helper_columns(df)
 
     logger.info(
         f"[{VISUAL_ID}] Dataset received after helper preparation. "
-        f"Rows available for arrival-type analysis: {len(df):,}"
+        f"[{VISUAL_ID}] Rows available for arrival-type analysis: {len(df):,}"
     )
 
     # =========================
@@ -71,7 +71,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     required_cols = ["arrival_dtm", "esi"]
     for col in required_cols:
         if col not in df.columns:
-            logger.error(f"{VISUAL_ID}: missing required column '{col}'")
+            logger.error(f"[{VISUAL_ID}] missing required column '{col}'")
             return
 
     # =========================
@@ -158,23 +158,22 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         params.get("title_width", 6.25) or 6.25
     )
 
-    logger.info(
-        f"[{VISUAL_ID}] Filtering records with null esi_category. "
-        f"Rows before filter: {len(df):,}"
-    )
+    unknown_esi_count = (~df["valid_esi"]).sum()
 
-    df = df[df["esi_category"].notna()]
+    if unknown_esi_count > 0:
+        logger.warning(
+            f"[{VISUAL_ID}] Found {unknown_esi_count:,} encounters assigned "
+            f"to 'Unknown ESI'. Review ESI_MAP if new ESI values have appeared."
+        )
 
     logger.info(
-        f"[{VISUAL_ID}] Completed esi_category filter. "
-        f"Rows after filter: {len(df):,}"
+        f"[{VISUAL_ID}] ESI category distribution prepared. "
+        f"Total rows retained: {len(df):,}"
     )
 
     if df.empty:
-        logger.warning("vis_01: no valid ESI data")
+        logger.warning(f"[{VISUAL_ID}] no valid ESI data")
         return
-
-
 
     # =========================
     # AGGREGATION
@@ -384,7 +383,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     )
 
     logger.info(
-        f"vis_01 legend written: "
+        f"[{VISUAL_ID}] legend written: "
         f"{legend_output_file}"
     )
 
@@ -420,13 +419,13 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     )
 
     logger.info(
-        f"vis_01 title written: "
+        f"[{VISUAL_ID}] title written: "
         f"{title_output_file}"
     )
 
     plt.close()
 
-    logger.info(f"vis_01 output written: {output_file}")
+    logger.info(f"[{VISUAL_ID}] output written: {output_file}")
 
     if write_rdb == 1:
 
