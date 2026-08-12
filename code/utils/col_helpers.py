@@ -11,6 +11,7 @@ def add_common_helper_columns(df):
     )
 
     ESI_MAP = {
+    0: "0 - Unknown",
     1: "1 - Immediate",
     2: "2 - Emergent",
     3: "3 - Urgent",
@@ -21,12 +22,12 @@ def add_common_helper_columns(df):
     df["esi_category"] = (
         df["esi"]
         .map(ESI_MAP)
-        .fillna("Unknown ESI")
+        .fillna("0 - Unknown")
     )
 
     df["valid_esi"] = (
     df["esi"]
-    .isin([1,2,3,4,5])
+    .isin([0,1,2,3,4,5])
     )
 
     df["arrival_method_clean"] = (

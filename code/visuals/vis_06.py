@@ -68,7 +68,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     Visualization 06: Weekday Arrival Distribution
     """
 
-    logger.info(f"Starting {VISUAL_ID}")
+    logger.info(f"[{VISUAL_ID}] Starting Weekday Arrival Distribution visualization")
     params = normalize_params(params)
 
     try:
@@ -165,7 +165,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         missing_cols = [col for col in required_cols if col not in df.columns]
 
         if missing_cols:
-            logger.error(f"{VISUAL_ID} missing required columns: {missing_cols}")
+            logger.error(f"[{VISUAL_ID}] missing required columns: {missing_cols}")
             return
 
         df = df.copy()
@@ -202,7 +202,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         )
 
         if total == 0:
-            logger.warning(f"{VISUAL_ID}: Total encounters = 0")
+            logger.warning(f"[{VISUAL_ID}]: Total encounters = 0")
             return
 
         percents = counts / total
@@ -344,7 +344,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         )
 
         logger.info(
-            f"{VISUAL_ID} legend written: "
+            f"[{VISUAL_ID}] legend written: "
             f"{legend_output_file}"
         )
         date_range_str = format_date_range(
@@ -378,14 +378,14 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         )
 
         logger.info(
-            f"{VISUAL_ID} title written: "
+            f"[{VISUAL_ID}] title written: "
             f"{title_output_file}"
         )
 
 
         plt.close()
 
-        logger.info(f"{VISUAL_ID} saved to {output_path}")
+        logger.info(f"[{VISUAL_ID}] saved to {output_path}")
 
         # =============================
         # RDB OUTPUT
@@ -462,6 +462,6 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
     except Exception as e:
         logger.error(
-            f"{VISUAL_ID} failed: {str(e)}",
+            f"[{VISUAL_ID}] failed: {str(e)}",
             exc_info=True
         )

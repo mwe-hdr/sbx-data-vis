@@ -36,9 +36,6 @@ def prepare_dates(
     if "arrival_dtm" not in df.columns:
         raise ValueError("arrival_dtm column is required")
 
-    start_date = pd.to_datetime(start_date)
-    end_date = pd.to_datetime(end_date)
-
     date_columns = [
     "arrival_dtm",
     "tmt_stop_dtm",
@@ -64,13 +61,6 @@ def prepare_dates(
     logger.info(
         f"[date helper] Completed arrival_dtm null filter. Rows after filter: {len(df):,}"
     )
-
-    if end_date.time() == datetime.time(0, 0):
-        end_date = (
-            end_date
-            + pd.Timedelta(days=1)
-            - pd.Timedelta(microseconds=1)
-        )
 
     logger.info(
         f"[date helper] Applying arrival_dtm date filter. "

@@ -91,16 +91,17 @@ def _safe_param(params, key, default, cast_type=None):
         val = params.get(key, default)
         return cast_type(val) if cast_type else val
     except Exception:
-        logger.warning(f"Invalid param for {key}; using default {default}")
+        logger.warning(f"[{VISUAL_ID}] Invalid param for {key}; using default {default}")
         return default
     
 def run(df, params, start_date, end_date, output_dir, generate_output_name):
-    logger.info(f"[{VISUAL_ID}] Starting run")
+    
+    logger.info(f"[{VISUAL_ID}] Starting Facility Peak Census and Room Need by Acuity visualization")
     params = normalize_params(params)
 
     try:
         if df is None or df.empty:
-            logger.warning("Input dataframe is empty")
+            logger.warning(f"[{VISUAL_ID}] Input dataframe is empty")
             return
  
         ESI_LABELS = {
@@ -178,7 +179,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # --------------------------------------------------
         # HELP MY DATAFRAME
         # --------------------------------------------------
-        df, _ = prepare_dates(df, start_date, end_date)
+        df, df_visits = prepare_dates(df, start_date, end_date)
         add_common_helper_columns(df)
 
         # =========================================================

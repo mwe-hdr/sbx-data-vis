@@ -247,6 +247,24 @@ def initialize_run():
     return run_dir, output_dir
 
 
+def normalize_reporting_window(start_date, end_date):
+
+    start_date = pd.to_datetime(start_date)
+    end_date = pd.to_datetime(end_date)
+
+    if (
+        end_date.hour == 0
+        and end_date.minute == 0
+        and end_date.second == 0
+    ):
+        end_date = (
+            end_date
+            + pd.Timedelta(days=1)
+            - pd.Timedelta(microseconds=1)
+        )
+
+    return start_date, end_date
+
 def generate_output_name(
     *,
     visual_id,

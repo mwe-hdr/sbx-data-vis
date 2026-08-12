@@ -436,19 +436,25 @@ def save_parameter_table_png(
 
     return output_file
 
-def crop_image(crop_file, crop_top=0, crop_bottom=0, crop_left=0, crop_right=0):
+def crop_image(
+    crop_file,
+    crop_top=0,
+    crop_bottom=0,
+    crop_left=0,
+    crop_right=0
+):
 
     from PIL import Image
 
     try:
 
+        with Image.open(crop_file) as img:
+
             width, height = img.size
 
             left = int(
                 width *
-                (
-                    crop_left / 100.0
-                )
+                (crop_left / 100.0)
             )
 
             right = int(
@@ -474,39 +480,26 @@ def crop_image(crop_file, crop_top=0, crop_bottom=0, crop_left=0, crop_right=0):
                 )
             )
 
-            with Image.open(crop_file) as img:
-
-                img = img.crop(
-                    (
-                        left,
-                        upper,
-                        right,
-                        lower
-                    )
+            cropped = img.crop(
+                (
+                    left,
+                    upper,
+                    right,
+                    lower
                 )
+            )
 
-                img.save(crop_file)
+            cropped.save(crop_file)
 
     except Exception as e:
-        logger.error(f"Image cropping failed: {e}")
+        logger.error(
+            f"Image cropping failed: {e}"
+        )
 
 def generate_census(df, start_date, end_date, ao_duration_minutes=30):
 
     try:
         df = df.copy()
-
-        # =========================================================
-        # DATE RANGE
-        # =========================================================
-        start_date = pd.to_datetime(start_date)
-        end_date = pd.to_datetime(end_date)
-
-        if end_date.time() == datetime.time(0, 0):
-            end_date = (
-                end_date
-                + pd.Timedelta(days=1)
-                - pd.Timedelta(microseconds=1)
-            )
 
         # =========================
         # DATE WINDOW FILTER
@@ -540,7 +533,7 @@ def generate_census(df, start_date, end_date, ao_duration_minutes=30):
         arrival_only_count = mask_arrival_only.sum()
 
         logger.info(
-            f"[CENSUS] Imputed {ao_duration_minutes}-minute census intervals for "
+            f"[census] Imputed {ao_duration_minutes}-minute census intervals for "
             f"{arrival_only_count:,} arrival-only encounters."
         )
 
@@ -554,8 +547,8 @@ def generate_census(df, start_date, end_date, ao_duration_minutes=30):
 
         if bad_window_count > 0:
             logger.warning(
-                f"[CENSUS] Excluding {bad_window_count:,} encounters"
-                f"[CENSUS] Invalid window breakdown: "
+                f"[census] Excluding {bad_window_count:,} encounters"
+                f"[census] Invalid window breakdown: "
                 f"null_start={df['effective_start'].isna().sum():,}, "
                 f"null_end={df['effective_end'].isna().sum():,}, "
                 f"end_before_start={(df['effective_end'] < df['effective_start']).sum():,}"

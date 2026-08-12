@@ -52,7 +52,7 @@ VISUAL_ID = "vis_01"
 
 def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
-    logger.info(f"[{VISUAL_ID}] Running vis_01_hourly_arrivals")
+    logger.info(f"[{VISUAL_ID}] Starting Hourly Arrivals Distribution visualization")
 
     # --------------------------------------------------
     # HELP MY DATAFRAME

@@ -14,7 +14,7 @@
 #   - Triage
 #   - No Triage
 #   - Treatment
-#   - Left Before Treatment 
+#   - No Treatment 
 #   - Final Disposition
 #
 # ED treatment encounters are further categorized by disposition:
@@ -43,7 +43,7 @@
 #   - RDB records containing:
 #       * Arrival-to-triage flow counts
 #       * Triage-to-treatment flow counts
-#       * Left-before-treatment counts
+#       * No-Treatment counts counts
 #       * Facility disposition counts
 #       * Patient flow stage transitions
 #
@@ -89,7 +89,8 @@ logger = logging.getLogger(__name__)
 VISUAL_ID = "vis_09"
 
 def run(df, params, start_date, end_date, output_dir, generate_output_name):
-    logger.info(f"[{VISUAL_ID}] Starting execution")
+    
+    logger.info(f"[{VISUAL_ID}] Starting ED Patient Flow Sankey visualization")
     params = normalize_params(params)
 
     # -----------------------------
@@ -132,18 +133,19 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     # HELP MY DATAFRAME
     # --------------------------------------------------
     _, df = prepare_dates(df, start_date, end_date)
+
+    if df is None:
+        logger.warning(f"[{VISUAL_ID}] Input dataframe is None. Skipping.")
+        return
+
     df = add_common_helper_columns(df)
 
     required_cols = {
         "arrival_dtm",
         "has_triage",
         "has_ed",
-        "disposition"
+        "disposition_group"
     }
-
-    if df is None:
-        logger.warning(f"[{VISUAL_ID}] Input dataframe is None. Skipping.")
-        return
 
     missing = required_cols - set(df.columns)
 
@@ -164,13 +166,167 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     triage_count = df["has_triage"].sum()
     no_triage_count = total_arrivals - triage_count
 
+    logger.info(
+        f"[{VISUAL_ID}] Arrival split: "
+        f"{triage_count:,} + {no_triage_count:,} = "
+        f"{triage_count + no_triage_count:,}"
+    )
+
+    if triage_count + no_triage_count != total_arrivals:
+        logger.warning(
+            f"[{VISUAL_ID}] Arrival stage reconciliation failure"
+        )
+
     triage_df = df[df["has_triage"]]
-    ed_from_triage = triage_df["has_ed"].sum()
-    left_before_ed = len(triage_df) - ed_from_triage
+
+    triage_treatment = int(
+        (df["has_triage"] & df["has_ed"]).sum()
+    )
+
+    triage_no_treatment = int(
+        (df["has_triage"] & ~df["has_ed"]).sum()
+    )
+
+    no_triage_treatment = int(
+        (~df["has_triage"] & df["has_ed"]).sum()
+    )
+
+    no_triage_no_treatment = int(
+        (~df["has_triage"] & ~df["has_ed"]).sum()
+    )
+
+    treatment_count = triage_treatment + no_triage_treatment
+
+    logger.info(
+        f"[{VISUAL_ID}] Triage split: "
+        f"{triage_treatment:,} + "
+        f"{triage_no_treatment:,} = "
+        f"{triage_treatment + triage_no_treatment:,}"
+    )
+
+    if triage_treatment + triage_no_treatment != len(triage_df):
+        logger.warning(
+            f"[{VISUAL_ID}] Triage stage reconciliation failure"
+        )
+
+    logger.info(
+        f"[{VISUAL_ID}] Treatment node count = "
+        f"{treatment_count:,}"
+    )
 
     ed_df = df[df["has_ed"]].copy()
 
-    disp_counts = ed_df["disposition"].value_counts().to_dict()
+    missing_disp_count = (
+        ed_df["disch_disp_desc"]
+        .isna()
+        .sum()
+    )
+
+    logger.info(
+        f"[{VISUAL_ID}] All ED encounters (has_ed=True) = "
+        f"{len(ed_df):,}"
+    )
+
+    logger.info(
+        f"[{VISUAL_ID}] ED encounters without triage = "
+        f"{((~df['has_triage']) & df['has_ed']).sum():,}"
+    )
+
+    logger.info(f"[{VISUAL_ID}] ---------------- FLOW AUDIT ----------------")
+
+    logger.info(
+        f"[{VISUAL_ID}] Total Arrivals={len(df):,}"
+    )
+
+    logger.info(
+        f"[{VISUAL_ID}] "
+        f"Triage={int(df['has_triage'].sum()):,}, "
+        f"No Triage={int((~df['has_triage']).sum()):,}"
+    )
+
+    logger.info(
+        f"[{VISUAL_ID}] "
+        f"ED Treatment={int(df['has_ed'].sum()):,}, "
+        f"No Treatment={int((~df['has_ed']).sum()):,}"
+    )
+
+    flow_buckets = {
+        "triage_and_treatment": int(
+            (df["has_triage"] & df["has_ed"]).sum()
+        ),
+
+        "triage_no_treatment": int(
+            (df["has_triage"] & ~df["has_ed"]).sum()
+        ),
+
+        "no_triage_treatment": int(
+            (~df["has_triage"] & df["has_ed"]).sum()
+        ),
+
+        "no_triage_no_treatment": int(
+            (~df["has_triage"] & ~df["has_ed"]).sum()
+        )
+    }
+
+    logger.info(
+        f"[{VISUAL_ID}] Flow buckets: "
+        f"{flow_buckets}"
+    )
+
+    bucket_total = sum(flow_buckets.values())
+
+    logger.info(
+        f"[{VISUAL_ID}] Flow bucket total="
+        f"{bucket_total:,}"
+    )
+
+    if bucket_total != total_arrivals:
+        logger.warning(
+            f"[{VISUAL_ID}] Flow bucket reconciliation failure. "
+            f"Buckets={bucket_total:,}, "
+            f"Arrivals={total_arrivals:,}"
+        )
+
+    logger.info(
+        f"[{VISUAL_ID}] Sankey paths:"
+    )
+
+    logger.info(
+        f"[{VISUAL_ID}] "
+        f"Arrival -> Triage = {triage_count:,}"
+    )
+
+    logger.info(
+        f"[{VISUAL_ID}] "
+        f"Arrival -> No Triage = {no_triage_count:,}"
+    )
+
+    logger.info(
+        f"[{VISUAL_ID}] "
+        f"Triage -> Treatment = {triage_treatment:,}"
+    )
+
+    logger.info(
+        f"[{VISUAL_ID}] "
+        f"Triage -> No Treatment = {triage_no_treatment:,}"
+    )
+
+    logger.info(
+        f"[{VISUAL_ID}] "
+        f"No Triage -> Treatment = {no_triage_treatment:,}"
+    )
+
+    logger.info(
+        f"[{VISUAL_ID}] "
+        f"No Triage -> No Treatment = {no_triage_no_treatment:,}"
+    )
+
+    disposition_group_counts = (
+    ed_df["disposition_group"]
+    .fillna("Unknown")
+    .value_counts()
+    .to_dict()
+    )
 
     DISPOSITIONS = [
         "Discharge",
@@ -185,7 +341,81 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     categories = DISPOSITIONS.copy()
 
     for c in categories:
-        disp_counts.setdefault(c, 0)
+        disposition_group_counts.setdefault(c, 0)
+
+    logger.info(
+        f"[{VISUAL_ID}] Disposition Groups:"
+    )
+
+    for disp in DISPOSITIONS:
+        logger.info(
+            f"[{VISUAL_ID}]   {disp}: "
+            f"{disposition_group_counts.get(disp, 0):,}"
+        )
+
+    treatment_via_sankey = treatment_count
+
+    treatment_via_ed_flag = len(ed_df)
+
+    disposition_total = sum(
+        disposition_group_counts.values()
+    )
+
+    logger.info(
+        f"[{VISUAL_ID}] Treatment via Sankey path="
+        f"{treatment_via_sankey:,}"
+    )
+
+    logger.info(
+        f"[{VISUAL_ID}] Treatment via has_ed="
+        f"{treatment_via_ed_flag:,}"
+    )
+
+    logger.info(
+        f"[{VISUAL_ID}] Disposition total="
+        f"{disposition_total:,}"
+    )
+
+    logger.info(
+        f"[{VISUAL_ID}] Reconciliation delta="
+        f"{disposition_total - treatment_count:,}"
+    )
+
+    logger.info(
+        f"[{VISUAL_ID}] ------------ FLOW SUMMARY ------------"
+    )
+
+    logger.info(
+        f"[{VISUAL_ID}] Arrivals={total_arrivals:,}"
+    )
+
+    logger.info(
+        f"[{VISUAL_ID}] Triage={triage_count:,}"
+    )
+
+    logger.info(
+        f"[{VISUAL_ID}] Treatment from triage={triage_treatment:,}"
+    )
+
+    logger.info(
+        f"[{VISUAL_ID}] Treatment from no triage={no_triage_treatment:,}"
+    )
+
+    logger.info(
+        f"[{VISUAL_ID}] Treatment total={treatment_count:,}"
+    )
+
+    logger.info(
+        f"[{VISUAL_ID}] Treatment all ED={len(ed_df):,}"
+    )
+
+    logger.info(
+        f"[{VISUAL_ID}] Disposition total={disposition_total:,}"
+    )
+
+    logger.info(
+        f"[{VISUAL_ID}] Missing disposition={missing_disp_count:,}"
+    )
 
     # -----------------------------
     # LABELS
@@ -207,9 +437,12 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         "Arrival": total_arrivals,
         "Triage": triage_count,
         "No Triage": no_triage_count,
-        "Treatment": ed_from_triage,
-        "Left Before Treatment": left_before_ed,
-        **disp_counts
+        "Treatment": treatment_count,
+        "No Treatment": (
+            triage_no_treatment +
+            no_triage_no_treatment
+        ),
+        **disposition_group_counts
     }
 
     FLOW_NODES = [
@@ -217,7 +450,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         "Triage",
         "No Triage",
         "Treatment",
-        "Left Before Treatment",
+        "No Treatment",
         *DISPOSITIONS
     ]
 
@@ -270,18 +503,61 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     # -----------------------------
     sources, targets, values = [], [], []
 
-    sources += [idx["Arrival"], idx["Arrival"]]
-    targets += [idx["Triage"], idx["No Triage"]]
-    values += [triage_count, no_triage_count]
+    # Arrival split
 
-    sources += [idx["Triage"], idx["Triage"]]
-    targets += [idx["Treatment"], idx["Left Before Treatment"]]
-    values += [ed_from_triage, left_before_ed]
+    sources += [
+        idx["Arrival"],
+        idx["Arrival"]
+    ]
+
+    targets += [
+        idx["Triage"],
+        idx["No Triage"]
+    ]
+
+    values += [
+        triage_count,
+        no_triage_count
+    ]
+
+    # Triage split
+
+    sources += [
+        idx["Triage"],
+        idx["Triage"]
+    ]
+
+    targets += [
+        idx["Treatment"],
+        idx["No Treatment"]
+    ]
+
+    values += [
+        triage_treatment,
+        triage_no_treatment
+    ]
+
+    # No-triage split
+
+    sources += [
+        idx["No Triage"],
+        idx["No Triage"]
+    ]
+
+    targets += [
+        idx["Treatment"],
+        idx["No Treatment"]
+    ]
+
+    values += [
+        no_triage_treatment,
+        no_triage_no_treatment
+    ]
 
     for c in categories:
         sources.append(idx["Treatment"])
         targets.append(idx[c])
-        values.append(disp_counts[c])
+        values.append(disposition_group_counts[c])
 
     # -----------------------------
     # FIXED X POSITIONS
@@ -291,7 +567,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         "Triage": 0.30,
         "No Triage": 0.30,
         "Treatment": 0.55,
-        "Left Before Treatment": 0.45,
+        "No Treatment": 0.55,
         "Discharge": 0.92,
         "Inpatient": 0.85,
         "Observation": 0.85,
@@ -316,7 +592,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
     # Middle nodes
     node_y[idx["No Triage"]] = TOP_Y + 0.45
-    node_y[idx["Left Before Treatment"]] = TOP_Y + 0.40
+    node_y[idx["No Treatment"]] = TOP_Y + 0.40
 
     disposition_y = {
         "Discharge": 0.01,
@@ -523,8 +799,12 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         flow_rows = [
             ("Arrival", "Triage", triage_count),
             ("Arrival", "No Triage", no_triage_count),
-            ("Triage", "Treatment", ed_from_triage),
-            ("Triage", "Left Before Treatment", left_before_ed)
+
+            ("Triage", "Treatment", triage_treatment),
+            ("Triage", "No Treatment", triage_no_treatment),
+
+            ("No Triage", "Treatment", no_triage_treatment),
+            ("No Triage", "No Treatment", no_triage_no_treatment)
         ]
 
         for source_node, target_node, value in flow_rows:
@@ -557,7 +837,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                 "report_title": report_title
             })
 
-        for disposition, count in disp_counts.items():
+        for disposition_group, count in disposition_group_counts.items():
 
             rdb_rows.append({
                 "run_id": params.get("run_id"),
@@ -574,8 +854,8 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                 "dimension_value": "Treatment",
                 "dimension_value_label": "Treatment",
 
-                "secondary_dimension": "disposition",
-                "secondary_dimension_value": disposition,
+                "secondary_dimension": "disposition_group",
+                "secondary_dimension_value": disposition_group,
 
                 "metric": "patients",
                 "metric_type": "count",

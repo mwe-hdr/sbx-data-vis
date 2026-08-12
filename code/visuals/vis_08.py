@@ -71,7 +71,8 @@ logger = logging.getLogger(__name__)
 VISUAL_ID = "vis_08"
 
 def run(df, params, start_date, end_date, output_dir, generate_output_name):
-    logger.info(f"[{VISUAL_ID}] Starting census generation")
+
+    logger.info(f"[{VISUAL_ID}] Starting Facility Census Trend visualization")
     params = normalize_params(params)
 
     try:
@@ -79,7 +80,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # --------------------------------------------------
         # HELP MY DATAFRAME
         # --------------------------------------------------
-        _, df = prepare_dates(df, start_date, end_date)
+        df, _ = prepare_dates(df, start_date, end_date)
         df = add_common_helper_columns(df)
 
         logger.info(
@@ -100,7 +101,8 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
         logger.info(
             f"[{VISUAL_ID}] Census dataset generated. "
-            f"Intervals: {len(ts):,}"
+            f"Intervals: {len(ts):,} "
+            f"Census df: {len(census_df):,}"
         )
 
         enable_rdb = int(params.get("rdb_write", 0))

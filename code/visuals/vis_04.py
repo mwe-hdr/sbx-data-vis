@@ -71,7 +71,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     Visualization 04: ESI Level Distribution
     """
 
-    logger.info(f"[{VISUAL_ID}] Starting visualization")
+    logger.info(f"[{VISUAL_ID}] Starting ESI Level Distribution visualization")
     params = normalize_params(params)
 
     # ======================================================

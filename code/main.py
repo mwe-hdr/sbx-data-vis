@@ -18,7 +18,8 @@ from utils.processing_helpers import (
     generate_output_name,
     build_processing_driver,
     load_processing_driver,
-    row_to_params
+    row_to_params,
+    normalize_reporting_window
 )
 
 # =========================
@@ -226,6 +227,14 @@ def run_visuals(
         cohort_output_dir = os.path.join(output_dir, cohort_id)
         os.makedirs(cohort_output_dir, exist_ok=True)
 
+        start_date = row.get("start_date")
+        end_date = row.get("end_date")
+
+        start_date, end_date = normalize_reporting_window(
+            start_date,
+            end_date
+        )
+
         params = row_to_params(row)
         params.update({
             "cohort_id": cohort_id,
@@ -238,8 +247,8 @@ def run_visuals(
             "cohort_locations_file": COHORT_LOCATIONS_FILE,
             "year_type": row.get("year_type"),
             "write_rdb": row.get("write_rdb"),
-            "start_date": row.get("start_date"),
-            "end_date": row.get("end_date"),
+            "start_date": start_date,
+            "end_date": end_date,
             "visual_id": report_id,
             "report_id": report_id
         })
@@ -255,12 +264,12 @@ def run_visuals(
             f"cohort_file={cohort_meta.get('cohort_file')} "
             f"cohort_desc={cohort_meta.get('description')}"
         )
-        
+
         result = vis_func(
             cohort_df,
             params,
-            row.get("start_date"),
-            row.get("end_date"),
+            start_date,
+            end_date,
             cohort_output_dir,
             generate_output_name
         )

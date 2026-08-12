@@ -91,16 +91,17 @@ def _safe_param(params, key, default, cast_type=None):
         val = params.get(key, default)
         return cast_type(val) if cast_type else val
     except Exception:
-        logger.warning(f"Invalid param for {key}; using default {default}")
+        logger.warning(f"[{VISUAL_ID}] Invalid param for {key}; using default {default}")
         return default
 
 def run(df, params, start_date, end_date, output_dir, generate_output_name):
-    logger.info(f"[{VISUAL_ID}] Starting run")
+    
+    logger.info(f"[{VISUAL_ID}] Starting Facility Hourly Census with Peak Period and Capacity Benchmarks visualization")
     params = normalize_params(params)
 
     try:
         if df is None or df.empty:
-            logger.warning("Input dataframe is empty")
+            logger.warning(f"[{VISUAL_ID}] Input dataframe is empty")
             return
 
         # =========================
@@ -232,7 +233,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         )
 
         if ts.empty:
-            logger.warning("Census dataset empty after generation")
+            logger.warning(f"[{VISUAL_ID}] Census dataset empty after generation")
             return
 
         # =========================
@@ -248,7 +249,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         ts = ts[(ts["interval"] >= start_date) & (ts["interval"] <= end_date)]
 
         if ts.empty:
-            logger.warning("Dataset empty after date filtering")
+            logger.warning(f"[{VISUAL_ID}] Dataset empty after date filtering")
             return
 
         # Growth adjustment
@@ -269,7 +270,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
         # Validate 24 hours
         if len(hourly) != 24:
-            logger.warning("Hourly completeness issue; enforced 24 hours")
+            logger.warning(f"[{VISUAL_ID}] Hourly completeness issue; enforced 24 hours")
 
         # =========================
         # Peak classification

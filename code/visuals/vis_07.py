@@ -74,11 +74,8 @@ logger = logging.getLogger(__name__)
 VISUAL_ID = "vis_07"
 
 def run(df, params, start_date, end_date, output_dir, generate_output_name):
-    """
-    Visualization 07: Encounters by Arrival Type (Pie Chart)
-    """
 
-    logger.info(f"Starting {VISUAL_ID}")
+    logger.info(f"[{VISUAL_ID}] Starting Encounters by Arrival Type visualization")
     params = normalize_params(params)
 
     # =========================
@@ -200,7 +197,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
     for col in required_cols:
         if col not in df.columns:
-            logger.error(f"{VISUAL_ID}: Missing required column '{col}'")
+            logger.error(f"[{VISUAL_ID}] Missing required column '{col}'")
             return
 
     df = df.copy()
@@ -217,7 +214,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     total = counts["count"].sum()
 
     if total <= 0:
-        logger.warning(f"{VISUAL_ID}: Total encounters is zero")
+        logger.warning(f"[{VISUAL_ID}] Total encounters is zero")
         return
 
     counts["percent"] = counts["count"] / total
@@ -279,7 +276,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     if total > 0:
         counts["percent"] = counts["count"] / total
     else:
-        logger.warning(f"{VISUAL_ID}: No data after category alignment")
+        logger.warning(f"[{VISUAL_ID}] No data after category alignment")
         return
 
     # =========================
@@ -400,7 +397,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         )
 
         logger.info(
-            f"{VISUAL_ID}: Legend saved: "
+            f"[{VISUAL_ID}] Legend saved: "
             f"{legend_output_file}"
         )
         date_str = format_date_range(
@@ -434,16 +431,16 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         )
 
         logger.info(
-            f"{VISUAL_ID}: Title saved: "
+            f"[{VISUAL_ID}] Title saved: "
             f"{title_output_file}"
         )
 
         plt.close()
 
-        logger.info(f"{VISUAL_ID}: Saved to {output_file}")
+        logger.info(f"[{VISUAL_ID}] Saved to {output_file}")
 
     except Exception as e:
-        logger.error(f"{VISUAL_ID}: Plotting failed - {str(e)}")
+        logger.error(f"[{VISUAL_ID}] Plotting failed - {str(e)}")
 
     # =========================
     # RDB OUTPUT

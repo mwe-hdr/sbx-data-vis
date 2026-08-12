@@ -60,7 +60,7 @@ VISUAL_ID = "vis_02"
 
 def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
-    logger.info(f"[{VISUAL_ID}] Starting Length of Stay Distribution")
+    logger.info(f"[{VISUAL_ID}] Starting Length of Stay Distribution visualization")
     params = normalize_params(params)
 
     try:

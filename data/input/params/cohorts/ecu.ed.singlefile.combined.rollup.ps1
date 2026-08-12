@@ -41,7 +41,7 @@ foreach ($h in $hospitals) {
             param       = "filter"
             value       = "facility_name == `"$loc`""
             description = "All emergency encounters at $loc"
-            cohort_file = "ed_cohort_gen.singlefile.highlevel.ps1"
+            cohort_file = "ecu.ed.singlefile.combined.rollup.ps1"
         }
     )
 

@@ -53,7 +53,7 @@ VISUAL_ID = "vis_03"
 
 def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
-    logger.info(f"[{VISUAL_ID}] Starting visualization")
+    logger.info(f"[{VISUAL_ID}] Starting Facility Visits by Year visualization")
     params = normalize_params(params)
 
     # =========================

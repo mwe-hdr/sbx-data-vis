@@ -71,7 +71,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     Visualization 05: Monthly Facility Arrivals Trend
     """
 
-    logger.info(f"Starting {VISUAL_ID}")
+    logger.info(f"[{VISUAL_ID}] Starting Monthly Facility Arrivals Trend visualization")
     params = normalize_params(params)
 
     # =========================
@@ -176,7 +176,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     required_cols = ["arrival_year_month"]
     for col in required_cols:
         if col not in df.columns:
-            logger.error(f"{VISUAL_ID}: Missing required column '{col}'")
+            logger.error(f"[{VISUAL_ID}] Missing required column '{col}'")
             return
 
     # =========================
@@ -236,7 +236,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                 })
 
         if monthly_counts.empty:
-            logger.warning(f"{VISUAL_ID}: Aggregation resulted in empty dataset")
+            logger.warning(f"[{VISUAL_ID}] Aggregation resulted in empty dataset")
             return
 
         # Create full continuous monthly index
@@ -251,7 +251,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         monthly_counts = monthly_counts.reset_index()
 
     except Exception as e:
-        logger.error(f"{VISUAL_ID}: Aggregation failed - {str(e)}")
+        logger.error(f"[{VISUAL_ID}] Aggregation failed - {str(e)}")
         return
 
     # =========================
@@ -364,7 +364,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                         fontfamily=font_family
                     )
             except Exception as e:
-                logger.warning(f"{VISUAL_ID}: Label rendering failed - {str(e)}")
+                logger.warning(f"[{VISUAL_ID}]: Label rendering failed - {str(e)}")
 
         plt.tight_layout()
         for tick in ax.get_xticklabels():
@@ -412,7 +412,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         )
 
         logger.info(
-            f"{VISUAL_ID}: Legend written: "
+            f"[{VISUAL_ID}]: Legend written: "
             f"{legend_output_file}"
         )
 
@@ -447,7 +447,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         )
 
         logger.info(
-            f"{VISUAL_ID}: Title written: "
+            f"[{VISUAL_ID}]: Title written: "
             f"{title_output_file}"
         )
 
@@ -455,7 +455,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
         plt.close()
 
-        logger.info(f"{VISUAL_ID}: Saved output to {filepath}")
+        logger.info(f"[{VISUAL_ID}]: Saved output to {filepath}")
 
         return {
             "output_path": filepath,
@@ -463,5 +463,5 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         }
 
     except Exception as e:
-        logger.error(f"{VISUAL_ID}: Plotting failed - {str(e)}")
+        logger.error(f"[{VISUAL_ID}]: Plotting failed - {str(e)}")
         return
