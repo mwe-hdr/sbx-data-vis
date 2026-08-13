@@ -1,0 +1,10 @@
+﻿name,param,value,description,cohort_file
+med_center.all.emergency,filter,"facility_name == ""RL ECUH MEDICAL CENTER HOSPITAL""",All emergency encounters at RL ECUH MEDICAL CENTER HOSPITAL,ecu.ed.singlefile.combined.rollup.ps1
+chowan.all.emergency,filter,"facility_name == ""RL ECUH CHOWAN HOSPITAL""",All emergency encounters at RL ECUH CHOWAN HOSPITAL,ecu.ed.singlefile.combined.rollup.ps1
+outer_banks.all.emergency,filter,"facility_name == ""RL OUTER BANKS HEALTH""",All emergency encounters at RL OUTER BANKS HEALTH,ecu.ed.singlefile.combined.rollup.ps1
+edgecombe.all.emergency,filter,"facility_name == ""RL ECUH EDGECOMBE HOSPITAL""",All emergency encounters at RL ECUH EDGECOMBE HOSPITAL,ecu.ed.singlefile.combined.rollup.ps1
+duplin.all.emergency,filter,"facility_name == ""RL ECUH DUPLIN HOSPITAL""",All emergency encounters at RL ECUH DUPLIN HOSPITAL,ecu.ed.singlefile.combined.rollup.ps1
+beaufort.all.emergency,filter,"facility_name == ""RL ECUH BEAUFORT HOSPITAL""",All emergency encounters at RL ECUH BEAUFORT HOSPITAL,ecu.ed.singlefile.combined.rollup.ps1
+north.all.emergency,filter,"facility_name == ""RL ECUH NORTH HOSPITAL""",All emergency encounters at RL ECUH NORTH HOSPITAL,ecu.ed.singlefile.combined.rollup.ps1
+roanoke_chowan.all.emergency,filter,"facility_name == ""RL ECUH ROANOKE CHOWAN HOSPITAL""",All emergency encounters at RL ECUH ROANOKE CHOWAN HOSPITAL,ecu.ed.singlefile.combined.rollup.ps1
+bertie.all.emergency,filter,"facility_name == ""RL ECUH BERTIE HOSPITAL""",All emergency encounters at RL ECUH BERTIE HOSPITAL,ecu.ed.singlefile.combined.rollup.ps1

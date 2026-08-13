@@ -1,16 +1,3 @@
 domain,mapping_type,source_field,source_format,source_value,target_field,target_format,target_value,active_flag
-ed,value,esi,str,0,esi_category,str,0 - Unknown,Y
-ed,value,esi,str,*unspecified,esi_category,str,0 - Unknown,Y
-ed,value,esi,str,disaster green,esi_category,str,0 - Unknown,Y
-ed,value,esi,str,disaster black,esi_category,str,0 - Unknown,Y
-ed,value,esi,str,disaster red,esi_category,str,0 - Unknown,Y
-ed,value,esi,str,1,esi_category,str,1 - Immediate,Y
-ed,value,esi,str,2,esi_category,str,2 - Emergent,Y
-ed,value,esi,str,3,esi_category,str,3 - Urgent,Y
-ed,value,esi,str,4,esi_category,str,4 - Less Urgent,Y
-ed,value,esi,str,5,esi_category,str,5 - Non-Urgent,Y
-ed,field,arrival_dtm,str,,arrival_dtm,datetime,,Y
-ed,field,tmt_stop_dtm,str,,tmt_stop_dtm,datetime,,Y
-surgery_alt,value,patient_type_dss_rollup,str,ip,patient_type_ip_op,str,Inpatient,Y
-surgery_alt,value,patient_type_dss_rollup,str,op,patient_type_ip_op,str,Outpatient,Y
-surgery_alt,field,service_dt,str,,arrival_dtm,datetime,,Y
+ed,field,ed_start_dtm,str,,arrival_dtm,datetime,,Y
+ed,field,ed_stop_dtm,str,,tmt_stop_dtm,datetime,,Y

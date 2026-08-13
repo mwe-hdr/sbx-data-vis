@@ -24,7 +24,7 @@ label_fontsize,9
 tick_fontsize,8
 
 ### ===== CHART TEXT =====
-chart_title,ED Minute-Level Census Trend with Capacity Reference Line
+chart_title,Lancaster ADF Daily Census Trend with Capacity Reference Line
 x_label,Time
 y_label,ED Census
 
@@ -57,3 +57,6 @@ show_legend,True
 ### ===== OUTPUT CONTROL =====
 save_png,True
 save_csv,True
+
+### ===== CENSUS BYPASS =====
+bypass_census_csv,C:\lwf\sbx-data-vis\data\input\lc_adf_med_census.csv

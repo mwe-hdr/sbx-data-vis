@@ -63,14 +63,34 @@ from utils.vis_helpers import (
     save_title_png,
     generate_census
 )
-from utils.date_helpers import prepare_dates
-from utils.col_helpers import add_common_helper_columns
+from utils.date_helpers import df_date_splitter
 
 logger = logging.getLogger(__name__)
 
 VISUAL_ID = "vis_08"
 
 def run(df, params, start_date, end_date, output_dir, generate_output_name):
+
+    def _get_float(params, key, default=None):
+        try:
+            val = params.get(key, default)
+            return float(val) if val not in [None, "", "None"] else None
+        except:
+            return default
+
+
+    def _get_bool(params, key, default=False):
+        val = str(params.get(key, default)).strip().lower()
+        if val in ["true", "1", "yes"]:
+            return True
+        if val in ["false", "0", "no"]:
+            return False
+        return default
+
+
+    def _get_str(params, key, default=""):
+        val = params.get(key, default)
+        return str(val) if val is not None else default
 
     logger.info(f"[{VISUAL_ID}] Starting Facility Census Trend visualization")
     params = normalize_params(params)
@@ -80,30 +100,89 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # --------------------------------------------------
         # HELP MY DATAFRAME
         # --------------------------------------------------
-        df, _ = prepare_dates(df, start_date, end_date)
-        df = add_common_helper_columns(df)
+        df, _ = df_date_splitter(df, start_date, end_date)
 
-        logger.info(
-            f"[{VISUAL_ID}] Dataset received after helper preparation. "
-            f"Rows available for census generation: {len(df):,}"
-        )
+        bypass_census_csv = _get_str(
+            params,
+            "bypass_census_csv",
+            ""
+        ).strip()
 
-        logger.info(
-            f"[{VISUAL_ID}] Building census timeline from "
-            f"{len(df):,} encounters."
-        )
+        if bypass_census_csv:
 
-        ts, census_df = generate_census(
-            df,
-            start_date,
-            end_date
-        )
+            logger.info(
+                f"[{VISUAL_ID}] Using bypass census file: "
+                f"{bypass_census_csv}"
+            )
 
-        logger.info(
-            f"[{VISUAL_ID}] Census dataset generated. "
-            f"Intervals: {len(ts):,} "
-            f"Census df: {len(census_df):,}"
-        )
+            ts = pd.read_csv(
+                bypass_census_csv,
+                parse_dates=["interval"]
+            )
+
+            required_columns = [
+                "interval",
+                "census"
+            ]
+
+            missing = [
+                c
+                for c in required_columns
+                if c not in ts.columns
+            ]
+
+            if missing:
+                raise ValueError(
+                    "Bypass census file missing required columns: "
+                    f"{missing}"
+                )
+
+            ts["interval"] = pd.to_datetime(
+                ts["interval"],
+                errors="raise"
+            )
+
+            ts["census"] = pd.to_numeric(
+                ts["census"],
+                errors="raise"
+            )
+
+            ts = ts[
+                (ts["interval"] >= start_date)
+                &
+                (ts["interval"] <= end_date)
+            ]
+
+            census_df = ts.copy()
+
+            logger.info(
+                f"[{VISUAL_ID}] Loaded bypass census file. "
+                f"Intervals: {len(ts):,}"
+            )
+
+        else:
+
+            logger.info(
+                f"[{VISUAL_ID}] Dataset received after helper preparation. "
+                f"Rows available for census generation: {len(df):,}"
+            )
+
+            logger.info(
+                f"[{VISUAL_ID}] Building census timeline from "
+                f"{len(df):,} encounters."
+            )
+
+            ts, census_df = generate_census(
+                df,
+                start_date,
+                end_date
+            )
+
+            logger.info(
+                f"[{VISUAL_ID}] Census dataset generated. "
+                f"Intervals: {len(ts):,} "
+                f"Census df: {len(census_df):,}"
+            )
 
         enable_rdb = int(params.get("rdb_write", 0))
         rdb_rows = []
@@ -125,27 +204,6 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # =========================================================
         # VISUALIZATION
         # =========================================================
-        def _get_float(params, key, default=None):
-            try:
-                val = params.get(key, default)
-                return float(val) if val not in [None, "", "None"] else None
-            except:
-                return default
-
-
-        def _get_bool(params, key, default=False):
-            val = str(params.get(key, default)).strip().lower()
-            if val in ["true", "1", "yes"]:
-                return True
-            if val in ["false", "0", "no"]:
-                return False
-            return default
-
-
-        def _get_str(params, key, default=""):
-            val = params.get(key, default)
-            return str(val) if val is not None else default
-
 
         capacity_value = _get_float(params, "capacity_value", None)
         include_avg_line = _get_bool(params, "include_avg_line", True)

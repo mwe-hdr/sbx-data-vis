@@ -5,8 +5,8 @@ vis_03,ed,ED Visits by Year,0,10/1/2024,9/30/2025,cohort,ECU,fiscal,1
 vis_04,ed,ESI Level Distribution,0,10/1/2024,9/30/2025,cohort,ECU,fiscal,1
 vis_05,ed,Monthly ED Arrivals Trend,0,10/1/2024,9/30/2025,cohort,ECU,fiscal,1
 vis_06,ed,Weekday Arrival Distribution,0,10/1/2024,9/30/2025,cohort,ECU,fiscal,1
-vis_07,ed,ED Encounters by ESI,1,10/1/2024,9/30/2025,cohort,ECU,fiscal,1
-vis_08,ed,ED Census Trend,0,10/1/2024,9/30/2025,cohort,ECU,fiscal,0
+vis_07,ed,ED Encounters by ESI,0,10/1/2024,9/30/2025,cohort,ECU,fiscal,1
+vis_08,ed,ED Census Trend,1,4/1/2020,6/10/2026,cohort,LC ADF,fiscal,0
 vis_09,ed,ED Patient Flow Sankey,0,10/1/2024,9/30/2025,cohort,ECU,fiscal,1
 vis_10,ed,ED Hourly Census with Peak Period and Capacity Benchmarks,0,10/1/2024,9/30/2025,cohort,ECU,fiscal,1
 vis_11,ed,ED Peak Census and Room Need by Acuity,0,10/1/2024,9/30/2025,cohort,ECU,fiscal,1
@@ -19,4 +19,4 @@ vis_17,ed,ED EMT Arrival Time Heatmap,0,10/1/2024,9/30/2025,cohort,ECU,fiscal,1
 vis_18,ed,ED EMT Arrival Disposition by ESI,0,10/1/2024,9/30/2025,cohort,ECU,fiscal,1
 vis_19,ed,ED LOS by Arrival Method and ESI,0,10/1/2024,9/30/2025,cohort,ECU,fiscal,1
 vis_20,ed,ED EMS Arrival Funnel by ESI,0,10/1/2024,9/30/2025,cohort,ECU,fiscal,1
-vis_07,surgery_alt,Surgical Encounters by Service Line,1,10/1/2024,9/30/2025,cohort,ECU,fiscal,1
+vis_07,surgery_alt,Surgical Encounters by Service Line,0,10/1/2024,9/30/2025,cohort,ECU,fiscal,1

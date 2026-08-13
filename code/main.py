@@ -51,7 +51,7 @@ DOMAINS = {
     },    
 
     "emergency": {
-        "data_file": "ecu_emergency_new.csv",
+        "data_file": "lc_adf_ph.csv",
         "cohort_dir": "ed",
         "domain": "ed"
     }

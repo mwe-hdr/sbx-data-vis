@@ -206,6 +206,8 @@ def apply_filter(df, filter_str):
         for col in df_copy.select_dtypes(include="object").columns:
             df_copy[col] = df_copy[col].str.strip()
 
+        logging.info(f"[apply_filter] Filter: {filter_str}")
+
         filtered_df = df_copy.query(filter_str, engine="python")
 
         after_count = len(filtered_df)
@@ -217,6 +219,7 @@ def apply_filter(df, filter_str):
         return filtered_df
 
     except Exception as e:
+        logging.info(f"[apply_filter] Filter: {filter_str}")
         logging.error(f"[apply_filter] failed: {str(e)}")
         return df.iloc[0:0]
     
