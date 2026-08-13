@@ -6,6 +6,11 @@ These files may include:
 
 - main.py
 - processing_helpers.py
+- io_helpers.py
+- mapping_helpers.py
+- col_helpers.py
+- date_helpers.py
+- vis_helpers.py
 - visual report files (vis_xx.py)
 - parameter files (vis_xx.csv)
 - user-defined functions (UDFs)
@@ -69,7 +74,7 @@ run(
     start_date,
     end_date,
     output_dir,
-    generate_output_name
+    enabled_visuals
 )
 
         ↓
@@ -202,6 +207,7 @@ DEBUGGING REQUEST
 -------------------------------------------------------------------------------
 
 The primary file I want assistance with is attached, with contextual code below:
+
 main.py:
 import os
 import logging
@@ -223,8 +229,15 @@ from utils.processing_helpers import (
     generate_output_name,
     build_processing_driver,
     load_processing_driver,
-    row_to_params
+    row_to_params,
+    normalize_reporting_window
 )
+
+from utils.mapping_helpers import (
+    load_mapping_file,
+    apply_standard_mappings
+)
+
 
 # =========================
 # CONFIG
@@ -232,18 +245,24 @@ from utils.processing_helpers import (
 DOMAINS = {
     "inpatient": {
         "data_file": "ecu_hospital_encounters_export.csv",
-        "cohort_dir": "hospital_encounters",
-        "domain": "hospital_encounters"
+        "cohort_dir": "inpatient",
+        "domain": "inpatient"
     },
 
-    "surgery": {
+    "surgery_ts": {
         "data_file": "ecu_surgery_export.csv",
-        "cohort_dir": "surgery",
-        "domain": "surgery"
+        "cohort_dir": "surgery_ts",
+        "domain": "surgery_ts"
     },
+
+    "surgery_alt": {
+        "data_file": "ecu_surgery_and_gi_export_flat.csv",
+        "cohort_dir": "surgery_alt",
+        "domain": "surgery_alt"
+    },    
 
     "emergency": {
-        "data_file": "rmc_emergency_export.csv",
+        "data_file": "ecu_emergency_new.csv",
         "cohort_dir": "ed",
         "domain": "ed"
     }
@@ -264,7 +283,13 @@ if PROCESSING_MODE in {"full_processing", "full_reports"}:
     PROCESSING_MODE = "full_reports"
 elif PROCESSING_MODE != "parameters_only":
     raise ValueError(f"[main] Unsupported PROCESSING_MODE: {PROCESSING_MODE}")
-
+MAPPINGS_FILE = os.path.join(
+    PARAM_DIR,
+    "mappings.csv"
+)
+mappings = load_mapping_file(
+    MAPPINGS_FILE
+)
 # =========================
 # DYNAMIC VISUAL LOADER
 # =========================
@@ -393,8 +418,31 @@ def run_visuals(
             continue
 
         cohort_meta = cohorts.get(cohort_id)
+
+        driver_filter = row.get("filter_str")
+        current_filter = cohort_meta.get("filter")
+
+        if str(driver_filter).strip() != str(current_filter).strip():
+
+            logging.warning(
+                "[main] Cohort filter mismatch "
+                f"cohort={cohort_id} "
+                f"driver_filter={driver_filter} "
+                f"runtime_filter={current_filter}"
+            )
+
         if not cohort_meta:
-            logging.warning(f"[main] Unknown cohort_id in processing driver: {cohort_id}")
+
+            logging.error(
+                "[main] Processing driver references "
+                f"unknown cohort_id={cohort_id}"
+            )
+
+            logging.error(
+                f"[main] Available cohorts: "
+                f"{list(cohorts.keys())}"
+            )
+
             continue
 
         if cohort_id not in cohort_cache:
@@ -408,6 +456,14 @@ def run_visuals(
         cohort_output_dir = os.path.join(output_dir, cohort_id)
         os.makedirs(cohort_output_dir, exist_ok=True)
 
+        start_date = row.get("start_date")
+        end_date = row.get("end_date")
+
+        start_date, end_date = normalize_reporting_window(
+            start_date,
+            end_date
+        )
+
         params = row_to_params(row)
         params.update({
             "cohort_id": cohort_id,
@@ -420,8 +476,8 @@ def run_visuals(
             "cohort_locations_file": COHORT_LOCATIONS_FILE,
             "year_type": row.get("year_type"),
             "write_rdb": row.get("write_rdb"),
-            "start_date": row.get("start_date"),
-            "end_date": row.get("end_date"),
+            "start_date": start_date,
+            "end_date": end_date,
             "visual_id": report_id,
             "report_id": report_id
         })
@@ -430,13 +486,19 @@ def run_visuals(
         if vis_func is None:
             continue
 
-        logging.info(f"[main] Injecting cohort_desc: {cohort_meta.get('description')}")
+        logging.info(
+            "[main] Executing "
+            f"visual={report_id} "
+            f"cohort={cohort_id} "
+            f"cohort_file={cohort_meta.get('cohort_file')} "
+            f"cohort_desc={cohort_meta.get('description')}"
+        )
 
         result = vis_func(
             cohort_df,
             params,
-            row.get("start_date"),
-            row.get("end_date"),
+            start_date,
+            end_date,
             cohort_output_dir,
             generate_output_name
         )
@@ -548,6 +610,16 @@ if __name__ == "__main__":
             )
         )
 
+        domain_mapping = mappings.get(
+            expected_domain,
+            {}
+        )
+
+        df = apply_standard_mappings(
+            df,
+            domain_mapping
+        )
+
         cohorts = load_cohort_params(
             os.path.join(
                 PARAM_DIR,
@@ -577,602 +649,468 @@ if __name__ == "__main__":
         index=False
     )
 
-processing_helpers:
-from datetime import datetime
-import os
+mapping_helpers.py:
+
 import logging
 import pandas as pd
+from utils.col_helpers import (
+    prepare_common_columns
+)
 
-from utils.io_helpers import load_params
+logger = logging.getLogger(__name__)
 
-def build_processing_driver(
-    cohorts,
-    visual_driver_df,
-    param_dir,
-    output_file
-):
-    """
-    Build processing driver file.
+def load_mapping_file(mapping_file):
 
-    Creates one row per cohort x report combination using each report
-    parameter file as the default parameter set.
-    """
+    df = pd.read_csv(mapping_file)
 
-    logging.info("Building processing driver")
+    mappings = {}
 
-    driver_rows = []
+    for domain in df["domain"].dropna().unique():
 
-    enabled_reports = visual_driver_df.copy()
+        domain_df = df[
+            df["domain"].astype(str).str.lower()
+            == str(domain).lower()
+        ]
 
-    if "enabled" in enabled_reports.columns:
-        enabled_reports = enabled_reports[
-            enabled_reports["enabled"]
+        field_mappings = {}
+
+        value_mappings = []
+
+        active_df = domain_df[
+            domain_df["active_flag"]
             .astype(str)
             .str.upper()
             .isin(["Y", "YES", "TRUE", "1"])
         ]
 
-    for _, report_row in enabled_reports.iterrows():
+        field_rows = active_df[
+            active_df["mapping_type"]
+            .astype(str)
+            .str.lower()
+            == "field"
+        ]
 
-        report_id = report_row.get("visual_id") or report_row.get("report_id")
+        logger.info(
+            f"[mapping] Loaded {len(field_rows)} field rows "
+            f"for domain={domain}"
+        )
 
-        if not report_id:
-            logging.warning("[build_processing_driver] Skipping row without report identifier")
+        value_rows = active_df[
+            active_df["mapping_type"]
+            .astype(str)
+            .str.lower()
+            == "value"
+        ]
+
+        logger.info(
+            f"[mapping] Loaded {len(value_rows)} value rows "
+            f"for domain={domain}"
+        )
+
+        for _, row in field_rows.iterrows():     
+
+            field_mappings[
+                row["source_field"]
+            ] = {
+                "target_field": row["target_field"],
+                "source_format": row["source_format"],
+                "target_format": row["target_format"]
+            }
+
+            logger.info(
+                f"[mapping] Registered field mapping "
+                f"{row['source_field']} -> "
+                f"{row['target_field']} "
+                f"({row['source_format']} -> "
+                f"{row['target_format']})"
+            )
+
+        grouped = value_rows.groupby(
+            [
+                "source_field",
+                "target_field",
+                "source_format",
+                "target_format"
+            ]
+        )
+
+        for (
+            source_field,
+            target_field,
+            source_format,
+            target_format
+        ), group in grouped:
+
+            mapping_dict = {}
+
+            for _, row in group.iterrows():
+
+                normalized_key = (
+                    normalize_field_format(
+                        pd.Series([row["source_value"]]),
+                        source_format
+                    )
+                    .iloc[0]
+                )
+
+                mapping_dict[normalized_key] = row["target_value"]
+
+                logger.info(
+                    f"[mapping] normalized_key={normalized_key!r}"
+                )                  
+
+            value_mappings.append(
+                {
+                    "domain": str(domain).lower(),
+                    "source_field": source_field,
+                    "target_field": target_field,
+                    "source_format": source_format,
+                    "target_format": target_format,
+                    "mapping": mapping_dict,
+                    "mapping_type": "value"
+                }
+            )
+
+        mappings[str(domain).lower()] = {
+            "field_mappings": field_mappings,
+            "value_mappings": value_mappings
+        }
+
+    return mappings
+
+def normalize_field_format(
+    series,
+    format_type
+):
+
+    format_type = str(format_type).lower()
+
+    if format_type == "str":
+
+        return (
+            series
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .str.lower()
+        )
+
+    if format_type == "int":
+
+        return (
+            pd.to_numeric(
+                series,
+                errors="coerce"
+            )
+            .astype("Int64")
+            .astype(str)
+            .replace("<NA>", "")
+        )
+
+    if format_type == "zip5":
+
+        return (
+            series
+            .fillna("")
+            .astype(str)
+            .str.extract(r"(\d+)", expand=False)
+            .fillna("")
+            .str[:5]
+            .str.zfill(5)
+        )
+
+    return (
+        series
+        .fillna("")
+        .astype(str)
+        .str.strip()
+        .str.lower()
+    )
+
+def apply_target_format(series, format_type):
+
+    format_type = str(format_type).lower()
+
+    if format_type == "str":
+        return (
+            series
+            .fillna("")
+            .astype(str)
+        )
+
+    if format_type == "int":
+        return pd.to_numeric(
+            series,
+            errors="coerce"
+        )
+
+    if format_type == "datetime":
+
+        return pd.to_datetime(
+            series,
+            errors="coerce"
+        )
+
+    if format_type == "zip5":
+        return (
+            series
+            .fillna("")
+            .astype(str)
+            .str.extract(r"(\d+)", expand=False)
+            .fillna("")
+            .str.zfill(5)
+            .str[:5]
+        )
+
+    return series
+
+def apply_field_mappings(df, field_mappings):
+
+    for source_field, config in field_mappings.items():
+
+        logger.info(
+            f"[mapping] Field mapping "
+            f"source={source_field} "
+            f"target={config['target_field']} "
+            f"source_format={config.get('source_format')} "
+            f"target_format={config.get('target_format')}"
+        )
+
+        if source_field not in df.columns:
+            logger.warning(
+                f"[mapping] Missing source field: {source_field}"
+            )
             continue
 
-        try:
-            params_df = load_params(param_dir, report_id)
-        except Exception as e:
+        target_field = config["target_field"]
 
-            logging.error(
-                f"[build_processing_driver] Unable to load params for {report_id}: {e}"
+        normalized_source = normalize_field_format(
+            df[source_field],
+            config.get("source_format", "str")
+        )
+
+        transformed_target = apply_target_format(
+            normalized_source,
+            config.get("target_format", "str")
+        )
+
+        logger.info(
+            f"[mapping] Result "
+            f"{target_field} dtype="
+            f"{transformed_target.dtype}"
+        )
+
+        df[target_field] = transformed_target
+
+    return df
+
+def apply_value_mappings(
+    df,
+    value_mappings
+):
+
+    for config in value_mappings:
+
+        source_field = config["source_field"]
+        target_field = config["target_field"]
+        mapping = config["mapping"]
+        domain = config["domain"]
+
+        if source_field not in df.columns:
+
+            logger.warning(
+                f"[mapping] Missing source field: "
+                f"{source_field}"
             )
 
             continue
 
-        report_domain = str(report_row.get("domain", "")).strip().lower()
+        raw_source_values = df[source_field]
 
-        for cohort_id, cohort_meta in cohorts.items():
+        source_values = normalize_field_format(
+            df[source_field],
+            config.get("source_format", "str")
+        )
 
-            cohort_meta = cohort_meta or {}
+        logger.info(
+            f"[mapping] source_field={source_field} "
+        )
 
-            cohort_domain = str(
-                cohort_meta.get("domain") or cohort_meta.get("group") or ""
-            ).strip().lower()
+        raw_mapped_values = source_values.map(mapping)
 
-            if cohort_domain and report_domain and cohort_domain != report_domain:
-                continue
+        total_values = (
+            source_values.notna()
+            & (source_values.astype(str) != "")
+        ).sum()
 
-            row = {
-                "active_flag": "Y",
-                "report_id": report_id,
-                "visual_id": report_id,
-                "domain": cohort_meta.get("domain"),
-                "cohort_id": cohort_id,
-                "cohort_file": cohort_meta.get("cohort_file"),
-                "cohort_desc": cohort_meta.get("description"),
-                "filter_str": cohort_meta.get("filter"),
-                "group": cohort_meta.get("group"),
-                "name": cohort_meta.get("name")
+        mapped_count = raw_mapped_values.notna().sum()
+
+        logger.info(
+            f"[mapping] Coverage "
+            f"source_field={source_field} "
+            f"mapped={mapped_count:,}/{total_values:,} "
+            f"({mapped_count/max(total_values,1):.2%})"
+        )
+
+        unmapped_values = sorted(
+            {
+                str(v)
+                for v in source_values[
+                    raw_mapped_values.isna()
+                    & source_values.notna()
+                    & (source_values.astype(str) != "")
+                ]
             }
-
-            # include vis_driver metadata
-            for col in visual_driver_df.columns:
-                if col not in row:
-                    row[col] = report_row[col]
-
-            # flatten report parameters
-            if not params_df.empty:
-
-                for _, param_row in params_df.iterrows():
-
-                    param_name = str(param_row["param"]).strip()
-
-                    row[param_name] = param_row.get("value")
-
-                    row[f"{param_name}_desc"] = (
-                        param_row.get("description")
-                    )
-
-                    row[f"{param_name}_display"] = (
-                        param_row.get("display")
-                    )
-
-                    row[f"{param_name}_format"] = (
-                        param_row.get("display_format")
-                    )
-
-            driver_rows.append(row)
-
-    driver_df = pd.DataFrame(driver_rows)
-
-    if driver_df.empty:
-        logging.warning("[build_processing_driver] No processing driver rows generated")
-        return driver_df
-
-    system_cols = [
-        "active_flag",
-        "report_id",
-        "visual_id",
-        "domain",
-        "cohort_id",
-        "cohort_file",
-        "cohort_desc",
-        "filter_str",
-        "group",
-        "name"
-    ]
-
-    other_cols = [
-        c for c in driver_df.columns
-        if c not in system_cols
-    ]
-
-    driver_df = driver_df[
-        system_cols + sorted(other_cols, key=str)
-    ]
-
-    os.makedirs(
-        os.path.dirname(output_file),
-        exist_ok=True
-    )
-
-    driver_df.to_csv(
-        output_file,
-        index=False
-    )
-
-    logging.info(
-        f"[build_processing_driver] Generated processing driver with {len(driver_df):,} rows"
-    )
-    logging.info(f"[build_processing_driver] Saved processing driver: {output_file}")
-
-    return driver_df
-
-
-def load_processing_driver(file_path):
-
-    if not os.path.exists(file_path):
-        raise FileNotFoundError(
-            f"[build_processing_driver] Missing processing driver: {file_path}"
         )
 
-    return pd.read_csv(file_path)
-
-
-def row_to_params(row):
-
-    system_fields = {
-        "execution_id",
-        "active_flag",
-        "report_id",
-        "visual_id",
-        "domain",
-        "cohort_id",
-        "cohort_file",
-        "cohort_desc",
-        "filter_str",
-        "group",
-        "name",
-        "client_name",
-        "year_type",
-        "write_rdb",
-        "start_date",
-        "end_date",
-        "enabled",
-        "type"
-    }
-
-    return {
-        k: v
-        for k, v in row.items()
-        if k not in system_fields
-    }
-
-def apply_filter(df, filter_str):
-    if df is None or df.empty:
-        logging.warning("[apply_filter] input dataframe is empty")
-        return df
-
-    if not filter_str or pd.isna(filter_str):
-        logging.info("[apply_filter] no filter provided; returning original dataframe")
-        return df
-
-    try:
-        before_count = len(df)
-
-        # Minimal normalization (safe + cheap)
-        df_copy = df.copy()
-        for col in df_copy.select_dtypes(include="object").columns:
-            df_copy[col] = df_copy[col].str.strip()
-
-        filtered_df = df_copy.query(filter_str, engine="python")
-
-        after_count = len(filtered_df)
-
-        logging.info(
-            f"[apply_filter] rows {before_count:,} -> {after_count:,} | filter: {filter_str}"
+        mapped_values = apply_target_format(
+            raw_mapped_values,
+            config.get("target_format", "str")
         )
 
-        return filtered_df
+        if unmapped_values:
 
-    except Exception as e:
-        logging.error(f"[apply_filter] failed: {str(e)}")
-        return df.iloc[0:0]
-    
-BASE_DIR = os.getcwd()
-RUNS_DIR = os.path.join(BASE_DIR, "data", "runs")
+            logger.warning(
+                f"[mapping] Unmapped values "
+                f"source_field={source_field} "
+                f"target_field={target_field} "
+                f"values={unmapped_values[:20]}"
+            )
 
-def initialize_run():
+            logger.warning(
+                "[mapping] Suggested mapping rows:"
+            )
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            for value in unmapped_values[:50]:
 
-    run_dir = os.path.join(RUNS_DIR, f"run_{timestamp}")
-    output_dir = os.path.join(run_dir, "outputs")
+                logger.warning(
+                    f"{config.get('domain','*')},"
+                    f"value,"
+                    f"{source_field},"
+                    f"{config.get('source_format','str')},"
+                    f"{value},"
+                    f"{target_field},"
+                    f"{config.get('target_format','str')},"
+                    f"TODO,Y"
+                )
 
-    os.makedirs(output_dir, exist_ok=True)
+            unmapped_counts = (
+                source_values[
+                    raw_mapped_values.isna()
+                    & source_values.notna()
+                    & (source_values.astype(str) != "")
+                ]
+                .value_counts()
+            )
 
-    # setup logging
-    log_file = os.path.join(run_dir, "logfile.txt")
+            logger.warning(
+                "[mapping] Unmapped values audit:"
+            )
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s | %(levelname)s | %(message)s",
-        handlers=[
-            logging.FileHandler(log_file),
-            logging.StreamHandler()
-        ]
-    )
+            for value, count in unmapped_counts.items():
 
-    return run_dir, output_dir
+                logger.warning(
+                    f"[mapping] value={value!r} "
+                    f"count={count:,}"
+                )        
 
+            logger.warning(
+                "[mapping] Recommended mappings.csv additions:"
+            )
 
-def generate_output_name(
-    *,
-    visual_id,
-    start_date,
-    end_date,
-    cohort_id=None,
-    ext="csv"
-):
-    def clean(val):
-        if val is None:
-            return ""
+            for value, count in unmapped_counts.items():
 
-        return (
-            str(val)
-            .replace("/", "-")
-            .replace("\\", "-")
-            .replace(" ", "_")
-            .replace(".", "_")
-            .replace(":", "-")
-        )
+                logger.warning(
+                    f"# occurrences={count:,}"
+                )
 
-    parts = [clean(visual_id)]
+                logger.warning(
+                    f"{config.get('domain','*')},"
+                    f"value,"
+                    f"{source_field},"
+                    f"{config.get('source_format','str')},"
+                    f"{value},"
+                    f"{target_field},"
+                    f"{config.get('target_format','str')},"
+                    f"TODO,"
+                    f"Y"
+                )
 
-    if cohort_id:
-        parts.append(clean(cohort_id))
-
-    if start_date and end_date:
-        parts.append(f"{clean(start_date)}_to_{clean(end_date)}")
-
-    filename = "__".join(parts) + f".{ext}"
-
-    return filename
-
-io_helpers:
-import os
-import pandas as pd
-import logging
-
-def load_data(file_path):
-    logging.info("[load_data] Loading data")
-    df = pd.read_csv(file_path, low_memory=False)
-
-    # defensive datetime parsing
-    if "visit_dtm" in df.columns:
-        df["visit_dtm"] = pd.to_datetime(df["visit_dtm"], errors="coerce")
+        df[target_field] = mapped_values
 
     return df
 
+def apply_standard_mappings(
+    df,
+    domain_mapping
+):
 
-def load_driver(file_path):
-    logging.info("[load_driver] Loading visual driver")
-    return pd.read_csv(file_path)
+    field_mappings = domain_mapping.get(
+        "field_mappings",
+        {}
+    )
 
+    value_mappings = domain_mapping.get(
+        "value_mappings",
+        []
+    )
 
-def load_params(param_dir, visual_id):
+    logger.info(
+        f"[mapping] Field mappings loaded: "
+        f"{len(field_mappings)}"
+    )
 
-    param_file = os.path.join(param_dir, f"{visual_id}.csv")
+    logger.info(
+        f"[mapping] Value mappings loaded: "
+        f"{len(value_mappings)}"
+    )
 
-    if not os.path.exists(param_file):
-        logging.warning(f"[load_params] No params found for {visual_id}")
-        return pd.DataFrame()
+    df = apply_field_mappings(
+        df,
+        field_mappings
+    )
 
-    try:
-        return pd.read_csv(param_file)
+    df = apply_value_mappings(
+        df,
+        value_mappings
+    )
 
-    except Exception as e:
-        logging.error(
-            f"[load_params] Failed to load params for {visual_id}: {str(e)}"
+    required_fields = [
+        "patient_zipcode"
+    ]
+
+    missing_fields = [
+        col
+        for col in required_fields
+        if col not in df.columns
+    ]
+
+    if missing_fields:
+
+        logger.warning(
+            "[mapping] Missing required "
+            f"standardized fields: "
+            f"{missing_fields}"
         )
-        return pd.DataFrame()
-    
-def load_cohort_params(cohort_root_dir):
-    """
-    Recursively load all cohort CSVs.
-    Supports existing structure:
-        cohorts/<domain>/<file>.csv
 
-    Each row = subcohort
-    """
+    for col in [
+        "arrival_dtm",
+        "tmt_start_dtm",
+        "tmt_stop_dtm"
+    ]:
+        if col in df.columns:
 
-    cohorts = {}
+            logger.info(
+                f"[mapping] Final column "
+                f"{col} dtype={df[col].dtype}"
+            )
 
-    for root, _, files in os.walk(cohort_root_dir):
-        for file in files:
-            if not file.endswith(".csv"):
-                continue
+    df = prepare_common_columns(df)
 
-            file_path = os.path.join(root, file)
-
-            try:
-                df = pd.read_csv(file_path)
-            except Exception as e:
-                logging.error(f"[load_cohort_params] Failed to read {file_path}: {e}")
-                continue
-
-            required_cols = {"name", "param", "value"}
-            if not required_cols.issubset(df.columns):
-                logging.warning(f"[load_cohort_params] Skipping {file_path} (invalid columns)")
-                continue
-
-            # derive namespace from folder + filename
-            relative_path = os.path.relpath(file_path, cohort_root_dir)
-            parts = relative_path.replace(".csv", "").split(os.sep)
-
-            # e.g. emergency/beaufort → emergency.beaufort
-            cohort_group = ".".join(parts)
-
-            for _, row in df.iterrows():
-
-                sub_name = str(row["name"]).strip()
-                cohort_id = f"{cohort_group}.{sub_name}"
-
-                param = row["param"]
-                value = row["value"]
-                desc = row.get("description")
-                domain = row.get("domain")
-                cohort_file = row.get("cohort_file") if "cohort_file" in df.columns else None
-
-                if pd.isna(domain) or str(domain).strip() == "":
-                    domain = parts[0] if parts else None
-
-                cohorts[cohort_id] = {
-                    "group": cohort_group,
-                    "name": sub_name,
-                    "filter": value if param == "filter" else None,
-                    "description": str(desc).strip() if pd.notna(desc) else None,
-                    "domain": str(domain).strip() if pd.notna(domain) else None,
-                    "cohort_file": str(cohort_file).strip() if pd.notna(cohort_file) else None
-                }
-
-                logging.info(f"[load_cohort_params] FINAL cohort_id: {cohort_id}")
-                logging.info(f"[load_cohort_params] DATA: {cohorts[cohort_id]}")
-
-    logging.info(f"[load_cohort_params] Loaded {len(cohorts)} cohorts")
-    return cohorts
+    return df
 
 The problem I'm experiencing is:
 
-My processing_driver run seems to be keying off a different cohort file then what my full_reports run then uses?  It's strange because the output processing_driver.csv ends up being as desired, but the saved logfile.txt shows only the paramaters_only run, although the output folder contains the fruit of the subsequent processing_only run...  Help me debug.
+I desire a simplification of our mapping auditing...all I really desire is to see the values mapping, the distribution of the records that fit it, and any leftover records so I can iterate over mappings.csv until I catch all the records.
 
-$env:PROCESSING_MODE="parameters_only"
-(C:\Users\medwards\.conda\sbx-data-vis) PS C:\lwf\sbx-data-vis> $env:PROCESSING_MODE="parameters_only"
-(C:\Users\medwards\.conda\sbx-data-vis) PS C:\lwf\sbx-data-vis> & C:\Users\medwards\.conda\sbx-data-vis\python.exe c:/lwf/sbx-data-vis/code/main.py --update-processing-driver
-
-& C:\Users\medwards\.conda\sbx-data-vis\python.exe c:/lwf/sbx-data-vis/code/main.py --update-processing-driver
-2026-08-06 10:47:26,199 | INFO | [main] Run initialized: C:\lwf\sbx-data-vis\data\runs\run_20260806_104726
-2026-08-06 10:47:26,200 | INFO | [load_driver] Loading visual driver
-2026-08-06 10:47:26,205 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.med_center.all.inpatient
-2026-08-06 10:47:26,205 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'med_center.all.inpatient', 'filter': 'hospital_name == "RL ECUH MEDICAL CENTER HOSPITAL" and patient_class == "Inpatient"', 'description': 'RL ECUH MEDICAL CENTER HOSPITAL - All Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,205 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.med_center.maternal.services
-2026-08-06 10:47:26,215 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'med_center.maternal.services', 'filter': 'hospital_name == "RL ECUH MEDICAL CENTER HOSPITAL" and patient_class == "Inpatient" and service_line in ["Pediatrics", "Neonatology", "NEWBORN", "Obstetrics/Gyn", "Obstetrics", "Gynecology", "Maternal-Fetal Med"]', 'description': 'RL ECUH MEDICAL CENTER HOSPITAL - Maternal Services', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,215 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.med_center.inpatient.excl.maternal.services
-2026-08-06 10:47:26,215 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'med_center.inpatient.excl.maternal.services', 'filter': 'hospital_name == "RL ECUH MEDICAL CENTER HOSPITAL" and patient_class == "Inpatient" and service_line not in ["Pediatrics", "Neonatology", "NEWBORN", "Obstetrics/Gyn", "Obstetrics", "Gynecology", "Maternal-Fetal Med"]', 'description': 'RL ECUH MEDICAL CENTER HOSPITAL - Inpatient Excluding Maternal Services', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,215 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.med_center.psychiatry.inpatient
-2026-08-06 10:47:26,216 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'med_center.psychiatry.inpatient', 'filter': 'hospital_name == "RL ECUH MEDICAL CENTER HOSPITAL" and patient_class == "Psych Inpatient"', 'description': 'RL ECUH MEDICAL CENTER HOSPITAL - Psychiatry Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,216 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.med_center.rehab.inpatient
-2026-08-06 10:47:26,216 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'med_center.rehab.inpatient', 'filter': 'hospital_name == "RL ECUH MEDICAL CENTER HOSPITAL" and patient_class == "Rehab Inpatient"', 'description': 'RL ECUH MEDICAL CENTER HOSPITAL - Rehab Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,216 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.med_center.observation
-2026-08-06 10:47:26,216 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'med_center.observation', 'filter': 'hospital_name == "RL ECUH MEDICAL CENTER HOSPITAL" and patient_class == "Observation"', 'description': 'RL ECUH MEDICAL CENTER HOSPITAL - Observation', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,216 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.chowan.all.inpatient
-2026-08-06 10:47:26,217 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'chowan.all.inpatient', 'filter': 'hospital_name == "RL ECUH CHOWAN HOSPITAL" and patient_class == "Inpatient"', 'description': 'RL ECUH CHOWAN HOSPITAL - All Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,217 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.chowan.maternal.services
-2026-08-06 10:47:26,217 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'chowan.maternal.services', 'filter': 'hospital_name == "RL ECUH CHOWAN HOSPITAL" and patient_class == "Inpatient" and service_line in ["Pediatrics", "Neonatology", "NEWBORN", "Obstetrics/Gyn", "Obstetrics", "Gynecology", "Maternal-Fetal Med"]', 'description': 'RL ECUH CHOWAN HOSPITAL - Maternal Services', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,217 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.chowan.inpatient.excl.maternal.services
-2026-08-06 10:47:26,217 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'chowan.inpatient.excl.maternal.services', 'filter': 'hospital_name == "RL ECUH CHOWAN HOSPITAL" and patient_class == "Inpatient" and service_line not in ["Pediatrics", "Neonatology", "NEWBORN", "Obstetrics/Gyn", "Obstetrics", "Gynecology", "Maternal-Fetal Med"]', 'description': 'RL ECUH CHOWAN HOSPITAL - Inpatient Excluding Maternal Services', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,217 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.chowan.psychiatry.inpatient
-2026-08-06 10:47:26,218 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'chowan.psychiatry.inpatient', 'filter': 'hospital_name == "RL ECUH CHOWAN HOSPITAL" and patient_class == "Psych Inpatient"', 'description': 'RL ECUH CHOWAN HOSPITAL - Psychiatry Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,218 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.chowan.rehab.inpatient
-2026-08-06 10:47:26,218 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'chowan.rehab.inpatient', 'filter': 'hospital_name == "RL ECUH CHOWAN HOSPITAL" and patient_class == "Rehab Inpatient"', 'description': 'RL ECUH CHOWAN HOSPITAL - Rehab Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,218 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.chowan.observation
-2026-08-06 10:47:26,218 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'chowan.observation', 'filter': 'hospital_name == "RL ECUH CHOWAN HOSPITAL" and patient_class == "Observation"', 'description': 'RL ECUH CHOWAN HOSPITAL - Observation', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,218 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.outer_banks.all.inpatient
-2026-08-06 10:47:26,218 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'outer_banks.all.inpatient', 'filter': 'hospital_name == "RL OUTER BANKS HEALTH" and patient_class == "Inpatient"', 'description': 'RL OUTER BANKS HEALTH - All Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,219 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.outer_banks.maternal.services
-2026-08-06 10:47:26,219 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'outer_banks.maternal.services', 'filter': 'hospital_name == "RL OUTER BANKS HEALTH" and patient_class == "Inpatient" and service_line in ["Pediatrics", "Neonatology", "NEWBORN", "Obstetrics/Gyn", "Obstetrics", "Gynecology", "Maternal-Fetal Med"]', 'description': 'RL OUTER BANKS HEALTH - Maternal Services', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,219 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.outer_banks.inpatient.excl.maternal.services
-2026-08-06 10:47:26,219 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'outer_banks.inpatient.excl.maternal.services', 'filter': 'hospital_name == "RL OUTER BANKS HEALTH" and patient_class == "Inpatient" and service_line not in ["Pediatrics", "Neonatology", "NEWBORN", "Obstetrics/Gyn", "Obstetrics", "Gynecology", "Maternal-Fetal Med"]', 'description': 'RL OUTER BANKS HEALTH - Inpatient Excluding Maternal Services', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,219 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.outer_banks.psychiatry.inpatient
-2026-08-06 10:47:26,219 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'outer_banks.psychiatry.inpatient', 'filter': 'hospital_name == "RL OUTER BANKS HEALTH" and patient_class == "Psych Inpatient"', 'description': 'RL OUTER BANKS HEALTH - Psychiatry Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,219 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.outer_banks.rehab.inpatient
-2026-08-06 10:47:26,219 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'outer_banks.rehab.inpatient', 'filter': 'hospital_name == "RL OUTER BANKS HEALTH" and patient_class == "Rehab Inpatient"', 'description': 'RL OUTER BANKS HEALTH - Rehab Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,219 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.outer_banks.observation
-2026-08-06 10:47:26,219 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'outer_banks.observation', 'filter': 'hospital_name == "RL OUTER BANKS HEALTH" and patient_class == "Observation"', 'description': 'RL OUTER BANKS HEALTH - Observation', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,220 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.edgecombe.all.inpatient
-2026-08-06 10:47:26,220 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'edgecombe.all.inpatient', 'filter': 'hospital_name == "RL ECUH EDGECOMBE HOSPITAL" and patient_class == "Inpatient"', 'description': 'RL ECUH EDGECOMBE HOSPITAL - All Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,220 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.edgecombe.maternal.services
-2026-08-06 10:47:26,220 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'edgecombe.maternal.services', 'filter': 'hospital_name == "RL ECUH EDGECOMBE HOSPITAL" and patient_class == "Inpatient" and service_line in ["Pediatrics", "Neonatology", "NEWBORN", "Obstetrics/Gyn", "Obstetrics", "Gynecology", "Maternal-Fetal Med"]', 'description': 'RL ECUH EDGECOMBE HOSPITAL - Maternal Services', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,221 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.edgecombe.inpatient.excl.maternal.services
-2026-08-06 10:47:26,221 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'edgecombe.inpatient.excl.maternal.services', 'filter': 'hospital_name == "RL ECUH EDGECOMBE HOSPITAL" and patient_class == "Inpatient" and service_line not in ["Pediatrics", "Neonatology", "NEWBORN", "Obstetrics/Gyn", "Obstetrics", "Gynecology", "Maternal-Fetal Med"]', 'description': 'RL ECUH EDGECOMBE HOSPITAL - Inpatient Excluding Maternal Services', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,222 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.edgecombe.psychiatry.inpatient
-2026-08-06 10:47:26,222 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'edgecombe.psychiatry.inpatient', 'filter': 'hospital_name == "RL ECUH EDGECOMBE HOSPITAL" and patient_class == "Psych Inpatient"', 'description': 'RL ECUH EDGECOMBE HOSPITAL - Psychiatry Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,222 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.edgecombe.rehab.inpatient
-2026-08-06 10:47:26,222 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'edgecombe.rehab.inpatient', 'filter': 'hospital_name == "RL ECUH EDGECOMBE HOSPITAL" and patient_class == "Rehab Inpatient"', 'description': 'RL ECUH EDGECOMBE HOSPITAL - Rehab Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,222 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.edgecombe.observation
-2026-08-06 10:47:26,222 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'edgecombe.observation', 'filter': 'hospital_name == "RL ECUH EDGECOMBE HOSPITAL" and patient_class == "Observation"', 'description': 'RL ECUH EDGECOMBE HOSPITAL - Observation', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,222 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.duplin.all.inpatient
-2026-08-06 10:47:26,223 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'duplin.all.inpatient', 'filter': 'hospital_name == "RL ECUH DUPLIN HOSPITAL" and patient_class == "Inpatient"', 'description': 'RL ECUH DUPLIN HOSPITAL - All Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,223 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.duplin.maternal.services
-2026-08-06 10:47:26,223 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'duplin.maternal.services', 'filter': 'hospital_name == "RL ECUH DUPLIN HOSPITAL" and patient_class == "Inpatient" and service_line in ["Pediatrics", "Neonatology", "NEWBORN", "Obstetrics/Gyn", "Obstetrics", "Gynecology", "Maternal-Fetal Med"]', 'description': 'RL ECUH DUPLIN HOSPITAL - Maternal Services', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,223 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.duplin.inpatient.excl.maternal.services
-2026-08-06 10:47:26,223 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'duplin.inpatient.excl.maternal.services', 'filter': 'hospital_name == "RL ECUH DUPLIN HOSPITAL" and patient_class == "Inpatient" and service_line not in ["Pediatrics", "Neonatology", "NEWBORN", "Obstetrics/Gyn", "Obstetrics", "Gynecology", "Maternal-Fetal Med"]', 'description': 'RL ECUH DUPLIN HOSPITAL - Inpatient Excluding Maternal Services', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,223 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.duplin.psychiatry.inpatient
-2026-08-06 10:47:26,223 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'duplin.psychiatry.inpatient', 'filter': 'hospital_name == "RL ECUH DUPLIN HOSPITAL" and patient_class == "Psych Inpatient"', 'description': 'RL ECUH DUPLIN HOSPITAL - Psychiatry Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,223 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.duplin.rehab.inpatient
-2026-08-06 10:47:26,223 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'duplin.rehab.inpatient', 'filter': 'hospital_name == "RL ECUH DUPLIN HOSPITAL" and patient_class == "Rehab Inpatient"', 'description': 'RL ECUH DUPLIN HOSPITAL - Rehab Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,223 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.duplin.observation
-2026-08-06 10:47:26,223 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'duplin.observation', 'filter': 'hospital_name == "RL ECUH DUPLIN HOSPITAL" and patient_class == "Observation"', 'description': 'RL ECUH DUPLIN HOSPITAL - Observation', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,223 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.beaufort.all.inpatient
-2026-08-06 10:47:26,223 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'beaufort.all.inpatient', 'filter': 'hospital_name == "RL ECUH BEAUFORT HOSPITAL" and patient_class == "Inpatient"', 'description': 'RL ECUH BEAUFORT HOSPITAL - All Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,223 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.beaufort.maternal.services
-2026-08-06 10:47:26,223 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'beaufort.maternal.services', 'filter': 'hospital_name == "RL ECUH BEAUFORT HOSPITAL" and patient_class == "Inpatient" and service_line in ["Pediatrics", "Neonatology", "NEWBORN", "Obstetrics/Gyn", "Obstetrics", "Gynecology", "Maternal-Fetal Med"]', 'description': 'RL ECUH BEAUFORT HOSPITAL - Maternal Services', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,223 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.beaufort.inpatient.excl.maternal.services
-2026-08-06 10:47:26,223 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'beaufort.inpatient.excl.maternal.services', 'filter': 'hospital_name == "RL ECUH BEAUFORT HOSPITAL" and patient_class == "Inpatient" and service_line not in ["Pediatrics", "Neonatology", "NEWBORN", "Obstetrics/Gyn", "Obstetrics", "Gynecology", "Maternal-Fetal Med"]', 'description': 'RL ECUH BEAUFORT HOSPITAL - Inpatient Excluding Maternal Services', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,223 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.beaufort.psychiatry.inpatient
-2026-08-06 10:47:26,226 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'beaufort.psychiatry.inpatient', 'filter': 'hospital_name == "RL ECUH BEAUFORT HOSPITAL" and patient_class == "Psych Inpatient"', 'description': 'RL ECUH BEAUFORT HOSPITAL - Psychiatry Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,226 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.beaufort.rehab.inpatient
-2026-08-06 10:47:26,226 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'beaufort.rehab.inpatient', 'filter': 'hospital_name == "RL ECUH BEAUFORT HOSPITAL" and patient_class == "Rehab Inpatient"', 'description': 'RL ECUH BEAUFORT HOSPITAL - Rehab Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,226 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.beaufort.observation
-2026-08-06 10:47:26,226 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'beaufort.observation', 'filter': 'hospital_name == "RL ECUH BEAUFORT HOSPITAL" and patient_class == "Observation"', 'description': 'RL ECUH BEAUFORT HOSPITAL - Observation', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,227 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.north.all.inpatient
-2026-08-06 10:47:26,227 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'north.all.inpatient', 'filter': 'hospital_name == "RL ECUH NORTH HOSPITAL" and patient_class == "Inpatient"', 'description': 'RL ECUH NORTH HOSPITAL - All Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,227 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.north.maternal.services
-2026-08-06 10:47:26,227 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'north.maternal.services', 'filter': 'hospital_name == "RL ECUH NORTH HOSPITAL" and patient_class == "Inpatient" and service_line in ["Pediatrics", "Neonatology", "NEWBORN", "Obstetrics/Gyn", "Obstetrics", "Gynecology", "Maternal-Fetal Med"]', 'description': 'RL ECUH NORTH HOSPITAL - Maternal Services', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,227 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.north.inpatient.excl.maternal.services
-2026-08-06 10:47:26,227 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'north.inpatient.excl.maternal.services', 'filter': 'hospital_name == "RL ECUH NORTH HOSPITAL" and patient_class == "Inpatient" and service_line not in ["Pediatrics", "Neonatology", "NEWBORN", "Obstetrics/Gyn", "Obstetrics", "Gynecology", "Maternal-Fetal Med"]', 'description': 'RL ECUH NORTH HOSPITAL - Inpatient Excluding Maternal Services', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,227 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.north.psychiatry.inpatient
-2026-08-06 10:47:26,228 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'north.psychiatry.inpatient', 'filter': 'hospital_name == "RL ECUH NORTH HOSPITAL" and patient_class == "Psych Inpatient"', 'description': 'RL ECUH NORTH HOSPITAL - Psychiatry Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,228 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.north.rehab.inpatient
-2026-08-06 10:47:26,228 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'north.rehab.inpatient', 'filter': 'hospital_name == "RL ECUH NORTH HOSPITAL" and patient_class == "Rehab Inpatient"', 'description': 'RL ECUH NORTH HOSPITAL - Rehab Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,228 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.north.observation
-2026-08-06 10:47:26,228 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'north.observation', 'filter': 'hospital_name == "RL ECUH NORTH HOSPITAL" and patient_class == "Observation"', 'description': 'RL ECUH NORTH HOSPITAL - Observation', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,228 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.roanoke_chowan.all.inpatient
-2026-08-06 10:47:26,228 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'roanoke_chowan.all.inpatient', 'filter': 'hospital_name == "RL ECUH ROANOKE CHOWAN HOSPITAL" and patient_class == "Inpatient"', 'description': 'RL ECUH ROANOKE CHOWAN HOSPITAL - All Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,229 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.roanoke_chowan.maternal.services
-2026-08-06 10:47:26,229 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'roanoke_chowan.maternal.services', 'filter': 'hospital_name == "RL ECUH ROANOKE CHOWAN HOSPITAL" and patient_class == "Inpatient" and service_line in ["Pediatrics", "Neonatology", "NEWBORN", "Obstetrics/Gyn", "Obstetrics", "Gynecology", "Maternal-Fetal Med"]', 'description': 'RL ECUH ROANOKE CHOWAN HOSPITAL - Maternal Services', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,229 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.roanoke_chowan.inpatient.excl.maternal.services
-2026-08-06 10:47:26,230 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'roanoke_chowan.inpatient.excl.maternal.services', 'filter': 'hospital_name == "RL ECUH ROANOKE CHOWAN HOSPITAL" and patient_class == "Inpatient" and service_line not in ["Pediatrics", "Neonatology", "NEWBORN", "Obstetrics/Gyn", "Obstetrics", "Gynecology", "Maternal-Fetal Med"]', 'description': 'RL ECUH ROANOKE CHOWAN HOSPITAL - Inpatient Excluding Maternal Services', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,230 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.roanoke_chowan.psychiatry.inpatient
-2026-08-06 10:47:26,230 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'roanoke_chowan.psychiatry.inpatient', 'filter': 'hospital_name == "RL ECUH ROANOKE CHOWAN HOSPITAL" and patient_class == "Psych Inpatient"', 'description': 'RL ECUH ROANOKE CHOWAN HOSPITAL - Psychiatry Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,230 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.roanoke_chowan.rehab.inpatient
-2026-08-06 10:47:26,230 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'roanoke_chowan.rehab.inpatient', 'filter': 'hospital_name == "RL ECUH ROANOKE CHOWAN HOSPITAL" and patient_class == "Rehab Inpatient"', 'description': 'RL ECUH ROANOKE CHOWAN HOSPITAL - Rehab Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,230 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.roanoke_chowan.observation
-2026-08-06 10:47:26,230 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'roanoke_chowan.observation', 'filter': 'hospital_name == "RL ECUH ROANOKE CHOWAN HOSPITAL" and patient_class == "Observation"', 'description': 'RL ECUH ROANOKE CHOWAN HOSPITAL - Observation', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,230 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.bertie.all.inpatient
-2026-08-06 10:47:26,230 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'bertie.all.inpatient', 'filter': 'hospital_name == "RL ECUH BERTIE HOSPITAL" and patient_class == "Inpatient"', 'description': 'RL ECUH BERTIE HOSPITAL - All Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,230 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.bertie.maternal.services
-2026-08-06 10:47:26,230 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'bertie.maternal.services', 'filter': 'hospital_name == "RL ECUH BERTIE HOSPITAL" and patient_class == "Inpatient" and service_line in ["Pediatrics", "Neonatology", "NEWBORN", "Obstetrics/Gyn", "Obstetrics", "Gynecology", "Maternal-Fetal Med"]', 'description': 'RL ECUH BERTIE HOSPITAL - Maternal Services', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,232 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.bertie.inpatient.excl.maternal.services
-2026-08-06 10:47:26,232 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'bertie.inpatient.excl.maternal.services', 'filter': 'hospital_name == "RL ECUH BERTIE HOSPITAL" and patient_class == "Inpatient" and service_line not in ["Pediatrics", "Neonatology", "NEWBORN", "Obstetrics/Gyn", "Obstetrics", "Gynecology", "Maternal-Fetal Med"]', 'description': 'RL ECUH BERTIE HOSPITAL - Inpatient Excluding Maternal Services', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,232 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.bertie.psychiatry.inpatient
-2026-08-06 10:47:26,232 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'bertie.psychiatry.inpatient', 'filter': 'hospital_name == "RL ECUH BERTIE HOSPITAL" and patient_class == "Psych Inpatient"', 'description': 'RL ECUH BERTIE HOSPITAL - Psychiatry Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,232 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.bertie.rehab.inpatient
-2026-08-06 10:47:26,232 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'bertie.rehab.inpatient', 'filter': 'hospital_name == "RL ECUH BERTIE HOSPITAL" and patient_class == "Rehab Inpatient"', 'description': 'RL ECUH BERTIE HOSPITAL - Rehab Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,232 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.bertie.observation
-2026-08-06 10:47:26,232 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'bertie.observation', 'filter': 'hospital_name == "RL ECUH BERTIE HOSPITAL" and patient_class == "Observation"', 'description': 'RL ECUH BERTIE HOSPITAL - Observation', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,232 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.surgicenter.all.inpatient
-2026-08-06 10:47:26,232 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'surgicenter.all.inpatient', 'filter': 'hospital_name == "RL SURGICENTER" and patient_class == "Inpatient"', 'description': 'RL SURGICENTER - All Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,232 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.surgicenter.maternal.services
-2026-08-06 10:47:26,232 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'surgicenter.maternal.services', 'filter': 'hospital_name == "RL SURGICENTER" and patient_class == "Inpatient" and service_line in ["Pediatrics", "Neonatology", "NEWBORN", "Obstetrics/Gyn", "Obstetrics", "Gynecology", "Maternal-Fetal Med"]', 'description': 'RL SURGICENTER - Maternal Services', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,232 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.surgicenter.inpatient.excl.maternal.services
-2026-08-06 10:47:26,232 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'surgicenter.inpatient.excl.maternal.services', 'filter': 'hospital_name == "RL SURGICENTER" and patient_class == "Inpatient" and service_line not in ["Pediatrics", "Neonatology", "NEWBORN", "Obstetrics/Gyn", "Obstetrics", "Gynecology", "Maternal-Fetal Med"]', 'description': 'RL SURGICENTER - Inpatient Excluding Maternal Services', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,232 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.surgicenter.psychiatry.inpatient
-2026-08-06 10:47:26,232 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'surgicenter.psychiatry.inpatient', 'filter': 'hospital_name == "RL SURGICENTER" and patient_class == "Psych Inpatient"', 'description': 'RL SURGICENTER - Psychiatry Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,232 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.surgicenter.rehab.inpatient
-2026-08-06 10:47:26,232 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'surgicenter.rehab.inpatient', 'filter': 'hospital_name == "RL SURGICENTER" and patient_class == "Rehab Inpatient"', 'description': 'RL SURGICENTER - Rehab Inpatient', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,232 | INFO | [load_cohort_params] FINAL cohort_id: hospital_encounters.surgicenter.observation
-2026-08-06 10:47:26,232 | INFO | [load_cohort_params] DATA: {'group': 'hospital_encounters', 'name': 'surgicenter.observation', 'filter': 'hospital_name == "RL SURGICENTER" and patient_class == "Observation"', 'description': 'RL SURGICENTER - Observation', 'domain': 'hospital_encounters', 'cohort_file': 'inpatient_cohort_gen.singlefile.allcohorts.ps1'}
-2026-08-06 10:47:26,232 | INFO | [load_cohort_params] Loaded 60 cohorts
-2026-08-06 10:47:26,232 | INFO | [load_cohort_params] Loaded 0 cohorts
-2026-08-06 10:47:26,238 | INFO | [load_cohort_params] FINAL cohort_id: ed.ed.psych
-2026-08-06 10:47:26,238 | INFO | [load_cohort_params] DATA: {'group': 'ed', 'name': 'ed.psych', 'filter': 'psych_patient_flag == "Yes"', 'description': 'Psych ED encounters', 'domain': 'ed', 'cohort_file': 'ed_cohort_gen.singlefile.psych.nonpsych.ps1'}
-2026-08-06 10:47:26,238 | INFO | [load_cohort_params] FINAL cohort_id: ed.ed.non_psych
-2026-08-06 10:47:26,238 | INFO | [load_cohort_params] DATA: {'group': 'ed', 'name': 'ed.non_psych', 'filter': 'psych_patient_flag == "No"', 'description': 'Non-Psych ED encounters', 'domain': 'ed', 'cohort_file': 'ed_cohort_gen.singlefile.psych.nonpsych.ps1'}
-2026-08-06 10:47:26,238 | INFO | [load_cohort_params] Loaded 2 cohorts
-2026-08-06 10:47:26,238 | INFO | Building processing driver
-2026-08-06 10:47:26,243 | INFO | [build_processing_driver] Generated processing driver with 2 rows
-2026-08-06 10:47:26,243 | INFO | [build_processing_driver] Saved processing driver: C:\lwf\sbx-data-vis\data\runs\run_20260806_104726\processing_driver.csv
-2026-08-06 10:47:26,243 | INFO | [main] Processing driver generated successfully.
-2026-08-06 10:47:26,254 | INFO | [main] Created backup: C:\lwf\sbx-data-vis\data\input\params\processing_driver.csv.run_20260806_104726.bak
-2026-08-06 10:47:26,256 | INFO | [main] Copied processing driver to: C:\lwf\sbx-data-vis\data\input\params\processing_driver.csv
-2026-08-06 10:47:26,257 | INFO | [main] Updated input/params/processing_driver.csv
-(C:\Users\medwards\.conda\sbx-data-vis) PS C:\lwf\sbx-data-vis> 
-
-$env:PROCESSING_MODE="full_reports"
-(C:\Users\medwards\.conda\sbx-data-vis) PS C:\lwf\sbx-data-vis> & C:\Users\medwards\.conda\sbx-data-vis\python.exe c:/lwf/sbx-data-vis/code/main.py
-
-& C:\Users\medwards\.conda\sbx-data-vis\python.exe c:/lwf/sbx-data-vis/code/main.py
-2026-08-06 10:47:26,933 | INFO | [main] Run initialized: C:\lwf\sbx-data-vis\data\runs\run_20260806_104726
-2026-08-06 10:47:26,933 | INFO | [load_driver] Loading visual driver
-2026-08-06 10:47:26,933 | INFO | [main] Using processing driver: C:\lwf\sbx-data-vis\data\input\params\processing_driver.csv
-2026-08-06 10:47:26,933 | INFO | [main] Starting domain: inpatient
-2026-08-06 10:47:26,947 | INFO | [main] No processing requests for domain inpatient; skipping.
-2026-08-06 10:47:26,948 | INFO | [main] Starting domain: surgery
-2026-08-06 10:47:26,950 | INFO | [main] No processing requests for domain surgery; skipping.
-2026-08-06 10:47:26,950 | INFO | [main] Starting domain: emergency
-2026-08-06 10:47:26,951 | INFO | [load_data] Loading data
-2026-08-06 10:47:28,020 | INFO | [load_cohort_params] FINAL cohort_id: ed.ed.psych
-2026-08-06 10:47:28,020 | INFO | [load_cohort_params] DATA: {'group': 'ed', 'name': 'ed.psych', 'filter': 'psych_patient_flag == "Yes"', 'description': 'Psych ED encounters', 'domain': 'ed', 'cohort_file': 'ed_cohort_gen.singlefile.psych.nonpsych.ps1'}
-2026-08-06 10:47:28,020 | INFO | [load_cohort_params] FINAL cohort_id: ed.ed.non_psych
-2026-08-06 10:47:28,020 | INFO | [load_cohort_params] DATA: {'group': 'ed', 'name': 'ed.non_psych', 'filter': 'psych_patient_flag == "No"', 'description': 'Non-Psych ED encounters', 'domain': 'ed', 'cohort_file': 'ed_cohort_gen.singlefile.psych.nonpsych.ps1'}
-2026-08-06 10:47:28,020 | INFO | [load_cohort_params] Loaded 2 cohorts
-2026-08-06 10:47:28,020 | INFO | [main] Loaded cohort keys:
-2026-08-06 10:47:28,020 | INFO | [main] - ed.ed.psych
-2026-08-06 10:47:28,020 | INFO | [main] - ed.ed.non_psych
-2026-08-06 10:47:28,402 | INFO | [apply_filter] rows 233,096 -> 5,619 | filter: psych_patient_flag == "Yes"
-2026-08-06 10:47:28,757 | INFO | [main] Injecting cohort_desc: Psych ED encounters
-2026-08-06 10:47:28,757 | INFO | [vis_02] Starting Length of Stay Distribution
-2026-08-06 10:47:28,795 | INFO | [date helper] Filtering null arrival_dtm values. Rows before filter: 5,619
-2026-08-06 10:47:28,804 | INFO | [date helper] Completed arrival_dtm null filter. Rows after filter: 5,619
-2026-08-06 10:47:28,804 | INFO | [date helper] Applying arrival_dtm date filter. Start=2025-01-01 00:00:00, End=2025-12-31 23:59:59.999999, Rows before filter: 5,619
-2026-08-06 10:47:28,804 | INFO | [date helper] Completed arrival_dtm date filter. Start=2025-01-01 00:00:00, End=2025-12-31 23:59:59.999999, Rows after filter: 2,024
-2026-08-06 10:47:28,814 | INFO | [date helper] Returning 5,619 total rows and 2,024 arrival-filtered rows.
-2026-08-06 10:47:28,838 | INFO | [vis_02] Filtering records with null arrival_dtm or tmt_stop_dtm. Rows before filter: 2,024
-2026-08-06 10:47:28,838 | INFO | [vis_02] Completed timestamp filter. Rows after filter: 2,021
-2026-08-06 10:47:28,838 | INFO | [vis_02] Filtering to valid_los == 1. Rows before filter: 2,021
-2026-08-06 10:47:28,838 | INFO | [vis_02] Completed valid_los filter. Rows after filter: 2,021
-2026-08-06 10:47:29,145 | INFO | vis_02 saved to C:\lwf\sbx-data-vis\data\runs\run_20260806_104726\outputs\ed.ed.psych\vis_02__ed_ed_psych__1-1-2025_to_12-31-2025.png
-2026-08-06 10:47:29,164 | INFO | vis_02 legend written: C:\lwf\sbx-data-vis\data\runs\run_20260806_104726\outputs\ed.ed.psych\vis_02_legend__ed_ed_psych__1-1-2025_to_12-31-2025.png
-2026-08-06 10:47:29,204 | INFO | vis_02 title written: C:\lwf\sbx-data-vis\data\runs\run_20260806_104726\outputs\ed.ed.psych\vis_02_title__ed_ed_psych__1-1-2025_to_12-31-2025.png
-2026-08-06 10:47:29,591 | INFO | [apply_filter] rows 233,096 -> 227,477 | filter: psych_patient_flag == "No"
-2026-08-06 10:47:29,606 | INFO | [main] Injecting cohort_desc: Non-Psych ED encounters
-2026-08-06 10:47:29,606 | INFO | [vis_02] Starting Length of Stay Distribution
-2026-08-06 10:47:30,635 | INFO | [date helper] Filtering null arrival_dtm values. Rows before filter: 227,477
-2026-08-06 10:47:30,673 | INFO | [date helper] Completed arrival_dtm null filter. Rows after filter: 227,477
-2026-08-06 10:47:30,673 | INFO | [date helper] Applying arrival_dtm date filter. Start=2025-01-01 00:00:00, End=2025-12-31 23:59:59.999999, Rows before filter: 227,477
-2026-08-06 10:47:30,716 | INFO | [date helper] Completed arrival_dtm date filter. Start=2025-01-01 00:00:00, End=2025-12-31 23:59:59.999999, Rows after filter: 75,974
-2026-08-06 10:47:30,836 | INFO | [date helper] Returning 227,477 total rows and 75,974 arrival-filtered rows.
-2026-08-06 10:47:30,969 | INFO | [vis_02] Filtering records with null arrival_dtm or tmt_stop_dtm. Rows before filter: 75,974
-2026-08-06 10:47:30,992 | INFO | [vis_02] Completed timestamp filter. Rows after filter: 73,027
-2026-08-06 10:47:30,992 | INFO | [vis_02] Filtering to valid_los == 1. Rows before filter: 73,027
-2026-08-06 10:47:30,992 | INFO | [vis_02] Completed valid_los filter. Rows after filter: 73,027
-2026-08-06 10:47:31,278 | INFO | vis_02 saved to C:\lwf\sbx-data-vis\data\runs\run_20260806_104726\outputs\ed.ed.non_psych\vis_02__ed_ed_non_psych__1-1-2025_to_12-31-2025.png
-2026-08-06 10:47:31,303 | INFO | vis_02 legend written: C:\lwf\sbx-data-vis\data\runs\run_20260806_104726\outputs\ed.ed.non_psych\vis_02_legend__ed_ed_non_psych__1-1-2025_to_12-31-2025.png
-2026-08-06 10:47:31,337 | INFO | vis_02 title written: C:\lwf\sbx-data-vis\data\runs\run_20260806_104726\outputs\ed.ed.non_psych\vis_02_title__ed_ed_non_psych__1-1-2025_to_12-31-2025.png
-(C:\Users\medwards\.conda\sbx-data-vis) PS C:\lwf\sbx-data-vis> 
-
-
-Please analyze the implementation in the context of the attached framework and identify:
-
-- bugs
-- edge cases
-- logic errors
-- parameter issues
-- output issues
-- RDB issues
-- performance concerns
-- maintainability concerns
-
-Then provide production-ready recommendations consistent with the framework conventions demonstrated in the attached files.
+Please analyze the implementation in the context of the attached framework, then provide production-ready recommendations consistent with the framework conventions demonstrated in the attached files.

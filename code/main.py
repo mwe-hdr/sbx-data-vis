@@ -22,24 +22,36 @@ from utils.processing_helpers import (
     normalize_reporting_window
 )
 
+from utils.mapping_helpers import (
+    load_mapping_file,
+    apply_standard_mappings
+)
+
+
 # =========================
 # CONFIG
 # =========================
 DOMAINS = {
     "inpatient": {
         "data_file": "ecu_hospital_encounters_export.csv",
-        "cohort_dir": "hospital_encounters",
-        "domain": "hospital_encounters"
+        "cohort_dir": "inpatient",
+        "domain": "inpatient"
     },
 
-    "surgery": {
+    "surgery_ts": {
         "data_file": "ecu_surgery_export.csv",
-        "cohort_dir": "surgery",
-        "domain": "surgery"
+        "cohort_dir": "surgery_ts",
+        "domain": "surgery_ts"
     },
+
+    "surgery_alt": {
+        "data_file": "ecu_surgery_and_gi_export_flat.csv",
+        "cohort_dir": "surgery_alt",
+        "domain": "surgery_alt"
+    },    
 
     "emergency": {
-        "data_file": "rmc_emergency_export.csv",
+        "data_file": "ecu_emergency_new.csv",
         "cohort_dir": "ed",
         "domain": "ed"
     }
@@ -60,7 +72,13 @@ if PROCESSING_MODE in {"full_processing", "full_reports"}:
     PROCESSING_MODE = "full_reports"
 elif PROCESSING_MODE != "parameters_only":
     raise ValueError(f"[main] Unsupported PROCESSING_MODE: {PROCESSING_MODE}")
-
+MAPPINGS_FILE = os.path.join(
+    PARAM_DIR,
+    "mappings.csv"
+)
+mappings = load_mapping_file(
+    MAPPINGS_FILE
+)
 # =========================
 # DYNAMIC VISUAL LOADER
 # =========================
@@ -379,6 +397,16 @@ if __name__ == "__main__":
                 INPUT_DIR,
                 config["data_file"]
             )
+        )
+
+        domain_mapping = mappings.get(
+            expected_domain,
+            {}
+        )
+
+        df = apply_standard_mappings(
+            df,
+            domain_mapping
         )
 
         cohorts = load_cohort_params(

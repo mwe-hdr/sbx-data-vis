@@ -4,88 +4,40 @@ import logging
 import datetime
 logger = logging.getLogger(__name__)
 
-def prepare_dates(
+def df_date_splitter(
     df,
     start_date,
     end_date
 ):
 
-    def add_date_columns(df):
-        dt = df["arrival_dtm"]
-
-        df["arrival_hour"] = dt.dt.hour
-        df["arrival_year"] = dt.dt.year
-        df["arrival_month"] = dt.dt.month
-
-        df["arrival_year_month"] = (
-            dt.dt.to_period("M")
-            .dt.to_timestamp()
-        )
-
-        df["arrival_weekday_num"] = dt.dt.dayofweek
-
-        df["arrival_weekday"] = (
-            dt.dt.day_name()
-            .str[:3]
-        )
-
-        df["arrival_day_of_week"] = dt.dt.day_name()
-
-        return df
-
     if "arrival_dtm" not in df.columns:
-        raise ValueError("arrival_dtm column is required")
-
-    date_columns = [
-    "arrival_dtm",
-    "tmt_stop_dtm",
-    "tmt_start_dtm",
-    "triage_start_dtm"
-    ]
-
-    for col in date_columns:
-        if col in df.columns:
-            df[col] = pd.to_datetime(
-                df[col],
-                errors="coerce"
-            )
+        raise ValueError(
+            "arrival_dtm column is required"
+        )
 
     logger.info(
-        f"[date helper] Filtering null arrival_dtm values. Rows before filter: {len(df):,}"
+        f"[date helper] Filtering null arrival_dtm values. "
+        f"Rows before filter: {len(df):,}"
     )
 
-    df = df[
+    df_all = df[
         df["arrival_dtm"].notna()
     ].copy()
 
     logger.info(
-        f"[date helper] Completed arrival_dtm null filter. Rows after filter: {len(df):,}"
+        f"[date helper] Rows after null filter: "
+        f"{len(df_all):,}"
     )
 
-    logger.info(
-        f"[date helper] Applying arrival_dtm date filter. "
-        f"Start={start_date}, End={end_date}, Rows before filter: {len(df):,}"
-    )
-
-    df_all = df.copy()
-
-    df_filtered = df[
-        (df["arrival_dtm"] >= start_date) &
-        (df["arrival_dtm"] <= end_date)
+    df_filtered = df_all[
+        (df_all["arrival_dtm"] >= start_date)
+        &
+        (df_all["arrival_dtm"] <= end_date)
     ].copy()
 
     logger.info(
-        f"[date helper] Completed arrival_dtm date filter. "
-        f"Start={start_date}, End={end_date}, Rows after filter: {len(df_filtered):,}"
-    )    
-
-    df_all = add_date_columns(df_all)
-    df_filtered = add_date_columns(df_filtered)
-
-    logger.info(
-        f"[date helper] Returning "
-        f"{len(df_all):,} total rows and "
-        f"{len(df_filtered):,} arrival-filtered rows."
+        f"[date helper] Reporting window rows: "
+        f"{len(df_filtered):,}"
     )
 
     return df_all, df_filtered

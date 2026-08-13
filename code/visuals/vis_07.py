@@ -66,8 +66,7 @@ from utils.vis_helpers import (
     save_title_png,
     map_arrival_method
 )
-from utils.date_helpers import prepare_dates
-from utils.col_helpers import add_common_helper_columns
+from utils.date_helpers import df_date_splitter
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +74,10 @@ VISUAL_ID = "vis_07"
 
 def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
-    logger.info(f"[{VISUAL_ID}] Starting Encounters by Arrival Type visualization")
+    # =========================
+    # CATEGORY FIELD
+    # =========================
+
     params = normalize_params(params)
 
     # =========================
@@ -105,9 +107,36 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     if params:
         for k, v in params.items():
             p[k] = v
+
     font_family = str(
         p.get("font_family", "Segoe UI")
     ).strip()
+
+    if params:
+        p.update(params)
+
+    category_field = str(
+        p.get(
+            "category_field",
+            "arrival_group"
+        )
+    ).strip()
+
+    category_display_name = str(
+        p.get(
+            "category_display_name",
+            "Arrival Type"
+        )
+    ).strip()
+
+    expected_categories = p.get(
+        "expected_categories",
+        ""
+    )
+
+    logger.info(
+    f"[{VISUAL_ID}] Starting Encounters by {category_display_name} visualization"
+    )
 
     # ---- Title Image ----
 
@@ -182,18 +211,26 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     # --------------------------------------------------
     # HELP MY DATAFRAME
     # --------------------------------------------------
-    _, df = prepare_dates(df, start_date, end_date)
-    df = add_common_helper_columns(df)
-
+    _, df = df_date_splitter(df, start_date, end_date)
+    
     logger.info(
         f"[{VISUAL_ID}] Dataset received after helper preparation. "
-        f"Rows available for arrival-type analysis: {len(df):,}"
+        f"Rows available for {category_display_name} analysis: {len(df):,}"
     )
 
     # =========================
     # VALIDATION
     # =========================
-    required_cols = ["arrival_dtm","arrival_group"]
+    required_cols = [
+        "arrival_dtm",
+        category_field
+    ]
+
+    logger.info(
+        f"[{VISUAL_ID}] Analyzing category field "
+        f"'{category_field}' "
+        f"({category_display_name})"
+    )
 
     for col in required_cols:
         if col not in df.columns:
@@ -206,7 +243,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     # AGGREGATION
     # =========================
     counts = (
-        df.groupby("arrival_group")
+        df.groupby(category_field)
         .size()
         .reset_index(name="count")
     )
@@ -228,14 +265,14 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     if group_other_threshold > 0:
         small_mask = (
             (counts["percent"] < group_other_threshold) &
-            (counts["arrival_group"] != "Other")
+            (counts[category_field] != "Other")
         )
 
         if small_mask.any():
             other_sum = counts.loc[small_mask, "count"].sum()
 
             logger.info(
-                f"[{VISUAL_ID}] Grouping small arrival categories into 'Other'. "
+                f"[{VISUAL_ID}] Grouping small categories into 'Other'. "
                 f"Categories before filter: {len(counts):,}"
             )
 
@@ -248,13 +285,13 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
             if other_sum > 0:
                 # if Other already exists, add to it
-                if "Other" in counts["arrival_group"].values:
-                    counts.loc[counts["arrival_group"] == "Other", "count"] += other_sum
+                if "Other" in counts[category_field].values:
+                    counts.loc[counts[category_field] == "Other", "count"] += other_sum
                 else:
                     counts = pd.concat([
                         counts,
                         pd.DataFrame([{
-                            "arrival_group": "Other",
+                            category_field: "Other",
                             "count": other_sum
                         }])
                     ], ignore_index=True)
@@ -264,12 +301,48 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     # =========================
     # ENSURE CATEGORY COMPLETENESS
     # =========================
-    base_categories = ["EMT", "Car / Walk-in", "Wheelchair"]
-    if include_other:
-        base_categories.append("Other")
 
-    counts = counts.set_index("arrival_group").reindex(base_categories).fillna(0)
-    counts = counts.reset_index()
+    logger.info(
+        f"[{VISUAL_ID}] category_field={category_field}"
+    )
+
+    logger.info(
+        f"[{VISUAL_ID}] raw expected_categories="
+        f"{repr(expected_categories)}"
+    )
+
+    logger.info(
+        f"[{VISUAL_ID}] observed categories="
+        f"{sorted(df[category_field].dropna().unique().tolist())}"
+    )
+
+    logger.info(
+        f"[{VISUAL_ID}] aggregated categories="
+        f"{counts[category_field].tolist()}"
+    )
+
+    if expected_categories:
+
+        base_categories = [
+            x.strip()
+            for x in expected_categories.split("|")
+            if x.strip()
+        ]
+
+        if include_other and "Other" not in base_categories:
+            base_categories.append("Other")
+
+        counts = (
+            counts
+            .set_index(category_field)
+            .reindex(base_categories)
+            .fillna(0)
+            .reset_index()
+        )
+
+    else:
+
+        counts = counts.reset_index(drop=True)
 
     # avoid divide-by-zero
     total = counts["count"].sum()
@@ -282,14 +355,27 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     # =========================
     # COLORS
     # =========================
-    color_map = {
-        "EMT": p["color_emt"],
-        "Car / Walk-in": p["color_car"],
-        "Wheelchair": p["color_wheelchair"],
-        "Other": p["color_other"],
-    }
+    category_colors_raw = str(
+        p.get("category_colors", "")
+    )
 
-    colors = [color_map.get(cat, "#cccccc") for cat in counts["arrival_group"]]
+    category_colors = {}
+
+    if category_colors_raw:
+
+        for item in category_colors_raw.split("|"):
+
+            if "=" not in item:
+                continue
+
+            k, v = item.split("=", 1)
+
+            category_colors[k.strip()] = v.strip()
+
+    colors = [
+        category_colors.get(cat, "#cccccc")
+        for cat in counts[category_field]
+    ]
 
     # =========================
     # LABEL FUNCTION WITH SUPPRESSION
@@ -301,7 +387,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         if percent < label_threshold:
             return ""
 
-        parts = [row["arrival_group"]]
+        parts = [row[category_field]]
 
         if show_counts:
             parts.append(f"{int(count):,}")
@@ -312,7 +398,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         return "\n".join(parts)
 
     logger.info(
-        f"[{VISUAL_ID}] Removing zero-count arrival categories. "
+        f"[{VISUAL_ID}] Removing zero-count categories. "
         f"Categories before filter: {len(counts):,}"
     )
 
@@ -338,7 +424,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             dpi=int(p["dpi"])
         )
 
-        legend_labels = counts["arrival_group"].tolist()
+        legend_labels = counts[category_field].tolist()
 
         wedges, texts = ax.pie(
             counts["percent"],
@@ -417,7 +503,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         )
 
         save_title_png(
-            title="Encounters by Arrival Type",
+            title=f"Encounters by {category_display_name}",
             subtitle=date_str,
             output_file=title_output_file,
             width=title_width,
@@ -461,9 +547,9 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             "domain_cohort":
                 f"{params.get('domain')}.{params.get('cohort_id')}",
 
-            "dimension": "arrival_group",
+            "dimension": category_field,
             "dimension_value": "all",
-            "dimension_value_label": "All Arrival Types",
+            "dimension_value_label": "All {category_display_name}",
 
             "secondary_dimension": None,
             "secondary_dimension_value": None,
@@ -476,7 +562,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             "end_date": end_date,
 
             "report_title":
-                "Encounters by Arrival Type"
+                f"Encounters by {category_display_name}"
         })
 
         for _, row in counts.iterrows():
@@ -492,9 +578,9 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                 "domain_cohort":
                     f"{params.get('domain')}.{params.get('cohort_id')}",
 
-                "dimension": "arrival_group",
-                "dimension_value": row["arrival_group"],
-                "dimension_value_label": row["arrival_group"],
+                "dimension": category_field,
+                "dimension_value": row[category_field],
+                "dimension_value_label": row[category_field],
 
                 "secondary_dimension": None,
                 "secondary_dimension_value": None,
@@ -507,7 +593,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                 "end_date": end_date,
 
                 "report_title":
-                    "Encounters by Arrival Type"
+                    f"Encounters by {category_display_name}"
             })
 
         

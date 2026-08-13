@@ -1,86 +1,110 @@
 import pandas as pd
 import logging
-from utils.vis_helpers import map_arrival_method, map_disposition   
+
 logger = logging.getLogger(__name__)
 
-def add_common_helper_columns(df):
+def add_calculated_helper_columns(df):
 
-    df["esi"] = pd.to_numeric(
-    df["esi"],
-    errors="coerce"
+    if "esi" in df.columns:
+
+        df["valid_esi"] = (
+            df["esi"]
+            .isin([0, 1, 2, 3, 4, 5])
+        )
+
+    if (
+        "arrival_dtm" in df.columns
+        and
+        "tmt_stop_dtm" in df.columns
+    ):
+
+        logger.info(
+            f"[col] arrival_dtm dtype="
+            f"{df['arrival_dtm'].dtype}"
+        )
+
+        logger.info(
+            f"[col] tmt_stop_dtm dtype="
+            f"{df['tmt_stop_dtm'].dtype}"
+        )
+
+        df["los_hours"] = (
+            (
+                df["tmt_stop_dtm"]
+                - df["arrival_dtm"]
+            )
+            .dt.total_seconds()
+            / 3600
+        )
+
+        df.loc[
+            df["los_hours"] < 0,
+            "los_hours"
+        ] = pd.NA
+
+        df["valid_los"] = (
+            df["los_hours"].notna()
+            &
+            (df["los_hours"] >= 0)
+        )
+
+    if "triage_start_dtm" in df.columns:
+
+        df["has_triage"] = (
+            df["triage_start_dtm"].notna()
+        )
+
+    if "tmt_start_dtm" in df.columns:
+
+        df["has_ed"] = (
+            df["tmt_start_dtm"].notna()
+        )
+
+    return df
+
+def add_date_helper_columns(df):
+
+    if "arrival_dtm" not in df.columns:
+        return df
+
+    dt = df["arrival_dtm"]
+
+    df["arrival_hour"] = dt.dt.hour
+    df["arrival_year"] = dt.dt.year
+    df["arrival_month"] = dt.dt.month
+
+    df["arrival_year_month"] = (
+        dt.dt.to_period("M")
+        .dt.to_timestamp()
     )
 
-    ESI_MAP = {
-    0: "0 - Unknown",
-    1: "1 - Immediate",
-    2: "2 - Emergent",
-    3: "3 - Urgent",
-    4: "4 - Less Urgent",
-    5: "5 - Non-Urgent"
-    }
+    df["arrival_weekday_num"] = dt.dt.dayofweek
 
-    df["esi_category"] = (
-        df["esi"]
-        .map(ESI_MAP)
-        .fillna("0 - Unknown")
+    df["arrival_weekday"] = (
+        dt.dt.day_name()
+        .str[:3]
     )
 
-    df["valid_esi"] = (
-    df["esi"]
-    .isin([0,1,2,3,4,5])
+    df["arrival_day_of_week"] = (
+        dt.dt.day_name()
     )
 
-    df["arrival_method_clean"] = (
-    df["arrival_method"]
-        .astype(str)
-        .str.strip()
-        .str.lower()
-    )
+    return df
 
-    df["arrival_group"] = (
-    df["arrival_method_clean"]
-        .apply(map_arrival_method)
-    )
+def prepare_common_columns(df):
 
-    df["patient_zipcode"] = (
-    df["patient_zipcode"]
-      .astype(str)
-      .str.strip()
-      .str.zfill(5)
-    )
+    if "arrival_dtm" in df.columns:
 
-    df["los_hours"] = (
-    (
-        df["tmt_stop_dtm"]
-        - df["arrival_dtm"]
-    )
-    .dt.total_seconds()
-    / 3600
-    )
+        if not pd.api.types.is_datetime64_any_dtype(
+            df["arrival_dtm"]
+        ):
+            raise TypeError(
+                "arrival_dtm must be datetime before "
+                "calling prepare_common_columns()"
+            )
 
-    df.loc[
-    df["los_hours"] < 0,
-    "los_hours"
-    ] = pd.NA
+    df = add_calculated_helper_columns(df)
 
-    df["valid_los"] = (
-    df["los_hours"]
-    .notna()
-    &
-    (df["los_hours"] >= 0)
-    )
-
-    df["has_triage"] = (
-    df["triage_start_dtm"].notna()
-    )
-
-    df["has_ed"] = (
-    df["tmt_start_dtm"].notna()
-    )
-
-    df["disposition_group"] = (
-    df["disch_disp_desc"]
-        .apply(map_disposition)
-    )
+    df = add_date_helper_columns(df)
 
     return df
