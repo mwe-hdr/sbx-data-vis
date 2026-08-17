@@ -49,6 +49,7 @@
 
 import os
 import logging
+import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from utils.vis_helpers import (
@@ -186,20 +187,6 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
         enable_rdb = int(params.get("rdb_write", 0))
         rdb_rows = []
-
-        # =========================================================
-        # OUTPUT CSV
-        # =========================================================
-        filename = generate_output_name(
-            visual_id=VISUAL_ID,
-            start_date=start_date,
-            end_date=end_date,
-            cohort_id=params.get("cohort_id"),
-            ext="csv"
-        )
-        output_path = os.path.join(output_dir, filename)
-
-        ts[["interval", "census"]].to_csv(output_path, index=False)
 
         # =========================================================
         # VISUALIZATION
@@ -353,6 +340,97 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         )
 
         # -----------------------------------------------------
+        # TREND / PROJECTION PARAMETERS
+        # -----------------------------------------------------
+        enable_trend_projection = _get_bool(
+            params,
+            "enable_trend_projection",
+            False
+        )
+
+        trend_input_months = int(
+            _get_float(
+                params,
+                "trend_input_months",
+                12
+            ) or 12
+        )
+
+        trend_start_month = _get_str(
+            params,
+            "trend_start_month",
+            ""
+        ).strip()
+
+        projection_months = int(
+            _get_float(
+                params,
+                "projection_months",
+                3
+            ) or 3
+        )
+
+        trend_line_color = _get_str(
+            params,
+            "trend_line_color",
+            "#1f77b4"
+        )
+
+        trend_linewidth = _get_float(
+            params,
+            "trend_linewidth",
+            2.0
+        )
+
+        trend_linestyle = _get_str(
+            params,
+            "trend_linestyle",
+            "-"
+        )
+
+        projection_line_color = _get_str(
+            params,
+            "projection_line_color",
+            "#ff7f0e"
+        )
+
+        projection_linewidth = _get_float(
+            params,
+            "projection_linewidth",
+            2.0
+        )
+
+        projection_linestyle = _get_str(
+            params,
+            "projection_linestyle",
+            "--"
+        )
+
+        show_confidence_band = _get_bool(
+            params,
+            "show_confidence_band",
+            False
+        )
+
+        confidence_level = _get_float(
+            params,
+            "confidence_level",
+            0.95
+        )
+
+        confidence_fill_color = _get_str(
+            params,
+            "confidence_fill_color",
+            "#1f77b4"
+        )
+
+        confidence_alpha = _get_float(
+            params,
+            "confidence_alpha",
+            0.15
+        )
+
+        # -----------------------------------------------------
         # THRESHOLD LOGIC 
         # -----------------------------------------------------
         if capacity_value is not None:
@@ -426,6 +504,286 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                 label=f"Average ({round(avg_census,1)})",
                 zorder=11
             )
+
+        # -----------------------------------------------------
+        # OLS TREND / PROJECTION
+        # -----------------------------------------------------
+        trend_line = None
+        projection_line = None
+        confidence_band = None
+        projection_df = pd.DataFrame()
+
+        if enable_trend_projection:
+
+            logger.info(
+                f"[{VISUAL_ID}] Building OLS trend projection"
+            )
+
+            if trend_start_month:
+
+                training_start = pd.to_datetime(
+                    trend_start_month
+                )
+
+            else:
+
+                training_start = ts[
+                    "interval"
+                ].min()
+
+            training_end = (
+                training_start
+                + pd.DateOffset(
+                    months=trend_input_months
+                )
+            )
+
+            logger.info(
+                f"[{VISUAL_ID}] Trend model window: "
+                f"{training_start:%Y-%m-%d} "
+                f"through "
+                f"{training_end:%Y-%m-%d}"
+            )
+
+            training_df = ts[
+                (
+                    ts["interval"]
+                    >= training_start
+                )
+                &
+                (
+                    ts["interval"]
+                    < training_end
+                )
+            ].copy()
+
+            if training_df.empty:
+
+                logger.warning(
+                    f"[{VISUAL_ID}] No data in "
+                    "specified trend window."
+                )
+
+                enable_trend_projection = False
+
+            if len(training_df) >= 5:
+
+                base_date = training_df[
+                    "interval"
+                ].min()
+
+                x_train = (
+                    training_df["interval"]
+                    - base_date
+                ).dt.total_seconds() / 86400.0
+
+                y_train = training_df["census"]
+
+                slope, intercept = np.polyfit(
+                    x_train,
+                    y_train,
+                    1
+                )
+
+                training_df["trend"] = (
+                    intercept
+                    + slope * x_train
+                )
+
+                # ------------------------------------------
+                # CONFIDENCE INTERVALS
+                # ------------------------------------------
+                n = len(x_train)
+
+                residuals = (
+                    y_train
+                    - training_df["trend"]
+                )
+
+                mse = np.sum(
+                    residuals ** 2
+                ) / (n - 2)
+
+                mean_x = np.mean(x_train)
+
+                sxx = np.sum(
+                    (x_train - mean_x) ** 2
+                )
+
+                standard_error = np.sqrt(
+                    mse * (
+                        (1 / n)
+                        +
+                        (
+                            (x_train - mean_x) ** 2
+                            / sxx
+                        )
+                    )
+                )
+
+                z_score = 1.96
+
+                training_df["ci_upper"] = (
+                    training_df["trend"]
+                    + z_score * standard_error
+                )
+
+                training_df["ci_lower"] = (
+                    training_df["trend"]
+                    - z_score * standard_error
+                )
+
+                trend_line, = plt.plot(
+                    training_df["interval"],
+                    training_df["trend"],
+                    color=trend_line_color,
+                    linewidth=trend_linewidth,
+                    linestyle=trend_linestyle,
+                    label=(
+                        f"Trend "
+                        f"({training_start:%Y-%m}"
+                        f" + {trend_input_months} mo)"
+                    ),
+                    zorder=12
+                )
+
+                if show_confidence_band:
+
+                    confidence_band = plt.fill_between(
+                        training_df["interval"],
+                        training_df["ci_lower"],
+                        training_df["ci_upper"],
+                        color=confidence_fill_color,
+                        alpha=confidence_alpha,
+                        label="95% Confidence Band",
+                        zorder=8
+                    )
+
+                future_dates = pd.date_range(
+                    start=(
+                        ts["interval"].max()
+                        + pd.Timedelta(days=1)
+                    ),
+                    periods=int(
+                        projection_months * 30
+                    ),
+                    freq="D"
+                )
+
+                future_x = (
+                    future_dates
+                    - base_date
+                ).total_seconds() / 86400.0
+
+                future_census = (
+                    intercept
+                    + slope * future_x
+                )
+
+                projection_standard_error = np.sqrt(
+                    mse * (
+                        (1 / n)
+                        +
+                        (
+                            (future_x - mean_x) ** 2
+                            / sxx
+                        )
+                    )
+                )
+
+                future_upper = (
+                    future_census
+                    + z_score * projection_standard_error
+                )
+
+                future_lower = (
+                    future_census
+                    - z_score * projection_standard_error
+                )
+
+                projection_df = pd.DataFrame({
+                    "interval": future_dates,
+                    "census": future_census,
+                    "ci_upper": future_upper,
+                    "ci_lower": future_lower,
+                    "record_type": "projection"
+                })
+
+                projection_line, = plt.plot(
+                    projection_df["interval"],
+                    projection_df["census"],
+                    color=projection_line_color,
+                    linewidth=projection_linewidth,
+                    linestyle=projection_linestyle,
+                    label=(
+                        f"Projection "
+                        f"({projection_months} mo)"
+                    ),
+                    zorder=13
+                )
+
+                if show_confidence_band:
+
+                    plt.fill_between(
+                        projection_df["interval"],
+                        projection_df["ci_lower"],
+                        projection_df["ci_upper"],
+                        color=confidence_fill_color,
+                        alpha=confidence_alpha,
+                        zorder=7
+                    )
+
+                logger.info(
+                    f"[{VISUAL_ID}] Projection records generated: "
+                    f"{len(projection_df):,}"
+                )
+
+            else:
+
+                logger.warning(
+                    f"[{VISUAL_ID}] Not enough records "
+                    f"for trend projection."
+                )
+
+        # =========================================================
+        # OUTPUT CSV
+        # =========================================================
+        filename = generate_output_name(
+            visual_id=VISUAL_ID,
+            start_date=start_date,
+            end_date=end_date,
+            cohort_id=params.get("cohort_id"),
+            ext="csv"
+        )
+        output_path = os.path.join(output_dir, filename)
+
+        output_df = ts.copy()
+
+        output_df["record_type"] = "actual"
+
+        if (
+            enable_trend_projection
+            and not projection_df.empty
+        ):
+
+            output_df = pd.concat(
+                [
+                    output_df,
+                    projection_df[
+                        [
+                            "interval",
+                            "census",
+                            "record_type"
+                        ]
+                    ]
+                ],
+                ignore_index=True
+            )
+
+        output_df.to_csv(
+            output_path,
+            index=False
+        )
 
         # Labels
         title_fontsize = _get_float(
@@ -569,6 +927,36 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                 avg_line.get_label()
             )
 
+        if trend_line is not None:
+
+            legend_handles.append(
+                trend_line
+            )
+
+            legend_labels.append(
+                trend_line.get_label()
+            )
+
+        if projection_line is not None:
+
+            legend_handles.append(
+                projection_line
+            )
+
+            legend_labels.append(
+                projection_line.get_label()
+            )
+
+        if confidence_band is not None:
+
+            legend_handles.append(
+                confidence_band
+            )
+
+            legend_labels.append(
+                "95% Confidence Band"
+            )
+
         legend_output_file = os.path.join(
             output_dir,
             generate_output_name(
@@ -630,7 +1018,68 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                     "end_date": end_date,
 
                     "report_title": chart_title
-                })        
+                }) 
+
+            if (
+                enable_trend_projection
+                and not projection_df.empty
+            ):
+
+                for _, row in projection_df.iterrows():
+
+                    rdb_rows.append({
+
+                        "run_id": params.get("run_id"),
+                        "visual_id": VISUAL_ID,
+
+                        "client_name": params.get(
+                            "client_name"
+                        ),
+
+                        "domain": params.get("domain"),
+                        "cohort_id": params.get(
+                            "cohort_id"
+                        ),
+
+                        "domain_cohort":
+                            f"{params.get('domain')}."
+                            f"{params.get('cohort_id')}",
+
+                        "dimension": "interval",
+
+                        "dimension_value":
+                            row["interval"],
+
+                        "dimension_value_label":
+                            row["interval"].strftime(
+                                "%Y-%m-%d"
+                            ),
+
+                        "secondary_dimension":
+                            "record_type",
+
+                        "secondary_dimension_value":
+                            "projection",
+
+                        "metric":
+                            "ed_census_projection",
+
+                        "metric_type":
+                            "forecast",
+
+                        "value":
+                            float(row["census"]),
+
+                        "start_date":
+                            start_date,
+
+                        "end_date":
+                            end_date,
+
+                        "report_title":
+                            chart_title
+
+                    })       
 
         logger.info(f"[{VISUAL_ID}] Outputs saved: CSV and PNG")
 

@@ -60,3 +60,34 @@ save_csv,True
 
 ### ===== CENSUS BYPASS =====
 bypass_census_csv,C:\lwf\sbx-data-vis\data\input\lc_adf_med_census.csv
+
+#### ===== OLS TREND PROJECTION =====
+
+enable_trend_projection,True
+
+trend_start_month,2022-01-01
+trend_input_months,60
+projection_months,120
+
+trend_line_color,#1f77b4
+trend_linewidth,2.0
+trend_linestyle,-
+
+projection_line_color,#ff7f0e
+projection_linewidth,2.0
+projection_linestyle,--
+
+projection_frequency,D
+
+export_projection_csv,True
+write_projection_rdb,False
+
+#### ===== CONFIDENCE BAND =====
+
+show_confidence_band,True
+
+confidence_level,0.95
+
+confidence_fill_color,#1f77b4
+
+confidence_alpha,0.15

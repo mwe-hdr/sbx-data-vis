@@ -1,8 +1,0 @@
-﻿name,param,value,description,cohort_file
-ed.lc_adf.min,filter,"cohort == ""MIN""",All MIN Inmates at Lancaster County Adult Detention Facility,ed.lc_adf.min
-ed.lc_adf.med,filter,"cohort == ""MED""",All MED Inmates at Lancaster County Adult Detention Facility,ed.lc_adf.med
-ed.lc_adf.cllo,filter,"cohort == ""CLLO""",All CLLO Inmates at Lancaster County Adult Detention Facility,ed.lc_adf.cllo
-ed.lc_adf.clo,filter,"cohort == ""CLO""",All CLO Inmates at Lancaster County Adult Detention Facility,ed.lc_adf.clo
-ed.lc_adf.clhi,filter,"cohort == ""CLHI""",All CLHI Inmates at Lancaster County Adult Detention Facility,ed.lc_adf.clhi
-ed.lc_adf.max,filter,"cohort == ""MAX""",All MAX Inmates at Lancaster County Adult Detention Facility,ed.lc_adf.max
-ed.lc_adf.nc,filter,"cohort == ""NC""",All NC Inmates at Lancaster County Adult Detention Facility,ed.lc_adf.nc
