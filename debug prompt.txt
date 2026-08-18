@@ -208,909 +208,1268 @@ DEBUGGING REQUEST
 
 The primary file I want assistance with is attached, with contextual code below:
 
-main.py:
+# =============================================================================
+# Report Name : Facility Census Trend
+#
+# Description :
+# Calculates and visualizes Facility census levels over time
+# using patient arrival and departure timestamps. The program constructs a
+# minute-by-minute census timeline by identifying all encounters active
+# during each reporting interval and computing the concurrent patient
+# count within the Facility.
+#
+# Results are produced as both a detailed census dataset and a trend
+# visualization. The report optionally highlights periods where census
+# exceeds a configurable percentage of department capacity and can display
+# reference lines for average census and operational capacity.
+#
+# This report supports:
+#   - Facility census monitoring
+#   - Capacity management
+#   - Throughput analysis
+#   - Overcrowding assessment
+#   - Staffing and resource planning
+#   - Operational performance review
+#
+# Inputs :
+#   - arrival_dtm : Facility arrival/start datetime
+#   - tmt_stop_dtm  : Facility departure/stop datetime
+#   - start_date   : Reporting period start date/time
+#   - end_date     : Reporting period end date/time
+#
+# Outputs :
+#   - PNG line chart displaying Facility census over time
+#       * Census trend by minute
+#       * Optional capacity threshold line
+#       * Optional average census line
+#   - CSV file containing:
+#       * Interval timestamp
+#       * Census count
+#   - RDB records containing:
+#       * Census count by reporting interval
+#       * Time-based census metrics for downstream reporting
+#
+# Key Metrics :
+#   - Concurrent Facility census
+#   - Average census
+#   - Peak census periods
+#   - Capacity utilization
+#   - Census trend across the reporting period
+# =============================================================================
+
 import os
 import logging
-import shutil
+import numpy as np
 import pandas as pd
-import importlib
-import argparse
-
-from utils.io_helpers import (
-    load_data,
-    load_driver,
-    load_params,
-    load_cohort_params
+import matplotlib.pyplot as plt
+from utils.vis_helpers import (
+    normalize_params,
+    format_date_range,
+    apply_axis_range,
+    apply_yaxis_format,
+    save_legend_png,
+    format_display_value,
+    get_display_parameters,
+    save_parameter_table_png,
+    save_title_png,
+    generate_census
 )
+from utils.date_helpers import df_date_splitter
 
-from utils.processing_helpers import (
-    apply_filter,
-    initialize_run,
-    generate_output_name,
-    build_processing_driver,
-    load_processing_driver,
-    row_to_params,
-    normalize_reporting_window
-)
+logger = logging.getLogger(__name__)
 
-from utils.mapping_helpers import (
-    load_mapping_file,
-    apply_standard_mappings
-)
+VISUAL_ID = "vis_08"
 
+def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
-# =========================
-# CONFIG
-# =========================
-DOMAINS = {
-    "inpatient": {
-        "data_file": "ecu_hospital_encounters_export.csv",
-        "cohort_dir": "inpatient",
-        "domain": "inpatient"
-    },
-
-    "surgery_ts": {
-        "data_file": "ecu_surgery_export.csv",
-        "cohort_dir": "surgery_ts",
-        "domain": "surgery_ts"
-    },
-
-    "surgery_alt": {
-        "data_file": "ecu_surgery_and_gi_export_flat.csv",
-        "cohort_dir": "surgery_alt",
-        "domain": "surgery_alt"
-    },    
-
-    "emergency": {
-        "data_file": "ecu_emergency_new.csv",
-        "cohort_dir": "ed",
-        "domain": "ed"
-    }
-}
-
-BASE_DIR = os.getcwd()
-INPUT_DIR = os.path.join(BASE_DIR, "data", "input")
-COHORT_LOCATIONS_FILE = os.path.join(
-    INPUT_DIR,
-    "geo",
-    "cohort_locations",
-    "cohort_locations.csv"
-)
-PARAM_DIR = os.path.join(INPUT_DIR, "params")
-VIS_DRIVER_FILE = os.path.join(PARAM_DIR, "vis_driver.csv")
-PROCESSING_MODE = os.getenv("PROCESSING_MODE", "full_reports").strip().lower()
-if PROCESSING_MODE in {"full_processing", "full_reports"}:
-    PROCESSING_MODE = "full_reports"
-elif PROCESSING_MODE != "parameters_only":
-    raise ValueError(f"[main] Unsupported PROCESSING_MODE: {PROCESSING_MODE}")
-MAPPINGS_FILE = os.path.join(
-    PARAM_DIR,
-    "mappings.csv"
-)
-mappings = load_mapping_file(
-    MAPPINGS_FILE
-)
-# =========================
-# DYNAMIC VISUAL LOADER
-# =========================
-def get_visual_function(visual_id):
-    try:
-        module = importlib.import_module(f"visuals.{visual_id}")
-        return module.run
-    except Exception as e:
-        logging.error(f"[main] Failed to load {visual_id}: {str(e)}")
-        return None
-
-
-def mirror_processing_driver_to_params(run_dir):
-
-    source_file = os.path.join(
-        run_dir,
-        "processing_driver.csv"
-    )
-
-    destination_file = os.path.join(
-        PARAM_DIR,
-        "processing_driver.csv"
-    )
-
-    if not os.path.exists(source_file):
-        logging.warning(
-            f"[main] Processing driver not found: {source_file}"
-        )
-        logging.info(f"[main] No processing driver found in {run_dir}")
-        return
-
-    if os.path.exists(destination_file):
-
-        backup_file = (
-            destination_file
-            + "."
-            + run_id
-            + ".bak"
-        )
-
-        shutil.copy2(
-            destination_file,
-            backup_file
-        )
-
-        logging.info(
-            f"[main] Created backup: {backup_file}"
-        )
-
-    shutil.copy2(
-        source_file,
-        destination_file
-    )
-
-    logging.info(
-        f"[main] Copied processing driver to: {destination_file}"
-    )
-
-# =========================
-# PROCESSING DRIVER BUILDER
-# =========================
-def load_all_cohorts():
-
-    all_cohorts = {}
-
-    for domain, config in DOMAINS.items():
-
-        domain_cohorts = load_cohort_params(
-            os.path.join(
-                PARAM_DIR,
-                "cohorts",
-                config["cohort_dir"]
-            )
-        )
-
-        all_cohorts.update(domain_cohorts)
-
-    return all_cohorts
-
-# =========================
-# MAIN EXECUTION LOOP
-# =========================
-def run_visuals(
-    df,
-    driver_df,
-    cohorts,
-    output_dir,
-    enabled_visuals
-):
-
-    rdb_records = []
-    cohort_cache = {}
-
-    logging.info("[main] Loaded cohort keys:")
-    for k in cohorts.keys():
-        logging.info(f"[main] - {k}")
-
-    for _, row in driver_df.iterrows():
-
-        if str(row.get("active_flag", "Y")).upper() not in {"Y", "YES", "TRUE", "1"}:
-            continue
-
+    def _get_float(params, key, default=None):
         try:
-            if int(row.get("enabled", 0)) != 1:
-                continue
-        except (TypeError, ValueError):
-            if str(row.get("enabled", "")).upper() not in {"Y", "YES", "TRUE", "1"}:
-                continue
+            val = params.get(key, default)
+            return float(val) if val not in [None, "", "None"] else None
+        except:
+            return default
 
-        if str(row.get("type", "")).lower() != "cohort":
-            continue
 
-        report_id = row.get("visual_id") or row.get("report_id")
-        if not report_id:
-            logging.warning("[main] Skipping driver row without report identifier")
-            continue
-        if report_id not in enabled_visuals:
-            logging.info(
-                f"[main] Skipping disabled visual: {report_id}"
+    def _get_bool(params, key, default=False):
+        val = str(params.get(key, default)).strip().lower()
+        if val in ["true", "1", "yes"]:
+            return True
+        if val in ["false", "0", "no"]:
+            return False
+        return default
+
+
+    def _get_str(params, key, default=""):
+        val = params.get(key, default)
+        return str(val) if val is not None else default
+
+    def save_projection_table_png(
+        df,
+        output_file,
+        font_family="Segoe UI",
+        font_size=10
+    ):
+
+        if df.empty:
+            return None
+
+        plt.rcParams["font.family"] = font_family
+
+        fig_height = max(
+            1.5,
+            len(df) * 0.45
+        )
+
+        fig, ax = plt.subplots(
+            figsize=(3.2, fig_height)
+        )
+
+        ax.axis("off")
+
+        table = ax.table(
+            cellText=df.values,
+            colLabels=df.columns,
+            loc="center",
+            cellLoc="center"
+        )
+
+        table.auto_set_font_size(False)
+        table.set_fontsize(font_size)
+        table.scale(1.2, 1.5)
+
+        for col in range(len(df.columns)):
+
+            header = table[(0, col)]
+
+            header.set_facecolor("#d9d9d9")
+            header.get_text().set_weight("bold")
+
+        plt.tight_layout()
+
+        plt.savefig(
+            output_file,
+            bbox_inches="tight"
+        )
+
+        plt.close()
+
+        return output_file
+
+    def format_projection_period(months):
+
+        years = months // 12
+        remaining = months % 12
+
+        if years > 0 and remaining > 0:
+            return f"{years}y {remaining}m"
+
+        if years > 0:
+            return f"{years} Years"
+
+        return f"{months} Months"
+
+    logger.info(f"[{VISUAL_ID}] Starting Facility Census Trend visualization")
+    params = normalize_params(params)
+
+    try:
+
+        # --------------------------------------------------
+        # HELP MY DATAFRAME
+        # --------------------------------------------------
+        df, _ = df_date_splitter(df, start_date, end_date)
+
+        bypass_census_csv = _get_str(
+            params,
+            "bypass_census_csv",
+            ""
+        ).strip()
+
+        if bypass_census_csv:
+
+            logger.info(
+                f"[{VISUAL_ID}] Using bypass census file: "
+                f"{bypass_census_csv}"
             )
-            continue
 
-        cohort_id = row.get("cohort_id")
-        if not cohort_id:
-            logging.warning("[main] Skipping driver row without cohort identifier")
-            continue
-
-        cohort_meta = cohorts.get(cohort_id)
-
-        driver_filter = row.get("filter_str")
-        current_filter = cohort_meta.get("filter")
-
-        if str(driver_filter).strip() != str(current_filter).strip():
-
-            logging.warning(
-                "[main] Cohort filter mismatch "
-                f"cohort={cohort_id} "
-                f"driver_filter={driver_filter} "
-                f"runtime_filter={current_filter}"
+            ts = pd.read_csv(
+                bypass_census_csv,
+                parse_dates=["interval"]
             )
 
-        if not cohort_meta:
+            required_columns = [
+                "interval",
+                "census"
+            ]
 
-            logging.error(
-                "[main] Processing driver references "
-                f"unknown cohort_id={cohort_id}"
+            missing = [
+                c
+                for c in required_columns
+                if c not in ts.columns
+            ]
+
+            if missing:
+                raise ValueError(
+                    "Bypass census file missing required columns: "
+                    f"{missing}"
+                )
+
+            ts["interval"] = pd.to_datetime(
+                ts["interval"],
+                errors="raise"
             )
 
-            logging.error(
-                f"[main] Available cohorts: "
-                f"{list(cohorts.keys())}"
+            ts["census"] = pd.to_numeric(
+                ts["census"],
+                errors="raise"
             )
 
-            continue
+            ts = ts[
+                (ts["interval"] >= start_date)
+                &
+                (ts["interval"] <= end_date)
+            ]
 
-        if cohort_id not in cohort_cache:
-            cohort_cache[cohort_id] = apply_filter(df, cohort_meta.get("filter"))
+            census_df = ts.copy()
 
-        cohort_df = cohort_cache[cohort_id]
-        if cohort_df.empty:
-            logging.warning(f"[main] No data for {cohort_id}")
-            continue
+            logger.info(
+                f"[{VISUAL_ID}] Loaded bypass census file. "
+                f"Intervals: {len(ts):,}"
+            )
 
-        cohort_output_dir = os.path.join(output_dir, cohort_id)
-        os.makedirs(cohort_output_dir, exist_ok=True)
+        else:
 
-        start_date = row.get("start_date")
-        end_date = row.get("end_date")
+            logger.info(
+                f"[{VISUAL_ID}] Dataset received after helper preparation. "
+                f"Rows available for census generation: {len(df):,}"
+            )
 
-        start_date, end_date = normalize_reporting_window(
+            logger.info(
+                f"[{VISUAL_ID}] Building census timeline from "
+                f"{len(df):,} encounters."
+            )
+
+            ts, census_df = generate_census(
+                df,
+                start_date,
+                end_date
+            )
+
+            logger.info(
+                f"[{VISUAL_ID}] Census dataset generated. "
+                f"Intervals: {len(ts):,} "
+                f"Census df: {len(census_df):,}"
+            )
+
+        enable_rdb = int(params.get("rdb_write", 0))
+        rdb_rows = []
+
+        # =========================================================
+        # VISUALIZATION
+        # =========================================================
+
+        capacity_value = _get_float(params, "capacity_value", None)
+        include_avg_line = _get_bool(params, "include_avg_line", True)
+        chart_title = _get_str(params, "chart_title", "Facility Census Trend")
+        capacity_threshold_pct = _get_float(params, "capacity_threshold_pct", 0.8)
+        below_color = params.get("below_color", "black")
+        above_color = params.get("above_color", "red")
+        font_family = _get_str(
+            params,
+            "font_family",
+            "Segoe UI"
+        )
+        plt.rcParams["font.family"] = font_family
+
+        figure_width = _get_float(
+            params,
+            "figure_width",
+            14
+        )
+
+        figure_height = _get_float(
+            params,
+            "figure_height",
+            6
+        )
+
+        plt.figure(
+            figsize=(figure_width, figure_height)
+        )
+
+        title_height = float(
+            params.get("title_height", 0.6) or 0.6
+        )
+
+        title_width = float(
+            params.get("title_width", 6.25) or 6.25
+        )
+
+        subtitle_fontsize = int(
+            params.get("subtitle_fontsize", 12) or 12
+        )
+
+        title_background_color = str(
+            params.get(
+                "title_background_color",
+                "#d9d9d9"
+            )
+        )
+
+        title_weight = str(
+            params.get(
+                "title_weight",
+                "bold"
+            )
+        )
+
+        tick_fontsize = _get_float(
+            params,
+            "tick_fontsize",
+            10
+        )
+
+        legend_fontsize = _get_float(
+            params,
+            "legend_fontsize",
+            10
+        )
+
+        dpi = _get_float(
+            params,
+            "dpi",
+            300
+        )
+
+        legend_width = _get_float(
+            params,
+            "legend_width",
+            10
+        )
+
+        legend_height = _get_float(
+            params,
+            "legend_height",
+            10
+        )
+
+        line_width = _get_float(
+        params,
+        "line_width",
+        0.8
+        )
+
+        capacity_linestyle = _get_str(
+            params,
+            "capacity_linestyle",
+            "--"
+        )
+
+        capacity_linewidth = _get_float(
+            params,
+            "capacity_linewidth",
+            1.5
+        )
+
+        avg_linestyle = _get_str(
+            params,
+            "avg_linestyle",
+            ":"
+        )
+
+        avg_linewidth = _get_float(
+            params,
+            "avg_linewidth",
+            1.5
+        )
+
+        avg_line_color = _get_str(
+            params,
+            "avg_line_color",
+            "black"
+        )
+
+        y_axis_mode = _get_str(
+            params,
+            "y_axis_mode",
+            "count"
+        )
+
+        y_axis_decimals = int(
+            _get_float(
+                params,
+                "y_axis_decimals",
+                0
+            )
+        )
+
+        y_axis_multiplier = _get_float(
+            params,
+            "y_axis_multiplier",
+            1
+        )
+
+        y_axis_suffix = _get_str(
+            params,
+            "y_axis_suffix",
+            ""
+        )
+
+        # -----------------------------------------------------
+        # TREND / PROJECTION PARAMETERS
+        # -----------------------------------------------------
+        enable_trend_projection = _get_bool(
+            params,
+            "enable_trend_projection",
+            False
+        )
+
+        trend_input_months = int(
+            _get_float(
+                params,
+                "trend_input_months",
+                12
+            ) or 12
+        )
+
+        trend_start_month = _get_str(
+            params,
+            "trend_start_month",
+            ""
+        ).strip()
+
+        projection_months = int(
+            _get_float(
+                params,
+                "projection_months",
+                3
+            ) or 3
+        )
+
+        trend_line_color = _get_str(
+            params,
+            "trend_line_color",
+            "#1f77b4"
+        )
+
+        trend_linewidth = _get_float(
+            params,
+            "trend_linewidth",
+            2.0
+        )
+
+        trend_linestyle = _get_str(
+            params,
+            "trend_linestyle",
+            "-"
+        )
+
+        projection_line_color = _get_str(
+            params,
+            "projection_line_color",
+            "#ff7f0e"
+        )
+
+        projection_linewidth = _get_float(
+            params,
+            "projection_linewidth",
+            2.0
+        )
+
+        projection_linestyle = _get_str(
+            params,
+            "projection_linestyle",
+            "--"
+        )
+
+        show_confidence_band = _get_bool(
+            params,
+            "show_confidence_band",
+            False
+        )
+
+        confidence_level = _get_float(
+            params,
+            "confidence_level",
+            0.95
+        )
+
+        confidence_fill_color = _get_str(
+            params,
+            "confidence_fill_color",
+            "#1f77b4"
+        )
+
+        confidence_alpha = _get_float(
+            params,
+            "confidence_alpha",
+            0.15
+        )
+
+        # -----------------------------------------------------
+        # THRESHOLD LOGIC 
+        # -----------------------------------------------------
+        if capacity_value is not None:
+            threshold = capacity_value * capacity_threshold_pct
+
+            below = ts["census"] <= threshold
+            above = ts["census"] > threshold
+        else:
+            below = pd.Series(True, index=ts.index)
+            above = pd.Series(False, index=ts.index)
+
+        # -----------------------------------------------------
+        # MAIN LINE 
+        # -----------------------------------------------------
+        below_line, = plt.plot(
+            ts["interval"],
+            ts["census"],
+            color=below_color,
+            linewidth=line_width,
+            label="Census",
+            zorder=2
+        )
+
+        above_line = None
+
+        # -----------------------------------------------------
+        # ABOVE-THRESHOLD OVERLAY
+        # -----------------------------------------------------
+        if capacity_value is not None:
+
+            above_line, = plt.plot(
+                ts["interval"],
+                ts["census"].where(above),
+                color=above_color,
+                linewidth=line_width + 0.3,
+                label=f"Census (>{int(capacity_threshold_pct*100)}%)",
+                zorder=3
+            )
+
+        # -----------------------------------------------------
+        # CAPACITY LINE
+        # -----------------------------------------------------
+        if capacity_value is not None:
+            capacity_line = None
+
+            if capacity_value is not None:
+
+                capacity_line = plt.axhline(
+                    y=capacity_value,
+                    linestyle=capacity_linestyle,
+                    linewidth=capacity_linewidth,
+                    color="dodgerblue",
+                    label=f"Capacity ({capacity_value})",
+                    zorder=10
+                )
+
+        # -----------------------------------------------------
+        # AVERAGE LINE
+        # -----------------------------------------------------
+        avg_line = None
+
+        if include_avg_line:
+
+            avg_census = ts["census"].mean()
+
+            avg_line = plt.axhline(
+                y=avg_census,
+                color=avg_line_color,
+                linestyle=avg_linestyle,
+                linewidth=avg_linewidth,
+                label=f"Average ({round(avg_census,1)})",
+                zorder=11
+            )
+
+        # -----------------------------------------------------
+        # OLS TREND / PROJECTION
+        # -----------------------------------------------------
+        trend_line = None
+        projection_line = None
+        confidence_band = None
+        projection_df = pd.DataFrame()
+
+        projection_df = pd.DataFrame()
+
+        projection_table_df = pd.DataFrame(
+            columns=[
+                "Period",
+                "Projected Census"
+            ]
+        )
+
+        projection_table_start_month = int(
+            _get_float(
+                params,
+                "projection_table_start_month",
+                180
+            ) or 180
+        )
+
+        projection_table_interval_months = int(
+            _get_float(
+                params,
+                "projection_table_interval_months",
+                60
+            ) or 60
+        )
+
+        projection_table_rows = int(
+            _get_float(
+                params,
+                "projection_table_rows",
+                3
+            ) or 3
+        )
+
+        projection_plot_months = int(
+            _get_float(
+                params,
+                "projection_plot_months",
+                projection_months
+            ) or projection_months
+        )    
+
+        if enable_trend_projection:
+
+            logger.info(
+                f"[{VISUAL_ID}] Building OLS trend projection"
+            )
+
+            if trend_start_month:
+
+                training_start = pd.to_datetime(
+                    trend_start_month
+                )
+
+            else:
+
+                training_start = ts[
+                    "interval"
+                ].min()
+
+            training_end = (
+                training_start
+                + pd.DateOffset(
+                    months=trend_input_months
+                )
+            )
+
+            logger.info(
+                f"[{VISUAL_ID}] Trend model window: "
+                f"{training_start:%Y-%m-%d} "
+                f"through "
+                f"{training_end:%Y-%m-%d}"
+            )
+
+            training_df = ts[
+                (
+                    ts["interval"]
+                    >= training_start
+                )
+                &
+                (
+                    ts["interval"]
+                    < training_end
+                )
+            ].copy()
+
+            if training_df.empty:
+
+                logger.warning(
+                    f"[{VISUAL_ID}] No data in "
+                    "specified trend window."
+                )
+
+                enable_trend_projection = False
+
+            if len(training_df) >= 5:
+
+                base_date = training_df[
+                    "interval"
+                ].min()
+
+                x_train = (
+                    training_df["interval"]
+                    - base_date
+                ).dt.total_seconds() / 86400.0
+
+                y_train = training_df["census"]
+
+                slope, intercept = np.polyfit(
+                    x_train,
+                    y_train,
+                    1
+                )
+
+                training_df["trend"] = (
+                    intercept
+                    + slope * x_train
+                )
+
+                # ------------------------------------------
+                # CONFIDENCE INTERVALS
+                # ------------------------------------------
+                n = len(x_train)
+
+                residuals = (
+                    y_train
+                    - training_df["trend"]
+                )
+
+                mse = np.sum(
+                    residuals ** 2
+                ) / (n - 2)
+
+                mean_x = np.mean(x_train)
+
+                sxx = np.sum(
+                    (x_train - mean_x) ** 2
+                )
+
+                standard_error = np.sqrt(
+                    mse * (
+                        (1 / n)
+                        +
+                        (
+                            (x_train - mean_x) ** 2
+                            / sxx
+                        )
+                    )
+                )
+
+                z_score = 1.96
+
+                training_df["ci_upper"] = (
+                    training_df["trend"]
+                    + z_score * standard_error
+                )
+
+                training_df["ci_lower"] = (
+                    training_df["trend"]
+                    - z_score * standard_error
+                )
+
+                trend_line, = plt.plot(
+                    training_df["interval"],
+                    training_df["trend"],
+                    color=trend_line_color,
+                    linewidth=trend_linewidth,
+                    linestyle=trend_linestyle,
+                    label=(
+                        f"Trend "
+                        f"({training_start:%Y-%m}"
+                        f" + {trend_input_months} mo)"
+                    ),
+                    zorder=12
+                )
+
+                if show_confidence_band:
+
+                    confidence_band = plt.fill_between(
+                        training_df["interval"],
+                        training_df["ci_lower"],
+                        training_df["ci_upper"],
+                        color=confidence_fill_color,
+                        alpha=confidence_alpha,
+                        label="95% Confidence Band",
+                        zorder=8
+                    )
+
+                projection_anchor = (
+                    pd.Timestamp(
+                        ts["interval"].max()
+                    ).to_period("M")
+                    .to_timestamp()
+                )
+
+                future_dates = pd.date_range(
+                    start=projection_anchor,
+                    periods=projection_months + 1,
+                    freq="MS"
+                )
+
+                future_x = (
+                    future_dates
+                    - base_date
+                ).total_seconds() / 86400.0
+
+                future_census = (
+                    intercept
+                    + slope * future_x
+                )
+
+                projection_standard_error = np.sqrt(
+                    mse * (
+                        (1 / n)
+                        +
+                        (
+                            (future_x - mean_x) ** 2
+                            / sxx
+                        )
+                    )
+                )
+
+                future_upper = (
+                    future_census
+                    + z_score * projection_standard_error
+                )
+
+                future_lower = (
+                    future_census
+                    - z_score * projection_standard_error
+                )
+
+                projection_df = pd.DataFrame({
+                    "interval": future_dates,
+                    "census": future_census,
+                    "ci_upper": future_upper,
+                    "ci_lower": future_lower,
+                    "record_type": "projection"
+                })
+
+                projection_df["month_offset"] = range(
+                    len(projection_df)
+                )
+
+                table_rows = []
+
+                for i in range(projection_table_rows):
+
+                    month_offset = (
+                        projection_table_start_month
+                        + i * projection_table_interval_months
+                    )
+
+                    matching_row = projection_df[
+                        projection_df["month_offset"]
+                        == month_offset
+                    ]
+
+                    if matching_row.empty:
+                        continue
+
+                    projected_value = (
+                        matching_row.iloc[0]["census"]
+                    )
+
+                    table_rows.append({
+                        "Period": format_projection_period(
+                            month_offset
+                        ),
+                        "Projected Census": round(
+                            projected_value,
+                            1
+                        )
+                    })
+
+                projection_table_df = pd.DataFrame(table_rows)
+
+                plot_projection_df = projection_df[
+                    projection_df["month_offset"]
+                    <= projection_plot_months
+                ]
+
+                projection_line, = plt.plot(
+                    plot_projection_df["interval"],
+                    plot_projection_df["census"],
+                    color=projection_line_color,
+                    linewidth=projection_linewidth,
+                    linestyle=projection_linestyle,
+                    label=(
+                        f"Projection "
+                        f"({projection_months} mo)"
+                    ),
+                    zorder=13
+                )
+
+                if show_confidence_band:
+
+                    plt.fill_between(
+                        plot_projection_df["interval"],
+                        plot_projection_df["ci_lower"],
+                        plot_projection_df["ci_upper"],
+                        color=confidence_fill_color,
+                        alpha=confidence_alpha,
+                        zorder=7
+                    )
+
+                logger.info(
+                    f"[{VISUAL_ID}] Projection records generated: "
+                    f"{len(projection_df):,}"
+                )
+
+            else:
+
+                logger.warning(
+                    f"[{VISUAL_ID}] Not enough records "
+                    f"for trend projection."
+                )
+
+        # =========================================================
+        # OUTPUT CSV
+        # =========================================================
+        filename = generate_output_name(
+            visual_id=VISUAL_ID,
+            start_date=start_date,
+            end_date=end_date,
+            cohort_id=params.get("cohort_id"),
+            ext="csv"
+        )
+        output_path = os.path.join(output_dir, filename)
+
+        output_df = ts.copy()
+
+        output_df["record_type"] = "actual"
+
+        if (
+            enable_trend_projection
+            and not projection_df.empty
+        ):
+
+            output_df = pd.concat(
+                [
+                    output_df,
+                    projection_df[
+                        [
+                            "interval",
+                            "census",
+                            "record_type"
+                        ]
+                    ]
+                ],
+                ignore_index=True
+            )
+
+        output_df.to_csv(
+            output_path,
+            index=False
+        )
+
+        # Labels
+        title_fontsize = _get_float(
+            params,
+            "title_fontsize",
+            16
+        )
+
+        label_fontsize = _get_float(
+            params,
+            "label_fontsize",
+            12
+        )
+
+        x_label = _get_str(
+            params,
+            "x_label",
+            "Time"
+        )
+
+        plt.xlabel(
+            x_label,
+            fontsize=label_fontsize,
+            fontfamily=font_family
+        )
+        y_label = _get_str(
+            params,
+            "y_label",
+            "Facility Census"
+        )
+
+        plt.ylabel(
+            y_label,
+            fontsize=label_fontsize,
+            fontfamily=font_family
+        )
+
+        # Improve x-axis readability
+        plt.gcf().autofmt_xdate()
+
+        ax = plt.gca()
+
+        apply_yaxis_format(
+            ax,
+            mode=y_axis_mode,
+            decimals=y_axis_decimals,
+            multiplier=y_axis_multiplier,
+            suffix=y_axis_suffix
+        )
+
+        for tick in ax.get_xticklabels():
+            tick.set_fontfamily(font_family)
+            tick.set_fontsize(tick_fontsize)
+
+        for tick in ax.get_yticklabels():
+            tick.set_fontfamily(font_family)
+            tick.set_fontsize(tick_fontsize)
+
+        plt.tight_layout()
+
+        # Save PNG
+        png_filename = generate_output_name(
+            visual_id=VISUAL_ID,
+            start_date=start_date,
+            end_date=end_date,
+            cohort_id=params.get("cohort_id"),
+            ext="png"
+        )
+        png_path = os.path.join(output_dir, png_filename)
+
+        plt.savefig(
+            png_path,
+            dpi=int(dpi)
+        )
+
+        date_range = format_date_range(
             start_date,
             end_date
         )
 
-        params = row_to_params(row)
-        params.update({
-            "cohort_id": cohort_id,
-            "filter_str": cohort_meta.get("filter"),
-            "cohort_desc": cohort_meta.get("description"),
-            "visual_name": row.get("name"),
-            "run_id": run_id,
-            "domain": cohort_meta.get("domain"),
-            "client_name": row.get("client_name"),
-            "cohort_locations_file": COHORT_LOCATIONS_FILE,
-            "year_type": row.get("year_type"),
-            "write_rdb": row.get("write_rdb"),
-            "start_date": start_date,
-            "end_date": end_date,
-            "visual_id": report_id,
-            "report_id": report_id
-        })
-
-        vis_func = get_visual_function(report_id)
-        if vis_func is None:
-            continue
-
-        logging.info(
-            "[main] Executing "
-            f"visual={report_id} "
-            f"cohort={cohort_id} "
-            f"cohort_file={cohort_meta.get('cohort_file')} "
-            f"cohort_desc={cohort_meta.get('description')}"
-        )
-
-        result = vis_func(
-            cohort_df,
-            params,
-            start_date,
-            end_date,
-            cohort_output_dir,
-            generate_output_name
-        )
-
-        if result and "rdb" in result:
-            for rec in result["rdb"]:
-                rec["visual_id"] = report_id
-                rec["visual_name"] = row.get("name")
-            rdb_records.extend(result["rdb"])
-
-    return rdb_records
-
-# =========================
-# ENTRY POINT
-# =========================
-parser = argparse.ArgumentParser()
-
-parser.add_argument(
-    "--update-processing-driver",
-    action="store_true",
-    help=(
-        "Overwrite input/params/processing_driver.csv "
-        "when rebuilding processing driver"
-    )
-)
-
-args = parser.parse_args()
-
-if __name__ == "__main__":
-
-    run_dir, output_dir = initialize_run()
-
-    logging.info(f"[main] Run initialized: {run_dir}")
-
-    run_id = os.path.basename(run_dir)
-
-    driver_df = load_driver(VIS_DRIVER_FILE)
-
-    enabled_visuals = set(
-        driver_df[
-            pd.to_numeric(
-                driver_df["enabled"],
-                errors="coerce"
-            ).fillna(0).astype(int) == 1
-        ]["visual_id"]
-    )
-
-    processing_driver_file = os.path.join(run_dir, "processing_driver.csv")
-
-    if PROCESSING_MODE == "parameters_only":
-
-        all_cohorts = load_all_cohorts()
-
-        build_processing_driver(
-            cohorts=all_cohorts,
-            visual_driver_df=driver_df,
-            param_dir=PARAM_DIR,
-            output_file=processing_driver_file
-        )
-
-        logging.info(
-            f"[main] Processing driver generated successfully."
-        )
-
-        if args.update_processing_driver:
-            mirror_processing_driver_to_params(run_dir)
-
-            logging.info(
-                f"[main] Updated input/params/processing_driver.csv"
-            )
-
-        raise SystemExit(0)
-
-    processing_driver_file = os.path.join(PARAM_DIR, "processing_driver.csv")
-    if not os.path.exists(processing_driver_file):
-        logging.error(f"[main] Missing processing driver: {processing_driver_file}")
-        raise SystemExit(1)
-
-    processing_driver_df = load_processing_driver(processing_driver_file)
-
-    if processing_driver_df.empty:
-        logging.error(f"[main] Processing driver file is empty.")
-        raise SystemExit(1)
-
-    logging.info(f"[main] Using processing driver: {processing_driver_file}")
-
-    all_rdb_records = []
-
-    for domain, config in DOMAINS.items():
-
-        logging.info(f"[main] Starting domain: {domain}")
-
-        expected_domain = str(config.get("domain", domain)).strip().lower()
-
-        domain_driver_df = processing_driver_df[
-            processing_driver_df["domain"].astype(str).str.strip().str.lower() == expected_domain
-        ].copy()
-
-        if domain_driver_df.empty:
-            logging.info(
-                f"[main] No processing requests for domain {domain}; skipping."
-            )
-            continue
-
-        df = load_data(
-            os.path.join(
-                INPUT_DIR,
-                config["data_file"]
-            )
-        )
-
-        domain_mapping = mappings.get(
-            expected_domain,
-            {}
-        )
-
-        df = apply_standard_mappings(
-            df,
-            domain_mapping
-        )
-
-        cohorts = load_cohort_params(
-            os.path.join(
-                PARAM_DIR,
-                "cohorts",
-                config["cohort_dir"]
-            )
-        )
-
-        rdb = run_visuals(
-            df,
-            domain_driver_df,
-            cohorts,
+        title_output_file = os.path.join(
             output_dir,
-            enabled_visuals
+            generate_output_name(
+                visual_id=f"{VISUAL_ID}_title",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
         )
 
-        if rdb:
-            all_rdb_records.extend(rdb)
+        save_title_png(
+            title=chart_title,
+            subtitle=date_range,
+            output_file=title_output_file,
+            width=title_width,
+            height=title_height,
+            dpi=int(dpi),
+            font_family=font_family,
+            title_fontsize=int(title_fontsize),
+            subtitle_fontsize=subtitle_fontsize,
+            background_color=title_background_color,
+            title_weight=title_weight
+        )
 
-    master_rdb_df = pd.DataFrame(all_rdb_records)
+        legend_handles = [
+            below_line
+        ]
 
-    master_rdb_df.to_csv(
-        os.path.join(
+        legend_labels = [
+            below_line.get_label()
+        ]
+
+        if above_line is not None:
+
+            legend_handles.append(
+                above_line
+            )
+
+            legend_labels.append(
+                above_line.get_label()
+            )
+
+        if capacity_line is not None:
+
+            legend_handles.append(
+                capacity_line
+            )
+
+            legend_labels.append(
+                capacity_line.get_label()
+            )
+
+        if avg_line is not None:
+
+            legend_handles.append(
+                avg_line
+            )
+
+            legend_labels.append(
+                avg_line.get_label()
+            )
+
+        if trend_line is not None:
+
+            legend_handles.append(
+                trend_line
+            )
+
+            legend_labels.append(
+                trend_line.get_label()
+            )
+
+        if projection_line is not None:
+
+            legend_handles.append(
+                projection_line
+            )
+
+            legend_labels.append(
+                projection_line.get_label()
+            )
+
+        if confidence_band is not None:
+
+            legend_handles.append(
+                confidence_band
+            )
+
+            legend_labels.append(
+                "95% Confidence Band"
+            )
+
+        legend_output_file = os.path.join(
             output_dir,
-            "rdb_domain_cohort_metrics.csv"
-        ),
-        index=False
-    )
-
-mapping_helpers.py:
-
-import logging
-import pandas as pd
-from utils.col_helpers import (
-    prepare_common_columns
-)
-
-logger = logging.getLogger(__name__)
-
-def load_mapping_file(mapping_file):
-
-    df = pd.read_csv(mapping_file)
-
-    mappings = {}
-
-    for domain in df["domain"].dropna().unique():
-
-        domain_df = df[
-            df["domain"].astype(str).str.lower()
-            == str(domain).lower()
-        ]
-
-        field_mappings = {}
-
-        value_mappings = []
-
-        active_df = domain_df[
-            domain_df["active_flag"]
-            .astype(str)
-            .str.upper()
-            .isin(["Y", "YES", "TRUE", "1"])
-        ]
-
-        field_rows = active_df[
-            active_df["mapping_type"]
-            .astype(str)
-            .str.lower()
-            == "field"
-        ]
-
-        logger.info(
-            f"[mapping] Loaded {len(field_rows)} field rows "
-            f"for domain={domain}"
-        )
-
-        value_rows = active_df[
-            active_df["mapping_type"]
-            .astype(str)
-            .str.lower()
-            == "value"
-        ]
-
-        logger.info(
-            f"[mapping] Loaded {len(value_rows)} value rows "
-            f"for domain={domain}"
-        )
-
-        for _, row in field_rows.iterrows():     
-
-            field_mappings[
-                row["source_field"]
-            ] = {
-                "target_field": row["target_field"],
-                "source_format": row["source_format"],
-                "target_format": row["target_format"]
-            }
-
-            logger.info(
-                f"[mapping] Registered field mapping "
-                f"{row['source_field']} -> "
-                f"{row['target_field']} "
-                f"({row['source_format']} -> "
-                f"{row['target_format']})"
+            generate_output_name(
+                visual_id=f"{VISUAL_ID}_legend",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
             )
-
-        grouped = value_rows.groupby(
-            [
-                "source_field",
-                "target_field",
-                "source_format",
-                "target_format"
-            ]
         )
 
-        for (
-            source_field,
-            target_field,
-            source_format,
-            target_format
-        ), group in grouped:
+        save_legend_png(
+            handles=legend_handles,
+            labels=legend_labels,
+            output_file=legend_output_file,
+            ncol=1,
+            font_family=font_family,
+            font_size=legend_fontsize,
+            width=legend_width,
+            height=legend_height
+        )
 
-            mapping_dict = {}
-
-            for _, row in group.iterrows():
-
-                normalized_key = (
-                    normalize_field_format(
-                        pd.Series([row["source_value"]]),
-                        source_format
-                    )
-                    .iloc[0]
-                )
-
-                mapping_dict[normalized_key] = row["target_value"]
-
-                logger.info(
-                    f"[mapping] normalized_key={normalized_key!r}"
-                )                  
-
-            value_mappings.append(
-                {
-                    "domain": str(domain).lower(),
-                    "source_field": source_field,
-                    "target_field": target_field,
-                    "source_format": source_format,
-                    "target_format": target_format,
-                    "mapping": mapping_dict,
-                    "mapping_type": "value"
-                }
+        projection_table_output_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=f"{VISUAL_ID}_projection_table",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
             )
+        )
 
-        mappings[str(domain).lower()] = {
-            "field_mappings": field_mappings,
-            "value_mappings": value_mappings
+        save_projection_table_png(
+            df=projection_table_df,
+            output_file=projection_table_output_file,
+            font_family=font_family
+        )
+
+        plt.close()
+
+        write_rdb = int(params.get("write_rdb", 0))
+
+        if write_rdb == 1:
+            for _, row in ts.iterrows():
+
+                census_value = row["census"]
+
+                if pd.isna(census_value):
+                    continue
+
+                rdb_rows.append({
+                    "run_id": params.get("run_id"),
+                    "visual_id": VISUAL_ID,
+                    "client_name": params.get("client_name"),
+
+                    "domain": params.get("domain"),
+                    "cohort_id": params.get("cohort_id"),
+
+                    "domain_cohort":
+                        f"{params.get('domain')}.{params.get('cohort_id')}",
+
+                    "dimension": "interval",
+                    "dimension_value": row["interval"],
+                    "dimension_value_label":
+                        row["interval"].strftime("%Y-%m-%d %H:%M"),
+
+                    "secondary_dimension": None,
+                    "secondary_dimension_value": None,
+
+                    "metric": "ed_census",
+                    "metric_type": "count",
+                    "value": int(census_value),
+
+                    "start_date": start_date,
+                    "end_date": end_date,
+
+                    "report_title": chart_title
+                }) 
+
+            if (
+                enable_trend_projection
+                and not projection_df.empty
+            ):
+
+                for _, row in projection_df.iterrows():
+
+                    rdb_rows.append({
+
+                        "run_id": params.get("run_id"),
+                        "visual_id": VISUAL_ID,
+
+                        "client_name": params.get(
+                            "client_name"
+                        ),
+
+                        "domain": params.get("domain"),
+                        "cohort_id": params.get(
+                            "cohort_id"
+                        ),
+
+                        "domain_cohort":
+                            f"{params.get('domain')}."
+                            f"{params.get('cohort_id')}",
+
+                        "dimension": "interval",
+
+                        "dimension_value":
+                            row["interval"],
+
+                        "dimension_value_label":
+                            row["interval"].strftime(
+                                "%Y-%m-%d"
+                            ),
+
+                        "secondary_dimension":
+                            "record_type",
+
+                        "secondary_dimension_value":
+                            "projection",
+
+                        "metric":
+                            "ed_census_projection",
+
+                        "metric_type":
+                            "forecast",
+
+                        "value":
+                            float(row["census"]),
+
+                        "start_date":
+                            start_date,
+
+                        "end_date":
+                            end_date,
+
+                        "report_title":
+                            chart_title
+
+                    })       
+
+        logger.info(f"[{VISUAL_ID}] Outputs saved: CSV and PNG")
+
+        return {
+            "output_path": png_path,
+            "rdb": rdb_rows
         }
 
-    return mappings
-
-def normalize_field_format(
-    series,
-    format_type
-):
-
-    format_type = str(format_type).lower()
-
-    if format_type == "str":
-
-        return (
-            series
-            .fillna("")
-            .astype(str)
-            .str.strip()
-            .str.lower()
-        )
-
-    if format_type == "int":
-
-        return (
-            pd.to_numeric(
-                series,
-                errors="coerce"
-            )
-            .astype("Int64")
-            .astype(str)
-            .replace("<NA>", "")
-        )
-
-    if format_type == "zip5":
-
-        return (
-            series
-            .fillna("")
-            .astype(str)
-            .str.extract(r"(\d+)", expand=False)
-            .fillna("")
-            .str[:5]
-            .str.zfill(5)
-        )
-
-    return (
-        series
-        .fillna("")
-        .astype(str)
-        .str.strip()
-        .str.lower()
-    )
-
-def apply_target_format(series, format_type):
-
-    format_type = str(format_type).lower()
-
-    if format_type == "str":
-        return (
-            series
-            .fillna("")
-            .astype(str)
-        )
-
-    if format_type == "int":
-        return pd.to_numeric(
-            series,
-            errors="coerce"
-        )
-
-    if format_type == "datetime":
-
-        return pd.to_datetime(
-            series,
-            errors="coerce"
-        )
-
-    if format_type == "zip5":
-        return (
-            series
-            .fillna("")
-            .astype(str)
-            .str.extract(r"(\d+)", expand=False)
-            .fillna("")
-            .str.zfill(5)
-            .str[:5]
-        )
-
-    return series
-
-def apply_field_mappings(df, field_mappings):
-
-    for source_field, config in field_mappings.items():
-
-        logger.info(
-            f"[mapping] Field mapping "
-            f"source={source_field} "
-            f"target={config['target_field']} "
-            f"source_format={config.get('source_format')} "
-            f"target_format={config.get('target_format')}"
-        )
-
-        if source_field not in df.columns:
-            logger.warning(
-                f"[mapping] Missing source field: {source_field}"
-            )
-            continue
-
-        target_field = config["target_field"]
-
-        normalized_source = normalize_field_format(
-            df[source_field],
-            config.get("source_format", "str")
-        )
-
-        transformed_target = apply_target_format(
-            normalized_source,
-            config.get("target_format", "str")
-        )
-
-        logger.info(
-            f"[mapping] Result "
-            f"{target_field} dtype="
-            f"{transformed_target.dtype}"
-        )
-
-        df[target_field] = transformed_target
-
-    return df
-
-def apply_value_mappings(
-    df,
-    value_mappings
-):
-
-    for config in value_mappings:
-
-        source_field = config["source_field"]
-        target_field = config["target_field"]
-        mapping = config["mapping"]
-        domain = config["domain"]
-
-        if source_field not in df.columns:
-
-            logger.warning(
-                f"[mapping] Missing source field: "
-                f"{source_field}"
-            )
-
-            continue
-
-        raw_source_values = df[source_field]
-
-        source_values = normalize_field_format(
-            df[source_field],
-            config.get("source_format", "str")
-        )
-
-        logger.info(
-            f"[mapping] source_field={source_field} "
-        )
-
-        raw_mapped_values = source_values.map(mapping)
-
-        total_values = (
-            source_values.notna()
-            & (source_values.astype(str) != "")
-        ).sum()
-
-        mapped_count = raw_mapped_values.notna().sum()
-
-        logger.info(
-            f"[mapping] Coverage "
-            f"source_field={source_field} "
-            f"mapped={mapped_count:,}/{total_values:,} "
-            f"({mapped_count/max(total_values,1):.2%})"
-        )
-
-        unmapped_values = sorted(
-            {
-                str(v)
-                for v in source_values[
-                    raw_mapped_values.isna()
-                    & source_values.notna()
-                    & (source_values.astype(str) != "")
-                ]
-            }
-        )
-
-        mapped_values = apply_target_format(
-            raw_mapped_values,
-            config.get("target_format", "str")
-        )
-
-        if unmapped_values:
-
-            logger.warning(
-                f"[mapping] Unmapped values "
-                f"source_field={source_field} "
-                f"target_field={target_field} "
-                f"values={unmapped_values[:20]}"
-            )
-
-            logger.warning(
-                "[mapping] Suggested mapping rows:"
-            )
-
-            for value in unmapped_values[:50]:
-
-                logger.warning(
-                    f"{config.get('domain','*')},"
-                    f"value,"
-                    f"{source_field},"
-                    f"{config.get('source_format','str')},"
-                    f"{value},"
-                    f"{target_field},"
-                    f"{config.get('target_format','str')},"
-                    f"TODO,Y"
-                )
-
-            unmapped_counts = (
-                source_values[
-                    raw_mapped_values.isna()
-                    & source_values.notna()
-                    & (source_values.astype(str) != "")
-                ]
-                .value_counts()
-            )
-
-            logger.warning(
-                "[mapping] Unmapped values audit:"
-            )
-
-            for value, count in unmapped_counts.items():
-
-                logger.warning(
-                    f"[mapping] value={value!r} "
-                    f"count={count:,}"
-                )        
-
-            logger.warning(
-                "[mapping] Recommended mappings.csv additions:"
-            )
-
-            for value, count in unmapped_counts.items():
-
-                logger.warning(
-                    f"# occurrences={count:,}"
-                )
-
-                logger.warning(
-                    f"{config.get('domain','*')},"
-                    f"value,"
-                    f"{source_field},"
-                    f"{config.get('source_format','str')},"
-                    f"{value},"
-                    f"{target_field},"
-                    f"{config.get('target_format','str')},"
-                    f"TODO,"
-                    f"Y"
-                )
-
-        df[target_field] = mapped_values
-
-    return df
-
-def apply_standard_mappings(
-    df,
-    domain_mapping
-):
-
-    field_mappings = domain_mapping.get(
-        "field_mappings",
-        {}
-    )
-
-    value_mappings = domain_mapping.get(
-        "value_mappings",
-        []
-    )
-
-    logger.info(
-        f"[mapping] Field mappings loaded: "
-        f"{len(field_mappings)}"
-    )
-
-    logger.info(
-        f"[mapping] Value mappings loaded: "
-        f"{len(value_mappings)}"
-    )
-
-    df = apply_field_mappings(
-        df,
-        field_mappings
-    )
-
-    df = apply_value_mappings(
-        df,
-        value_mappings
-    )
-
-    required_fields = [
-        "patient_zipcode"
-    ]
-
-    missing_fields = [
-        col
-        for col in required_fields
-        if col not in df.columns
-    ]
-
-    if missing_fields:
-
-        logger.warning(
-            "[mapping] Missing required "
-            f"standardized fields: "
-            f"{missing_fields}"
-        )
-
-    for col in [
-        "arrival_dtm",
-        "tmt_start_dtm",
-        "tmt_stop_dtm"
-    ]:
-        if col in df.columns:
-
-            logger.info(
-                f"[mapping] Final column "
-                f"{col} dtype={df[col].dtype}"
-            )
-
-    df = prepare_common_columns(df)
-
-    return df
+    except Exception as e:
+        logger.error(f"[{VISUAL_ID}] Failed: {str(e)}")
 
 The problem I'm experiencing is:
 
-I desire a simplification of our mapping auditing...all I really desire is to see the values mapping, the distribution of the records that fit it, and any leftover records so I can iterate over mappings.csv until I catch all the records.
+Our plot is not respecting projection_plot_months 
 
 Please analyze the implementation in the context of the attached framework, then provide production-ready recommendations consistent with the framework conventions demonstrated in the attached files.

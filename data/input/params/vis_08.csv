@@ -34,8 +34,8 @@ below_color,#000000
 above_color,#d62728
 
 ### ===== CAPACITY =====
-capacity_value,39
-capacity_threshold_pct,0.8
+capacity_value,24
+capacity_threshold_pct,0.85
 capacity_linestyle,--
 capacity_linewidth,1.5
 
@@ -59,15 +59,20 @@ save_png,True
 save_csv,True
 
 ### ===== CENSUS BYPASS =====
-bypass_census_csv,C:\lwf\sbx-data-vis\data\input\lc_adf_med_census.csv
+bypass_census_csv,
 
 #### ===== OLS TREND PROJECTION =====
 
 enable_trend_projection,True
 
-trend_start_month,2022-01-01
+trend_start_month,2020-04-01
 trend_input_months,60
-projection_months,120
+projection_months,300
+projection_plot_months,6
+
+projection_table_start_month,180
+projection_table_interval_months,60
+projection_table_rows,3
 
 trend_line_color,#1f77b4
 trend_linewidth,2.0

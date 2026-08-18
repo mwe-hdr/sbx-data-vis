@@ -1,3 +1,4 @@
 domain,mapping_type,source_field,source_format,source_value,target_field,target_format,target_value,active_flag
-ed,field,ed_start_dtm,str,,arrival_dtm,datetime,,Y
-ed,field,ed_stop_dtm,str,,tmt_stop_dtm,datetime,,Y
+adf,field,housing_st_dtm,str,,arrival_dtm,datetime,,Y
+adf,field,housing_st_cpy_dtm,str,,tmt_start_dtm,datetime,,Y
+adf,field,housing_end_dtm,str,,tmt_stop_dtm,datetime,,Y

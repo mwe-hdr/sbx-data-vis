@@ -47,11 +47,22 @@ def load_cohort_params(cohort_root_dir):
     cohorts = {}
 
     for root, _, files in os.walk(cohort_root_dir):
+
+        logging.info(
+            f"[load_cohort_params] Searching: "
+            f"{cohort_root_dir}"
+        )
+
         for file in files:
             if not file.endswith(".csv"):
                 continue
 
             file_path = os.path.join(root, file)
+
+            logging.info(
+                f"[load_cohort_params] Reading: "
+                f"{file_path}"
+            )
 
             try:
                 df = pd.read_csv(file_path)

@@ -93,6 +93,77 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         val = params.get(key, default)
         return str(val) if val is not None else default
 
+    def save_projection_table_png(
+        df,
+        output_file,
+        font_family="Segoe UI",
+        font_size=10
+    ):
+
+        if df.empty:
+            return None
+
+        plt.rcParams["font.family"] = font_family
+
+        fig_height = max(
+            1.5,
+            len(df) * 0.45
+        )
+
+        fig, ax = plt.subplots(
+            figsize=(3.25, fig_height)
+        )
+
+        ax.axis("off")
+
+        table = ax.table(
+            cellText=df.values,
+            colLabels=df.columns,
+            loc="center",
+            cellLoc="center"
+        )
+
+        table.auto_set_font_size(False)
+        table.set_fontsize(font_size)
+        table.scale(1.2, 1.5)
+
+        for col in range(len(df.columns)):
+
+            header = table[(0, col)]
+
+            header.set_facecolor("#d9d9d9")
+            header.get_text().set_weight("bold")
+            header.get_text().set_multialignment("center")
+
+            # increase header row height
+            header.set_height(
+                header.get_height() * 1.8
+            )
+
+        plt.tight_layout()
+
+        plt.savefig(
+            output_file,
+            bbox_inches="tight"
+        )
+
+        plt.close()
+
+        return output_file
+
+    def format_projection_period(months):
+
+        years = months // 12
+        remaining = months % 12
+
+        if years > 0 and remaining > 0:
+            return f"{years}y {remaining}m"
+
+        if years > 0:
+            return f"{years} Years"
+
+        return f"{months} Months"
+
     logger.info(f"[{VISUAL_ID}] Starting Facility Census Trend visualization")
     params = normalize_params(params)
 
@@ -513,6 +584,52 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         confidence_band = None
         projection_df = pd.DataFrame()
 
+        projection_df = pd.DataFrame()
+
+        projection_table_df = pd.DataFrame(
+            columns=[
+                "Period",
+                "Projected Facility Room Need"
+            ]
+        )
+
+        projection_table_start_month = int(
+            _get_float(
+                params,
+                "projection_table_start_month",
+                180
+            ) or 180
+        )
+
+        projection_table_interval_months = int(
+            _get_float(
+                params,
+                "projection_table_interval_months",
+                60
+            ) or 60
+        )
+
+        projection_table_rows = int(
+            _get_float(
+                params,
+                "projection_table_rows",
+                3
+            ) or 3
+        )
+
+        projection_plot_months = _get_float(
+            params,
+            "projection_plot_months",
+            projection_months
+        )
+
+        if projection_plot_months is None:
+            projection_plot_months = projection_months
+
+        projection_plot_months = int(
+            projection_plot_months
+        )  
+
         if enable_trend_projection:
 
             logger.info(
@@ -659,15 +776,17 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                         zorder=8
                     )
 
-                future_dates = pd.date_range(
-                    start=(
+                projection_anchor = (
+                    pd.Timestamp(
                         ts["interval"].max()
-                        + pd.Timedelta(days=1)
-                    ),
-                    periods=int(
-                        projection_months * 30
-                    ),
-                    freq="D"
+                    ).to_period("M")
+                    .to_timestamp()
+                )
+
+                future_dates = pd.date_range(
+                    start=projection_anchor,
+                    periods=projection_months + 1,
+                    freq="MS"
                 )
 
                 future_x = (
@@ -709,9 +828,67 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                     "record_type": "projection"
                 })
 
+                projection_df["month_offset"] = range(
+                    len(projection_df)
+                )
+
+                table_rows = []
+
+                for i in range(projection_table_rows):
+
+                    month_offset = (
+                        projection_table_start_month
+                        + i * projection_table_interval_months
+                    )
+
+                    matching_row = projection_df[
+                        projection_df["month_offset"]
+                        == month_offset
+                    ]
+
+                    if matching_row.empty:
+                        continue
+
+                    projected_value = (
+                        matching_row.iloc[0]["census"]
+                    )
+
+                    facility_room_need = (
+                        projected_value / capacity_threshold_pct
+                        if capacity_threshold_pct not in [None, 0]
+                        else np.nan
+                    )
+
+                    table_rows.append({
+                        "Period": format_projection_period(
+                            month_offset
+                        ),
+                        "Projected Facility\nRoom Need": round(
+                            facility_room_need,
+                            1
+                        )
+                    })
+
+                projection_table_df = pd.DataFrame(table_rows)
+
+                plot_projection_df = projection_df[
+                    projection_df["month_offset"]
+                    <= projection_plot_months
+                ]
+
+                if not plot_projection_df.empty:
+                    max_projection_date = (
+                        plot_projection_df["interval"].max()
+                    )
+
+                    plt.xlim(
+                        ts["interval"].min(),
+                        max_projection_date
+                    )
+
                 projection_line, = plt.plot(
-                    projection_df["interval"],
-                    projection_df["census"],
+                    plot_projection_df["interval"],
+                    plot_projection_df["census"],
                     color=projection_line_color,
                     linewidth=projection_linewidth,
                     linestyle=projection_linestyle,
@@ -725,9 +902,9 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                 if show_confidence_band:
 
                     plt.fill_between(
-                        projection_df["interval"],
-                        projection_df["ci_lower"],
-                        projection_df["ci_upper"],
+                        plot_projection_df["interval"],
+                        plot_projection_df["ci_lower"],
+                        plot_projection_df["ci_upper"],
                         color=confidence_fill_color,
                         alpha=confidence_alpha,
                         zorder=7
@@ -977,6 +1154,23 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             font_size=legend_fontsize,
             width=legend_width,
             height=legend_height
+        )
+
+        projection_table_output_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=f"{VISUAL_ID}_projection_table",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
+        )
+
+        save_projection_table_png(
+            df=projection_table_df,
+            output_file=projection_table_output_file,
+            font_family=font_family
         )
 
         plt.close()

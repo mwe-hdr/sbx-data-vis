@@ -54,6 +54,12 @@ DOMAINS = {
         "data_file": "lc_adf_ph.csv",
         "cohort_dir": "ed",
         "domain": "ed"
+    },
+
+        "adf": {
+        "data_file": "lc_adf_housing_flat.csv",
+        "cohort_dir": "adf",
+        "domain": "adf"
     }
 }
 
@@ -141,6 +147,10 @@ def mirror_processing_driver_to_params(run_dir):
 # PROCESSING DRIVER BUILDER
 # =========================
 def load_all_cohorts():
+
+    logging.info(
+        f"[load_all_cohorts] DOMAINS={list(DOMAINS.keys())}"
+    )
 
     all_cohorts = {}
 

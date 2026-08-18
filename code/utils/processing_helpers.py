@@ -203,8 +203,9 @@ def apply_filter(df, filter_str):
 
         # Minimal normalization (safe + cheap)
         df_copy = df.copy()
-        for col in df_copy.select_dtypes(include="object").columns:
-            df_copy[col] = df_copy[col].str.strip()
+        for col in df_copy.columns:
+            if pd.api.types.is_string_dtype(df_copy[col]):
+                df_copy[col] = df_copy[col].str.strip()
 
         logging.info(f"[apply_filter] Filter: {filter_str}")
 
