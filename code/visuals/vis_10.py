@@ -1,20 +1,20 @@
 # =============================================================================
-# Report Name : Facility Hourly Census with Peak Period and Capacity Benchmarks
+# Report Name : Facility Census with Peak Period and Capacity Benchmarks
 #
 # Description :
 # Calculates Emergency Department census levels from patient arrival and
-# departure timestamps and summarizes average census by hour of day. The
+# departure timestamps and summarizes average census by the desired aggregation level. The
 # report applies optional growth assumptions to projected census volumes,
 # identifies user-defined peak operating periods, and evaluates capacity
 # requirements based on target utilization thresholds.
 #
-# Hourly census profiles are generated from a minute-level census model
-# and aggregated into average hourly occupancy values. The visualization
+# Census profiles are generated from a minute-level census model
+# and aggregated into average occupancy values. The visualization
 # highlights peak and off-peak periods and overlays percentile benchmarks
 # to demonstrate expected census variation throughout the day.
 #
 # Key planning metrics include:
-#   - Average hourly census
+#   - Average census
 #   - Peak-period census
 #   - 70th, 80th, and 90th percentile census levels
 #   - Projected room requirements based on target utilization
@@ -35,24 +35,24 @@
 #   - end_date                : Reporting period end date/time
 #   - variable_10_year_growth : Projected growth adjustment factor
 #   - utilization             : Target operational utilization rate
-#   - peak_period_start       : Beginning hour of peak period
-#   - peak_period_length_hours: Duration of peak period
+#   - peak_period_start       : Beginning of peak period
+#   - peak_period_length: Duration of peak period
 #
 # Outputs :
 #   - PNG chart displaying:
-#       * Average hourly census
+#       * Average aggregation-level census
 #       * Peak and off-peak periods
 #       * P70, P80, and P90 census benchmarks
 #       * Peak census benchmark
 #       * Estimated room need benchmark
 #   - RDB records containing:
-#       * Average hourly census values
-#       * Hourly percentile benchmarks
+#       * Average aggregation-level census values
+#       * aggregation-level percentile benchmarks
 #       * Peak census capacity benchmarks
 #       * Estimated room need calculations
 #
 # Key Metrics :
-#   - Average census by hour
+#   - Average census by aggregation-level
 #   - Peak census
 #   - P70 census
 #   - P80 census
@@ -79,12 +79,30 @@ from utils.vis_helpers import (
     save_title_png,
     generate_census
 )
-from utils.date_helpers import prepare_dates
-from utils.col_helpers import add_common_helper_columns
+from utils.date_helpers import df_date_splitter
 
 logger = logging.getLogger(__name__)
 
 VISUAL_ID = "vis_10"
+
+def get_bucket_label(level, value):
+
+    if level == "hour":
+        return f"{int(value):02d}:00"
+
+    if level == "day_of_week":
+        return [
+            "Mon","Tue","Wed",
+            "Thu","Fri","Sat","Sun"
+        ][int(value)]
+
+    if level == "month":
+        return [
+            None,
+            "Jan","Feb","Mar","Apr",
+            "May","Jun","Jul","Aug",
+            "Sep","Oct","Nov","Dec"
+        ][int(value)]
 
 def _safe_param(params, key, default, cast_type=None):
     try:
@@ -94,9 +112,46 @@ def _safe_param(params, key, default, cast_type=None):
         logger.warning(f"[{VISUAL_ID}] Invalid param for {key}; using default {default}")
         return default
 
+def get_aggregation_range(level):
+
+    if level == "hour":
+        return range(24)
+
+    if level == "day_of_week":
+        return range(7)
+
+    if level == "month":
+        return range(1, 13)
+
+    raise ValueError(
+        f"Unsupported aggregation level: {level}"
+    )
+
+def create_aggregation_dimension(ts, aggregation_level):
+
+    if aggregation_level == "hour":
+        ts["aggregation_key"] = ts["interval"].dt.hour
+
+    elif aggregation_level == "day_of_week":
+        ts["aggregation_key"] = ts["interval"].dt.dayofweek
+
+    elif aggregation_level == "month":
+        ts["aggregation_key"] = ts["interval"].dt.month
+
+    return ts
+
 def run(df, params, start_date, end_date, output_dir, generate_output_name):
+
+    cohort_desc = params.get("cohort_desc", "")
+
+    aggregation_level = _safe_param(
+        params,
+        "aggregation_level",
+        "hour",
+        str
+    ).lower()
     
-    logger.info(f"[{VISUAL_ID}] Starting Facility Hourly Census with Peak Period and Capacity Benchmarks visualization")
+    logger.info(f"[{VISUAL_ID}] Starting Facility {aggregation_level} Census with Peak Period and Capacity Benchmarks visualization")
     params = normalize_params(params)
 
     try:
@@ -108,8 +163,19 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # PARAMETERS
         # =========================
         growth = _safe_param(params, "variable_10_year_growth", 0.0, float)
-        peak_start = _safe_param(params, "peak_period_start", 15, int)
-        peak_len = _safe_param(params, "peak_period_length_hours", 8, int)
+        peak_start = _safe_param(
+            params,
+            "peak_period_start",
+            0,
+            int
+        )
+
+        peak_len = _safe_param(
+            params,
+            "peak_period_length",
+            8,
+            int
+        )
         utilization = _safe_param(params, "utilization", 0.85, float)
 
         fig_width = _safe_param(params, "fig_width", 14, float)
@@ -223,8 +289,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # --------------------------------------------------
         # HELP MY DATAFRAME
         # --------------------------------------------------
-        df, _ = prepare_dates(df, start_date, end_date)
-        add_common_helper_columns(df)
+        df, _ = df_date_splitter(df, start_date, end_date)
 
         ts, census_df = generate_census(
             df,
@@ -255,82 +320,124 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # Growth adjustment
         ts["adj_census"] = ts["census"] * (1 + growth)
 
-        # Hour extraction
-        ts["hour"] = ts["interval"].dt.hour
+        # aggregation-level extraction
+        ts = create_aggregation_dimension(
+            ts,
+            aggregation_level
+        )
 
-        # Hourly aggregation
-        hourly = (
-            ts.groupby("hour")["adj_census"]
+        aggregation_range = get_aggregation_range(
+            aggregation_level
+        )
+
+        # aggregation
+        aggregation_df = (
+            ts.groupby("aggregation_key")["adj_census"]
             .mean()
-            .reindex(range(24), fill_value=0)
+            .reindex(aggregation_range, fill_value=0)
             .reset_index()
         )
 
-        hourly.columns = ["hour", "hourly_census"]
+        aggregation_df.columns = ["aggregation_key", f"{aggregation_level}_census"]
 
-        # Validate 24 hours
-        if len(hourly) != 24:
-            logger.warning(f"[{VISUAL_ID}] Hourly completeness issue; enforced 24 hours")
+        aggregation_df["bucket_position"] = range(len(aggregation_df))
 
         # =========================
         # Peak classification
         # =========================
-        def is_peak(hour):
-            end = peak_start + peak_len
-            if end <= 24:
-                return peak_start <= hour < end
-            else:
-                return (hour >= peak_start) or (hour < (end - 24))
+        bucket_count = len(aggregation_range)
 
-        hourly["peak_flag"] = hourly["hour"].apply(
-            lambda h: "Peak" if is_peak(h) else "Off-Peak"
+        peak_start = max(
+            0,
+            min(
+                peak_start,
+                bucket_count - 1
+            )
         )
 
-        graph_start_hour = _safe_param(
+        peak_len = max(
+            1,
+            min(
+                peak_len,
+                bucket_count
+            )
+        )
+
+        def is_peak(bucket_position):
+
+            end = peak_start + peak_len
+
+            if end <= bucket_count:
+                return peak_start <= bucket_position < end
+
+            return (
+                bucket_position >= peak_start
+                or
+                bucket_position < (end - bucket_count)
+            )
+
+        aggregation_df["peak_flag"] = (
+            aggregation_df["bucket_position"]
+            .apply(
+                lambda x:
+                "Peak" if is_peak(x)
+                else "Off-Peak"
+            )
+        )
+
+        graph_start = _safe_param(
             params,
-            "graph_start_hour",
-            0,
+            "graph_start",
+            params.get("graph_start", 0),
             int
         )
 
-        graph_start_hour = min(max(graph_start_hour, 0), 23)
+        graph_start = min(
+            max(graph_start, 0),
+            len(aggregation_range) - 1
+        )
 
         # =========================
         # Percentiles
         # =========================
         percentiles = (
-            ts.groupby("hour")["adj_census"]
+            ts.groupby("aggregation_key")["adj_census"]
             .agg(
                 p70=lambda x: np.percentile(x, 70),
                 p80=lambda x: np.percentile(x, 80),
                 p90=lambda x: np.percentile(x, 90),
             )
-            .reindex(range(24))
+            .reindex(aggregation_range)
             .reset_index()
         )
 
-        hourly = hourly.merge(percentiles, on="hour", how="left")
+        aggregation_df = aggregation_df.merge(percentiles, on="aggregation_key", how="left")
 
-        display_hours = list(range(graph_start_hour, 24)) + \
-                        list(range(0, graph_start_hour))
+        bucket_values = list(aggregation_range)
 
-        hourly["display_order"] = pd.Categorical(
-            hourly["hour"],
-            categories=display_hours,
+        display_buckets = (
+            bucket_values[graph_start:]
+            +
+            bucket_values[:graph_start]
+        )
+
+        aggregation_df["display_order"] = pd.Categorical(
+            aggregation_df["aggregation_key"],
+            categories=display_buckets,
             ordered=True
         )
 
-        hourly = (
-            hourly.sort_values("display_order")
+        aggregation_df = (
+            aggregation_df.sort_values("display_order")
             .reset_index(drop=True)
         )
 
-        hourly["plot_position"] = range(len(hourly))
+        aggregation_df["plot_position"] = range(len(aggregation_df))
 
         # =========================
         # Capacity metrics
         # =========================
-        peak_values = hourly.loc[hourly["peak_flag"] == "Peak", "hourly_census"]
+        peak_values = aggregation_df.loc[aggregation_df["peak_flag"] == "Peak", f"{aggregation_level}_census"]
         peak_census = peak_values.max()
 
         room_need = peak_census / utilization if utilization > 0 else peak_census
@@ -423,52 +530,52 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         )
 
         # Bars
-        peak_mask = hourly["peak_flag"] == "Peak"
+        peak_mask = aggregation_df["peak_flag"] == "Peak"
 
         ax.bar(
-            hourly.loc[~peak_mask, "plot_position"],
-            hourly.loc[~peak_mask, "hourly_census"],
+            aggregation_df.loc[~peak_mask, "plot_position"],
+            aggregation_df.loc[~peak_mask, f"{aggregation_level}_census"],
             color=colors["offpeak"],
             label="Off-Peak",
         )
 
         ax.bar(
-            hourly.loc[peak_mask, "plot_position"],
-            hourly.loc[peak_mask, "hourly_census"],
+            aggregation_df.loc[peak_mask, "plot_position"],
+            aggregation_df.loc[peak_mask, f"{aggregation_level}_census"],
             color=colors["peak"],
             label="Peak",
         )
 
         # Percentiles
-        ax.plot(hourly["plot_position"], hourly["p70"], linestyle="--", color=colors["p70"], label="P70")
-        ax.plot(hourly["plot_position"], hourly["p80"], linestyle="--", color=colors["p80"], label="P80")
-        ax.plot(hourly["plot_position"], hourly["p90"], linestyle="--", color=colors["p90"], label="P90")
+        ax.plot(aggregation_df["plot_position"], aggregation_df["p70"], linestyle="--", color=colors["p70"], label="P70")
+        ax.plot(aggregation_df["plot_position"], aggregation_df["p80"], linestyle="--", color=colors["p80"], label="P80")
+        ax.plot(aggregation_df["plot_position"], aggregation_df["p90"], linestyle="--", color=colors["p90"], label="P90")
 
         # Capacity lines
-        hourly["peak_line"] = np.nan
-        hourly["room_line"] = np.nan
+        aggregation_df["peak_line"] = np.nan
+        aggregation_df["room_line"] = np.nan
 
-        hourly.loc[
-            hourly["peak_flag"] == "Peak",
+        aggregation_df.loc[
+            aggregation_df["peak_flag"] == "Peak",
             "peak_line"
         ] = peak_census
 
-        hourly.loc[
-            hourly["peak_flag"] == "Peak",
+        aggregation_df.loc[
+            aggregation_df["peak_flag"] == "Peak",
             "room_line"
         ] = room_need
 
         ax.plot(
-            hourly["plot_position"],
-            hourly["peak_line"],
+            aggregation_df["plot_position"],
+            aggregation_df["peak_line"],
             color=colors["peak_line"],
             linewidth=2,
             label="Peak Census",
         )
 
         ax.plot(
-            hourly["plot_position"],
-            hourly["room_line"],
+            aggregation_df["plot_position"],
+            aggregation_df["room_line"],
             color=colors["room_need"],
             linestyle="-.",
             linewidth=2,
@@ -478,18 +585,39 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # Labels
         date_range_str = format_date_range(start_date, end_date)
 
+        axis_labels = {
+            "hour": "Hour of Day",
+            "day_of_week": "Day of Week",
+            "month": "Month"
+        }
+
         ax.set_title("")
         ax.set_xlabel(
-            "Hour of Day",
-            fontfamily=font_family
+            axis_labels.get(
+                aggregation_level,
+                "Bucket"
+            )
         )
         ax.set_ylabel(
             "Facility Census",
             fontfamily=font_family
         )
 
-        ax.set_xticks(hourly["plot_position"])
-        ax.set_xticklabels(hourly["hour"])
+        aggregation_df["dimension_label"] = (
+            aggregation_df["aggregation_key"]
+            .apply(
+                lambda x:
+                get_bucket_label(
+                    aggregation_level,
+                    x
+                )
+            )
+        )
+
+        ax.set_xticks(aggregation_df["plot_position"])
+        ax.set_xticklabels(
+            aggregation_df["dimension_label"]
+        )
         handles, labels = ax.get_legend_handles_labels()
 
         plt.tight_layout()
@@ -547,6 +675,12 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             )
         )
 
+        logger.info(
+            f"Peak Census={peak_census}, "
+            f"Room Need={room_need}, "
+            f"Y Max={ax.get_ylim()[1]}"
+        )
+
         plt.savefig(output_file)
         plt.close()
 
@@ -589,8 +723,20 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             )
         )
 
+        aggregation_name = {
+            "hour": "Hourly",
+            "day_of_week": "Day-of-Week",
+            "month": "Monthly"
+        }
+
+        report_title = (
+            f"{cohort_desc} | "
+            f"Facility {aggregation_name[aggregation_level]} "
+            f"Census with Peak Period and Projected Room Need"
+        )
+
         save_title_png(
-            title="Facility Hourly Census with Peak Period and Capacity Benchmarks",
+            title=report_title,
             subtitle=date_range_str,
             output_file=title_output_file,
             width=title_width,
@@ -631,6 +777,75 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         )
 
         # =========================
+        # ROOM NEED TABLE
+        # =========================
+
+        room_need_png = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=f"{VISUAL_ID}_room_need",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
+        )
+
+        fig, ax = plt.subplots(
+            figsize=(3.6, 1.5),
+            dpi=dpi
+        )
+
+        ax.axis("off")
+
+        tbl = ax.table(
+            cellText=[[f"{room_need:,.1f}"]],
+            colLabels=["Projected Facility Room Need"],
+            cellLoc="center",
+            colLoc="center",
+            loc="center",
+            bbox=[0.08, 0.20, 0.84, 0.60]
+        )
+
+        tbl.auto_set_font_size(False)
+        tbl.scale(1.0, 1.35)
+
+        # HEADER CELL
+        header = tbl[(0, 0)]
+        header.set_facecolor("#d9d9d9")
+        header.set_edgecolor("black")
+        header.set_linewidth(1.0)
+        header.set_text_props(
+            fontsize=9,
+            fontweight="bold",
+            fontfamily=font_family
+        )
+
+        # VALUE CELL
+        value = tbl[(1, 0)]
+        value.set_facecolor("white")
+        value.set_edgecolor("black")
+        value.set_linewidth(1.0)
+        value.set_text_props(
+            fontsize=10,
+            fontfamily=font_family
+        )
+
+        plt.savefig(
+            room_need_png,
+            bbox_inches="tight",
+            pad_inches=0.025,
+            dpi=dpi
+        )
+
+        plt.close()
+
+        logger.info(
+            f"[{VISUAL_ID}] Room Need table saved to "
+            f"{room_need_png}"
+        )
+
+        # =========================
         # RDB OUTPUT
         # =========================
         write_rdb = int(params.get("write_rdb", 0))
@@ -638,16 +853,10 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
         if write_rdb == 1:
 
-            report_title = (
-                "Facility Hourly Census with Peak Period and Capacity Benchmarks"
-            )
-
             # ----------------------------------
-            # Hourly census values
+            # Census values
             # ----------------------------------
-            for _, row in hourly.iterrows():
-
-                hour_label = f"{int(row['hour']):02d}:00"
+            for _, row in aggregation_df.iterrows():
 
                 rdb_rows.append({
                     "run_id": params.get("run_id"),
@@ -660,16 +869,16 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                     "domain_cohort":
                         f"{params.get('domain')}.{params.get('cohort_id')}",
 
-                    "dimension": "hour",
-                    "dimension_value": int(row["hour"]),
-                    "dimension_value_label": hour_label,
+                    "dimension": aggregation_level,
+                    "dimension_value": int(row["aggregation_key"]),
+                    "dimension_value_label": row["dimension_label"],
 
                     "secondary_dimension": "period_type",
                     "secondary_dimension_value": row["peak_flag"],
 
-                    "metric": "hourly_census",
+                    "metric": "average_census",
                     "metric_type": "average",
-                    "value": float(row["hourly_census"]),
+                    "value": float(row[f"{aggregation_level}_census"]),
 
                     "start_date": start_date,
                     "end_date": end_date,
@@ -680,9 +889,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             # ----------------------------------
             # Percentiles
             # ----------------------------------
-            for _, row in hourly.iterrows():
-
-                hour_label = f"{int(row['hour']):02d}:00"
+            for _, row in aggregation_df.iterrows():
 
                 for metric_name in ["p70", "p80", "p90"]:
 
@@ -702,14 +909,14 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                         "domain_cohort":
                             f"{params.get('domain')}.{params.get('cohort_id')}",
 
-                        "dimension": "hour",
-                        "dimension_value": int(row["hour"]),
-                        "dimension_value_label": hour_label,
+                        "dimension": aggregation_level,
+                        "dimension_value": int(row["aggregation_key"]),
+                        "dimension_value_label": row["dimension_label"],
 
                         "secondary_dimension": "percentile",
                         "secondary_dimension_value": metric_name.upper(),
 
-                        "metric": "hourly_census",
+                        "metric": "average_census",
                         "metric_type": metric_name,
                         "value": float(metric_value),
 
@@ -720,21 +927,12 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                     })
 
             # ----------------------------------
-            # Peak Census Benchmark by Hour
+            # Peak Census Benchmark
             # ----------------------------------
-            peak_hours_set = set(
-                hourly.loc[
-                    hourly["peak_flag"] == "Peak",
-                    "hour"
-                ]
-            )            
-            
-            for _, row in hourly.iterrows():
+            for _, row in aggregation_df.iterrows():
 
-                if row["hour"] not in peak_hours_set:
+                if row["peak_flag"] != "Peak":
                     continue
-
-                hour_label = f"{int(row['hour']):02d}:00"
 
                 rdb_rows.append({
                     "run_id": params.get("run_id"),
@@ -747,9 +945,9 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                     "domain_cohort":
                         f"{params.get('domain')}.{params.get('cohort_id')}",
 
-                    "dimension": "hour",
-                    "dimension_value": int(row["hour"]),
-                    "dimension_value_label": hour_label,
+                    "dimension": aggregation_level,
+                    "dimension_value": int(row["aggregation_key"]),
+                    "dimension_value_label": row["dimension_label"],
 
                     "secondary_dimension": "benchmark",
                     "secondary_dimension_value": "Peak Census",
@@ -765,11 +963,9 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                 })
 
             # ----------------------------------
-            # Room Need Benchmark by Hour
+            # Room Need Benchmark
             # ----------------------------------
-            for _, row in hourly.iterrows():
-
-                hour_label = f"{int(row['hour']):02d}:00"
+            for _, row in aggregation_df.iterrows():
 
                 rdb_rows.append({
                     "run_id": params.get("run_id"),
@@ -782,9 +978,9 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                     "domain_cohort":
                         f"{params.get('domain')}.{params.get('cohort_id')}",
 
-                    "dimension": "hour",
-                    "dimension_value": int(row["hour"]),
-                    "dimension_value_label": hour_label,
+                    "dimension": aggregation_level,
+                    "dimension_value": int(row["aggregation_key"]),
+                    "dimension_value_label": row["dimension_label"],
 
                     "secondary_dimension": "benchmark",
                     "secondary_dimension_value": "Room Need",

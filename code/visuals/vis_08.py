@@ -97,7 +97,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         df,
         output_file,
         font_family="Segoe UI",
-        font_size=10
+        font_size=9
     ):
 
         if df.empty:
@@ -111,7 +111,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         )
 
         fig, ax = plt.subplots(
-            figsize=(3.25, fig_height)
+            figsize=(2.75, fig_height)
         )
 
         ax.axis("off")

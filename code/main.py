@@ -27,6 +27,10 @@ from utils.mapping_helpers import (
     apply_standard_mappings
 )
 
+from utils.pptx_helpers import (
+    build_powerpoint
+)
+
 
 # =========================
 # CONFIG
@@ -57,7 +61,7 @@ DOMAINS = {
     },
 
         "adf": {
-        "data_file": "lc_adf_housing_flat.csv",
+        "data_file": "lc_adf_class_pod_history_flat_enriched.csv",
         "cohort_dir": "adf",
         "domain": "adf"
     }
@@ -324,7 +328,51 @@ parser.add_argument(
     )
 )
 
+parser.add_argument(
+    "--powerpoint",
+    action="store_true",
+    help="Generate PowerPoint from a completed run"
+)
+
+parser.add_argument(
+    "--ppt-template",
+    default=None,
+    help="PowerPoint template file"
+)
+
+parser.add_argument(
+    "--ppt-run-id",
+    default=None,
+    help="Run ID containing output folders"
+)
+
+parser.add_argument(
+    "--ppt-output",
+    default=None,
+    help="Output PPTX file"
+)
+
 args = parser.parse_args()
+
+if args.powerpoint:
+
+    if not args.ppt_template:
+        raise ValueError(
+            "--ppt-template is required"
+        )
+
+    if not args.ppt_run_id:
+        raise ValueError(
+            "--ppt-run-id is required"
+        )
+
+    build_powerpoint(
+        run_id=args.ppt_run_id,
+        template_file=args.ppt_template,
+        output_file=args.ppt_output
+    )
+
+    raise SystemExit(0)
 
 if __name__ == "__main__":
 
@@ -447,3 +495,5 @@ if __name__ == "__main__":
         ),
         index=False
     )
+
+    raise SystemExit(0)
