@@ -1,6 +1,6 @@
 name,param,value,description,cohort_file
-classified.administrative_segregation,filter,"custody_class.str.contains('AS', na=False)",Administrative Segregation Inmates,classified.administrative_segregation
 classified.all_classified,filter,"custody_class in ['MAX','CLHI','CHI','CLOS','CLO','CLLO','MED','MIN','MINIMUM','MIIN','SN','AS','PC','CS','AS/KS','SN/KS','SN/ KS','PC/KS','AK/KS','SK/KS','GP','PLACE GP']",All Classified Inmates,classified.all_classified
+classified.administrative_segregation,filter,"custody_class.str.contains('AS', na=False)",Administrative Segregation Inmates,classified.administrative_segregation
 classified.all_special_management,filter,"custody_class.str.contains('SN|AS|PC|CS|KS', na=False)",All Special Management Inmates,classified.all_special_management
 classified.close,filter,"custody_class in ['CLOS', 'CLO']",Close Custody Inmates,classified.close
 classified.close_hi,filter,"custody_class in ['CLHI', 'CHI']",Close Hi Inmates,classified.close_hi

@@ -5,9 +5,9 @@ import numpy as np
 # Configuration
 # ============================================================
 
-INPUT_FILE = r"C:\lwf\sbx-data-vis\data\input\lc_adf\CLASSIFICATION_HISTORY.CSV"
+INPUT_FILE = r"C:\lwf\sbx-data-vis\data\input\lc_adf_20260824\CLASSIFICATION_HISTORY.CSV"
 
-DAILY_EVENTS_OUTPUT = r"C:\lwf\sbx-data-vis\data\input\lc_adf\daily_classification_events.csv"
+DAILY_EVENTS_OUTPUT = r"C:\lwf\sbx-data-vis\data\input\lc_adf_20260824\daily_classification_events.csv"
 
 WINDOWS_OUTPUT = r"C:\lwf\sbx-data-vis\data\input\lc_adf_class_history_flat.csv"
 

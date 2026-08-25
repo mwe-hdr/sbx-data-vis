@@ -172,89 +172,49 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # --------------------------------------------------
         # HELP MY DATAFRAME
         # --------------------------------------------------
-        df, _ = df_date_splitter(df, start_date, end_date)
+        # --------------------------------------------------
+        # TEMP DEBUG - CENSUS HELPER PARAMETERS
+        # --------------------------------------------------
+        logger.info(
+            f"[{VISUAL_ID}] census_helper_csv="
+            f"{params.get('census_helper_csv')}"
+        )
 
-        bypass_census_csv = _get_str(
-            params,
-            "bypass_census_csv",
-            ""
-        ).strip()
+        logger.info(
+            f"[{VISUAL_ID}] census_helper_type="
+            f"{params.get('census_helper_type')}"
+        )
 
-        if bypass_census_csv:
-
-            logger.info(
-                f"[{VISUAL_ID}] Using bypass census file: "
-                f"{bypass_census_csv}"
+        logger.info(
+            f"[{VISUAL_ID}] census_helper_operation="
+            f"{params.get('census_helper_operation')}"
+        )  
+        
+        ts, census_df = generate_census(
+            df,
+            start_date,
+            end_date,
+            census_helper_csv=params.get(
+                "census_helper_csv"
+            ),
+            census_helper_type=params.get(
+                "census_helper_type"
+            ),
+            census_helper_operation=params.get(
+                "census_helper_operation"
             )
+        )
 
-            ts = pd.read_csv(
-                bypass_census_csv,
-                parse_dates=["interval"]
-            )
+        logger.info(
+            f"[{VISUAL_ID}] Building census timeline from "
+            f"{len(df):,} encounters."
+        )
 
-            required_columns = [
-                "interval",
-                "census"
-            ]
-
-            missing = [
-                c
-                for c in required_columns
-                if c not in ts.columns
-            ]
-
-            if missing:
-                raise ValueError(
-                    "Bypass census file missing required columns: "
-                    f"{missing}"
-                )
-
-            ts["interval"] = pd.to_datetime(
-                ts["interval"],
-                errors="raise"
-            )
-
-            ts["census"] = pd.to_numeric(
-                ts["census"],
-                errors="raise"
-            )
-
-            ts = ts[
-                (ts["interval"] >= start_date)
-                &
-                (ts["interval"] <= end_date)
-            ]
-
-            census_df = ts.copy()
-
-            logger.info(
-                f"[{VISUAL_ID}] Loaded bypass census file. "
-                f"Intervals: {len(ts):,}"
-            )
-
-        else:
-
-            logger.info(
-                f"[{VISUAL_ID}] Dataset received after helper preparation. "
-                f"Rows available for census generation: {len(df):,}"
-            )
-
-            logger.info(
-                f"[{VISUAL_ID}] Building census timeline from "
-                f"{len(df):,} encounters."
-            )
-
-            ts, census_df = generate_census(
-                df,
-                start_date,
-                end_date
-            )
-
-            logger.info(
-                f"[{VISUAL_ID}] Census dataset generated. "
-                f"Intervals: {len(ts):,} "
-                f"Census df: {len(census_df):,}"
-            )
+        logger.info(
+            f"[{VISUAL_ID}] Census dataset generated. "
+            f"Intervals: {len(ts):,} "
+            f"Census df: {len(census_df):,}"
+        )
 
         enable_rdb = int(params.get("rdb_write", 0))
         rdb_rows = []

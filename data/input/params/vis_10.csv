@@ -18,7 +18,7 @@ font_family,Segoe UI,Global font family,0,
 
 title_width,13,Title image width,0,
 title_height,0.25,Title image height,0,
-title_fontsize,12,Title font size,0,
+title_fontsize,10,Title font size,0,
 subtitle_fontsize,10,Subtitle font size,0,
 title_background_color,#d9d9d9,Background color,0,
 title_weight,bold,Title font weight,0,
@@ -58,3 +58,28 @@ esi4_volume_factor,1.0,ESI 4 volume multiplier,0,percent0
 esi5_volume_factor,1.0,ESI 5 volume multiplier,0,percent0
 
 aggregation_level,month,Aggregation level (hour/day_of_week/month),0
+
+### ===== CENSUS HELPER =====
+census_helper_csv,
+census_helper_type,operation
+census_helper_operation,subtract
+
+#### ===== POWERPOINT =====
+ppt_template,pptx_template.vis_10.test.pptx
+
+ppt_visual_order,2
+
+ppt_asset_01_keyword,vis_10_title
+ppt_asset_01_placeholder,vis_title
+
+ppt_asset_02_keyword,vis_10_legend
+ppt_asset_02_placeholder,vis_legend
+
+ppt_asset_03_keyword,vis_10_parameters
+ppt_asset_03_placeholder,vis_param
+
+ppt_asset_04_keyword,_room_need_
+ppt_asset_04_placeholder,vis_tbl01
+
+ppt_asset_05_keyword,vis_10__
+ppt_asset_05_placeholder,vis_image

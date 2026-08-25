@@ -203,6 +203,7 @@ def apply_filter(df, filter_str):
 
         # Minimal normalization (safe + cheap)
         df_copy = df.copy()
+        logging.info(df_copy.columns.tolist())
         for col in df_copy.columns:
             if pd.api.types.is_string_dtype(df_copy[col]):
                 df_copy[col] = df_copy[col].str.strip()

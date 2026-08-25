@@ -5,10 +5,10 @@ import numpy as np
 # Configuration
 # ============================================================
 
-INPUT_FILE = r"C:\lwf\sbx-data-vis\data\input\lc_adf\CLASSIFICATION_HISTORY.CSV"
+INPUT_FILE = r"C:\lwf\sbx-data-vis\data\input\lc_adf_20260824\CLASSIFICATION_HISTORY.CSV"
 
 DAILY_EVENTS_OUTPUT = (
-    r"C:\lwf\sbx-data-vis\data\input\lc_adf\daily_pod_events.csv"
+    r"C:\lwf\sbx-data-vis\data\input\lc_adf_20260824\daily_pod_events.csv"
 )
 
 WINDOWS_OUTPUT = (

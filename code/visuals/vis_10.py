@@ -287,14 +287,39 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # =========================
 
         # --------------------------------------------------
+        # TEMP DEBUG - CENSUS HELPER PARAMETERS
+        # --------------------------------------------------
+        logger.info(
+            f"[{VISUAL_ID}] census_helper_csv="
+            f"{params.get('census_helper_csv')}"
+        )
+
+        logger.info(
+            f"[{VISUAL_ID}] census_helper_type="
+            f"{params.get('census_helper_type')}"
+        )
+
+        logger.info(
+            f"[{VISUAL_ID}] census_helper_operation="
+            f"{params.get('census_helper_operation')}"
+        )
+
+        # --------------------------------------------------
         # HELP MY DATAFRAME
         # --------------------------------------------------
-        df, _ = df_date_splitter(df, start_date, end_date)
-
         ts, census_df = generate_census(
             df,
             start_date,
-            end_date
+            end_date,
+            census_helper_csv=params.get(
+                "census_helper_csv"
+            ),
+            census_helper_type=params.get(
+                "census_helper_type"
+            ),
+            census_helper_operation=params.get(
+                "census_helper_operation"
+            )
         )
 
         if ts.empty:

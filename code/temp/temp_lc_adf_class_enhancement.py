@@ -1,7 +1,7 @@
 import pandas as pd
 
 bookings = pd.read_csv(
-    r"C:\lwf\sbx-data-vis\data\input\lc_adf\INMATES_BOOKED.CSV",
+    r"C:\lwf\sbx-data-vis\data\input\lc_adf_20260824\INMATES_BOOKED.CSV",
     parse_dates=["BOOKINGDATE", "RELEASEDATE"]
 )
 
@@ -11,6 +11,9 @@ cls = pd.read_csv(
 )
 
 bookings["BOOKNUMBER"] = bookings["BOOKNUMBER"].astype(str).str.strip()
+bookings["RELEASEDATE"] = bookings["RELEASEDATE"].fillna(
+    pd.Timestamp("2099-12-31")
+)
 cls["BookNumber"] = cls["BookNumber"].astype(str).str.strip()
 
 # Restrict bookings to only inmates with classification history

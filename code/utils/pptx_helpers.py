@@ -1,4 +1,5 @@
 import os
+import pandas as pd
 import logging
 from copy import deepcopy
 from datetime import datetime
@@ -56,24 +57,6 @@ def initialize_ppt_run():
 
     return run_dir, output_dir
 
-def get_cohort_folders(outputs_dir):
-
-    cohorts = []
-
-    for item in os.listdir(outputs_dir):
-
-        full_path = os.path.join(
-            outputs_dir,
-            item
-        )
-
-        if os.path.isdir(full_path):
-            cohorts.append(item)
-
-    cohorts.sort()
-
-    return cohorts
-
 def update_cohort_text(
     slide,
     cohort_id
@@ -107,45 +90,57 @@ def update_cohort_text(
 
             return
 
-def build_powerpoint(
-    run_id,
-    template_file,
-    output_file=None
+def load_ppt_rows(
+    run_id
 ):
 
-    base_dir = os.getcwd()
-
-    outputs_dir = os.path.join(
-        base_dir,
+    processing_driver_file = os.path.join(
+        os.getcwd(),
         "data",
-        "runs",
-        run_id,
-        "outputs"
+        "input",
+        "params",
+        "processing_driver.csv"
     )
 
-    if not os.path.exists(outputs_dir):
-        raise FileNotFoundError(
-            outputs_dir
+    df = pd.read_csv(
+        processing_driver_file
+    )
+
+    return df[
+        df["enabled"]
+        .astype(str)
+        .str.upper()
+        .isin(["Y","YES","TRUE","1"])
+    ]
+
+def add_template_slide(
+    master_prs,
+    template_slide
+):
+
+    blank_layout = master_prs.slide_layouts[6]
+
+    slide = master_prs.slides.add_slide(
+        blank_layout
+    )
+
+    for shape in template_slide.shapes:
+
+        el = deepcopy(shape.element)
+
+        slide.shapes._spTree.insert_element_before(
+            el,
+            "p:extLst"
         )
 
-    logging.info(
-        f"[ppt] Loading template: "
-        f"{template_file}"
-    )
+    return slide
 
-    prs = Presentation(
-        template_file
-    )
-
-    if len(prs.slides) == 0:
-        raise ValueError(
-            "Template contains no slides"
-        )
-
-    template_slide = prs.slides[0]
-
-    cohorts = get_cohort_folders(
-        outputs_dir
+def build_powerpoint(
+    run_id,
+    output_file=None
+):
+    rows = load_ppt_rows(
+        run_id
     )
 
     ppt_run_dir, ppt_output_dir = (
@@ -157,52 +152,107 @@ def build_powerpoint(
         f"{ppt_run_dir}"
     )
 
-    logging.info(
-        f"[ppt] Cohorts found: "
-        f"{len(cohorts)}"
-    )
+    master_prs = None
 
-    while len(prs.slides) > 1:
-        r_id = prs.slides._sldIdLst[-1].rId
-        prs.part.drop_rel(r_id)
-        del prs.slides._sldIdLst[-1]
+    for cohort_id, cohort_rows in rows.groupby(
+        "cohort_id"
+    ):
 
-    first = True
+        cohort_rows = cohort_rows.sort_values(
+            "ppt_visual_order"
+        )
 
-    for cohort_id in cohorts:
+        for _, row in cohort_rows.iterrows():
 
-        if first:
-            slide = template_slide
-            first = False
-        else:
-            slide = clone_slide(
-                prs,
+            visual_id = row["visual_id"]
+
+            template_file = os.path.join(
+                os.getcwd(),
+                "data",
+                "input",
+                "templates",
+                row["ppt_template"]
+            )
+
+            if master_prs is None:
+
+                master_prs = Presentation(
+                    template_file
+                )
+
+            template_prs = Presentation(
+                template_file
+            )
+
+            template_slide = template_prs.slides[0]
+
+            base_dir = os.getcwd()
+
+            outputs_dir = os.path.join(
+                base_dir,
+                "data",
+                "runs",
+                run_id,
+                "outputs"
+            )
+
+            if not os.path.exists(outputs_dir):
+                raise FileNotFoundError(
+                    outputs_dir
+                )
+
+            logging.info(
+                f"[ppt] Loading template: "
+                f"{template_file}"
+            )
+
+            params = row.to_dict()
+
+            cohort_dir = os.path.join(
+                outputs_dir,
+                cohort_id
+            )
+
+            if not os.path.exists(
+                cohort_dir
+            ):
+                continue
+
+            slide = add_template_slide(
+                master_prs,
                 template_slide
             )
 
-        update_cohort_text(
-            slide,
-            cohort_id
+            update_cohort_text(
+                slide,
+                cohort_id
+            )
+
+            populate_slide(
+                slide,
+                cohort_dir,
+                params
+            )
+
+            remove_unwanted_placeholders(
+                slide
+            )
+
+            logging.info(
+                f"[ppt] Added "
+                f"{visual_id} "
+                f"{cohort_id}"
+            )
+
+    if len(master_prs.slides) > 1:
+
+        r_id = master_prs.slides._sldIdLst[0].rId
+
+        master_prs.part.drop_rel(
+            r_id
         )
 
-        cohort_dir = os.path.join(
-            outputs_dir,
-            cohort_id
-        )
-
-        populate_slide(
-            slide,
-            cohort_dir
-        )
-
-        logging.info(
-            f"[ppt] Added slide for "
-            f"{cohort_id}"
-        )
-
-        remove_unwanted_placeholders(
-            slide
-        )
+        del master_prs.slides._sldIdLst[0]
 
     if output_file is None:
 
@@ -211,20 +261,17 @@ def build_powerpoint(
             "powerpoint_poc.pptx"
         )
 
-    prs.save(output_file)
+    master_prs.save(
+        output_file
+    )
+
+    logging.info(
+        f"[ppt] Generated "
+        f"{len(master_prs.slides)} slides"
+    )
 
     logging.info(
         f"[ppt] Saved: {output_file}"
-    )
-
-    template_snapshot = os.path.join(
-        ppt_run_dir,
-        os.path.basename(template_file)
-    )
-
-    shutil.copy2(
-        template_file,
-        template_snapshot
     )
 
 def get_shape_by_name(
@@ -244,45 +291,59 @@ def get_shape_by_name(
     return None
 
 def get_assets(
-    cohort_dir
+    cohort_dir,
+    params
 ):
 
-    assets = {
-        "vis_image": None,
-        "vis_title": None,
-        "vis_legend": None,
-        "vis_tbl01": None,
-        "vis_param": None
-    }
+    assets = {}
 
-    for filename in os.listdir(cohort_dir):
+    asset_numbers = set()
 
-        lower = filename.lower()
+    for key in params.keys():
 
-        full_path = os.path.join(
-            cohort_dir,
-            filename
+        if (
+            str(key).startswith("ppt_asset_")
+            and str(key).endswith("_keyword")
+        ):
+
+            parts = key.split("_")
+
+            if len(parts) >= 3:
+                asset_numbers.add(parts[2])
+
+    for num in sorted(asset_numbers):
+
+        keyword = params.get(
+            f"ppt_asset_{num}_keyword"
         )
 
-        if not lower.endswith(".png"):
+        placeholder = params.get(
+            f"ppt_asset_{num}_placeholder"
+        )
+
+        if pd.isna(keyword) or pd.isna(placeholder):
             continue
 
-        if "_room_need_" in lower:
-            assets["vis_tbl01"] = full_path
+        for filename in os.listdir(cohort_dir):
 
-        if "_parameters_" in lower:
-            assets["vis_param"] = full_path
+            lower = filename.lower()
 
-        elif "_legend_" in lower:
-            assets["vis_legend"] = full_path
+            if not lower.endswith(".png"):
+                continue
 
-        elif "_title_" in lower:
-            assets["vis_title"] = full_path
+            keyword = str(keyword).strip().lower()
 
-        elif lower.startswith("vis_10__"):
-            assets["vis_image"] = full_path
+            if keyword in lower:
+
+                assets[placeholder] = os.path.join(
+                    cohort_dir,
+                    filename
+                )
+
+                break
 
     return assets
+
 
 def replace_picture(
     slide,
@@ -321,19 +382,6 @@ def replace_picture(
         element
     )
 
-    slide.shapes.add_picture(
-        image_path,
-        left,
-        top,
-        width=width,
-        height=height
-    )
-
-    logging.info(
-        f"[ppt] Replaced "
-        f"{shape_name}"
-    )
-
     new_pic = slide.shapes.add_picture(
         image_path,
         left,
@@ -346,42 +394,22 @@ def replace_picture(
 
 def populate_slide(
     slide,
-    cohort_dir
+    cohort_dir,
+    params
 ):
 
     assets = get_assets(
-        cohort_dir
+        cohort_dir,
+        params
     )
 
-    replace_picture(
-        slide,
-        "vis_image",
-        assets["vis_image"]
-    )
+    for placeholder_name, image_path in assets.items():
 
-    replace_picture(
-        slide,
-        "vis_title",
-        assets["vis_title"]
-    )
-
-    replace_picture(
-        slide,
-        "vis_legend",
-        assets["vis_legend"]
-    )
-
-    replace_picture(
-        slide,
-        "vis_tbl01",
-        assets["vis_tbl01"]
-    )
-
-    replace_picture(
-        slide,
-        "vis_param",
-        assets["vis_param"]
-    )
+        replace_picture(
+            slide,
+            placeholder_name,
+            image_path
+        )
 
 def remove_unwanted_placeholders(slide):
 

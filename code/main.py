@@ -335,12 +335,6 @@ parser.add_argument(
 )
 
 parser.add_argument(
-    "--ppt-template",
-    default=None,
-    help="PowerPoint template file"
-)
-
-parser.add_argument(
     "--ppt-run-id",
     default=None,
     help="Run ID containing output folders"
@@ -356,19 +350,12 @@ args = parser.parse_args()
 
 if args.powerpoint:
 
-    if not args.ppt_template:
-        raise ValueError(
-            "--ppt-template is required"
-        )
-
     if not args.ppt_run_id:
         raise ValueError(
             "--ppt-run-id is required"
         )
-
     build_powerpoint(
         run_id=args.ppt_run_id,
-        template_file=args.ppt_template,
         output_file=args.ppt_output
     )
 
@@ -456,6 +443,18 @@ if __name__ == "__main__":
                 config["data_file"]
             )
         )
+
+        data_path = os.path.join(
+            INPUT_DIR,
+            config["data_file"]
+        )
+
+        logging.info(f"[main] Loading file: {data_path}")
+
+        df = load_data(data_path)
+
+        logging.info(f"[main] Loaded shape: {df.shape}")
+        logging.info(f"[main] Columns: {df.columns.tolist()}")
 
         domain_mapping = mappings.get(
             expected_domain,

@@ -6,6 +6,7 @@ import matplotlib.ticker as mtick
 import os
 import logging
 import datetime
+from utils.date_helpers import df_date_splitter
 
 logger = logging.getLogger(__name__)
 
@@ -496,7 +497,23 @@ def crop_image(
             f"Image cropping failed: {e}"
         )
 
-def generate_census(df, start_date, end_date, ao_duration_minutes=30):
+def generate_census(
+    df,
+    start_date,
+    end_date,
+    ao_duration_minutes=30,
+    census_helper_csv=None,
+    census_helper_type=None,
+    census_helper_operation=None
+):
+
+    df_all, df_reporting = df_date_splitter(
+        df,
+        start_date,
+        end_date
+    )
+
+    df = df_all.copy()
 
     try:
         df = df.copy()
@@ -627,6 +644,146 @@ def generate_census(df, start_date, end_date, ao_duration_minutes=30):
             .round()
             .astype("Int64")
         )
+
+        helper_type = (
+            str(census_helper_type or "")
+            .strip()
+            .lower()
+        )
+
+        helper_operation = (
+            str(census_helper_operation or "")
+            .strip()
+            .lower()
+        )
+
+        if helper_type == "bypass":
+
+            logger.info(
+                f"[census] Using bypass file: "
+                f"{census_helper_csv}"
+            )
+
+            ts = pd.read_csv(
+                census_helper_csv,
+                parse_dates=["interval"]
+            )
+
+            ts["interval"] = pd.to_datetime(
+                ts["interval"],
+                errors="raise"
+            )
+
+            ts["census"] = pd.to_numeric(
+                ts["census"],
+                errors="raise"
+            )
+
+            ts = ts[
+                (ts["interval"] >= start_date)
+                &
+                (ts["interval"] <= end_date)
+            ]
+
+            return ts, ts.copy()
+
+        elif helper_type == "operation":
+
+            helper = pd.read_csv(
+                census_helper_csv,
+                parse_dates=["interval"]
+            )
+
+            required_columns = [
+                "interval",
+                "census"
+            ]
+
+            missing = [
+                c
+                for c in required_columns
+                if c not in helper.columns
+            ]
+
+            if missing:
+                raise ValueError(
+                    f"Helper file missing columns: "
+                    f"{missing}"
+                )
+
+            helper["interval"] = pd.to_datetime(
+                helper["interval"],
+                errors="raise"
+            )
+
+            helper["census"] = pd.to_numeric(
+                helper["census"],
+                errors="raise"
+            )
+
+            merged = ts.merge(
+                helper,
+                on="interval",
+                how="left",
+                suffixes=("", "_helper")
+            )
+
+            merged["census_helper"] = (
+                merged["census_helper"]
+                .fillna(0)
+            )
+
+            if helper_operation == "subtract":
+
+                merged["census"] = (
+                    merged["census"]
+                    - merged["census_helper"]
+                )
+
+            elif helper_operation == "add":
+
+                merged["census"] = (
+                    merged["census"]
+                    + merged["census_helper"]
+                )
+
+            elif helper_operation == "multiply":
+
+                merged["census"] = (
+                    merged["census"]
+                    * merged["census_helper"]
+                )
+
+            elif helper_operation == "divide":
+
+                merged["census"] = (
+                    merged["census"]
+                    / merged["census_helper"]
+                    .replace(0, np.nan)
+                )
+
+            else:
+
+                raise ValueError(
+                    f"Unsupported census helper operation: "
+                    f"{helper_operation}"
+                )
+
+            ts = merged[
+                ["interval", "census"]
+            ].copy()
+
+            ts["census"] = (
+                pd.to_numeric(
+                    ts["census"],
+                    errors="coerce"
+                )
+            )
+
+            logger.info(
+                f"[census] Helper operation applied: "
+                f"{helper_operation}"
+            )
 
         return ts, df
 

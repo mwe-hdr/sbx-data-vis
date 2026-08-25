@@ -58,12 +58,14 @@ show_legend,True
 save_png,True
 save_csv,True
 
-### ===== CENSUS BYPASS =====
-bypass_census_csv,
+### ===== CENSUS HELPER =====
+census_helper_csv,
+census_helper_type,operation
+census_helper_operation,subtract
 
 #### ===== OLS TREND PROJECTION =====
 
-enable_trend_projection,True
+enable_trend_projection,False
 
 trend_start_month,2020-04-01
 trend_input_months,60
@@ -96,3 +98,23 @@ confidence_level,0.95
 confidence_fill_color,#1f77b4
 
 confidence_alpha,0.15
+
+#### ===== POWERPOINT =====
+ppt_template,pptx_template.vis_08.test.pptx
+
+ppt_visual_order,1
+
+ppt_asset_01_keyword,vis_08_title
+ppt_asset_01_placeholder,vis_title
+
+ppt_asset_02_keyword,vis_08_legend
+ppt_asset_02_placeholder,vis_legend
+
+ppt_asset_03_keyword,vis_08_parameters
+ppt_asset_03_placeholder,vis_param
+
+ppt_asset_04_keyword,
+ppt_asset_04_placeholder,
+
+ppt_asset_05_keyword,vis_08__
+ppt_asset_05_placeholder,vis_image
