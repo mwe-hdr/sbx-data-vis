@@ -504,7 +504,8 @@ def generate_census(
     ao_duration_minutes=30,
     census_helper_csv=None,
     census_helper_type=None,
-    census_helper_operation=None
+    census_helper_operation=None,
+    max_census_delta=None
 ):
 
     df_all, df_reporting = df_date_splitter(
@@ -785,6 +786,57 @@ def generate_census(
                 f"{helper_operation}"
             )
 
+        if max_census_delta is not None:
+
+            try:
+
+                max_census_delta = float(max_census_delta)
+
+                ts = (
+                    ts.sort_values("interval")
+                    .reset_index(drop=True)
+                )
+
+                prev_delta = (
+                    ts["census"] -
+                    ts["census"].shift(1)
+                ).abs()
+
+                next_delta = (
+                    ts["census"] -
+                    ts["census"].shift(-1)
+                ).abs()
+
+                outlier_mask = (
+                    (prev_delta > max_census_delta) &
+                    (next_delta > max_census_delta)
+                )
+
+                outlier_count = int(outlier_mask.sum())
+
+                if outlier_count > 0:
+
+                    logger.info(
+                        f"[census] Clipping "
+                        f"{outlier_count:,} census outliers "
+                        f"using max_delta={max_census_delta}"
+                    )
+
+                    ts.loc[outlier_mask, "census"] = pd.NA
+
+                    ts["census"] = (
+                        ts["census"]
+                        .interpolate(method="linear")
+                        .ffill()
+                        .bfill()
+                    )
+
+            except Exception as e:
+
+                logger.warning(
+                    f"[census] Outlier clipping failed: {e}"
+                )
+                
         return ts, df
 
     except Exception as e:

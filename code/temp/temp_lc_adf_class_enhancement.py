@@ -31,6 +31,7 @@ for _, booking in classified_bookings.iterrows():
     booknum = booking["BOOKNUMBER"]
     booking_start = booking["BOOKINGDATE"]
     booking_end = booking["RELEASEDATE"]
+    sex = booking["SEX"]
 
     windows = (
         cls.loc[cls["BookNumber"] == booknum]
@@ -46,6 +47,7 @@ for _, booking in classified_bookings.iterrows():
     # Backfill first observed classification to booking start
     results.append({
         "BookNumber": booknum,
+        "Sex": sex,
         "Pod": first["Pod"],
         "WindowStartDate": booking_start,
         "WindowEndDate": first["WindowEndDate"]
@@ -63,6 +65,7 @@ for _, booking in classified_bookings.iterrows():
 
             results.append({
                 "BookNumber": booknum,
+                "Sex": sex,
                 "Pod": prev_pod,
                 "WindowStartDate": prev_end + pd.Timedelta(days=1),
                 "WindowEndDate": row["WindowStartDate"] - pd.Timedelta(days=1)
@@ -71,6 +74,7 @@ for _, booking in classified_bookings.iterrows():
         # Current classified window
         results.append({
             "BookNumber": booknum,
+            "Sex": sex,
             "Pod": row["Pod"],
             "WindowStartDate": row["WindowStartDate"],
             "WindowEndDate": row["WindowEndDate"]
@@ -84,6 +88,7 @@ for _, booking in classified_bookings.iterrows():
 
         results.append({
             "BookNumber": booknum,
+            "Sex": sex,
             "Pod": prev_pod,
             "WindowStartDate": prev_end + pd.Timedelta(days=1),
             "WindowEndDate": booking_end

@@ -24,11 +24,11 @@ bookings["RELEASEDATE"] = bookings["RELEASEDATE"].fillna(
 )
 
 # Create lookup dictionary
-release_lookup = (
-    bookings[["BOOKNUMBER", "RELEASEDATE"]]
+booking_lookup = (
+    bookings[["BOOKNUMBER", "RELEASEDATE", "SEX"]]
     .drop_duplicates(subset=["BOOKNUMBER"])
-    .set_index("BOOKNUMBER")["RELEASEDATE"]
-    .to_dict()
+    .set_index("BOOKNUMBER")
+    .to_dict("index")
 )
 
 # Parse housing dates
@@ -49,10 +49,16 @@ for book_no, grp in df.groupby("BOOK#", sort=False):
         (grp["POD"].shift().isna())
     ].reset_index(drop=True)
 
-    release_date = release_lookup.get(
+    booking_info = booking_lookup.get(
         str(book_no).strip(),
-        pd.Timestamp("2099-12-31")
+        {
+            "RELEASEDATE": pd.Timestamp("2099-12-31"),
+            "SEX": None
+        }
     )
+
+    release_date = booking_info["RELEASEDATE"]
+    sex = booking_info["SEX"]
 
     for i in range(len(grp)):
 
@@ -76,6 +82,7 @@ for book_no, grp in df.groupby("BOOK#", sort=False):
 
         results.append({
             "BOOK#": book_no,
+            "SEX": sex,
             "HOUSING": housing,
             "HOUSING_START_DATE": start_date,
             "HOUSING_END_DATE": end_date
@@ -86,4 +93,4 @@ out_df = pd.DataFrame(results)
 out_df.to_csv(OUTPUT_FILE, index=False)
 
 print(f"Wrote {len(out_df):,} rows to {OUTPUT_FILE}")
-print(f"Bookings with release dates loaded: {len(release_lookup):,}")
+print(f"Bookings loaded: {len(booking_lookup):,}")

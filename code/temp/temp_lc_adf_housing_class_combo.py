@@ -29,7 +29,7 @@ classification = classification.rename(
     columns={
         "WindowStartDate": "ClassStart",
         "WindowEndDate": "ClassEnd",
-        "Pod": "ClassificationPod"
+        "Pod": "custody_class"
     }
 )
 
@@ -93,10 +93,11 @@ merged["OverlapDays"] = (
 # ------------------------------------------------------------------
 output_cols = [
     "BookNumber",
+    "sex",
     "Housing",
     "HousingStart",
     "HousingEnd",
-    "ClassificationPod",
+    "custody_class",
     "ClassStart",
     "ClassEnd",
     "OverlapStart",
