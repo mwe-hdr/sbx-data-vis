@@ -61,8 +61,8 @@ aggregation_level,month,Aggregation level (hour/day_of_week/month),0
 
 ### ===== CENSUS HELPER =====
 census_helper_csv,
-census_helper_type,operation
-census_helper_operation,subtract
+census_helper_type,
+census_helper_operation,
 
 #### ===== POWERPOINT =====
 ppt_template,pptx_template.vis_10.test.pptx

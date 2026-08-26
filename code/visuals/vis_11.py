@@ -79,8 +79,7 @@ from utils.vis_helpers import (
     generate_census,
     crop_image
 )
-from utils.date_helpers import prepare_dates
-from utils.col_helpers import add_common_helper_columns
+from utils.date_helpers import df_date_splitter
 
 logger = logging.getLogger(__name__)
 
@@ -179,8 +178,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # --------------------------------------------------
         # HELP MY DATAFRAME
         # --------------------------------------------------
-        df, df_visits = prepare_dates(df, start_date, end_date)
-        add_common_helper_columns(df)
+        df, df_visits = df_date_splitter(df, start_date, end_date)
 
         # =========================================================
         # VALIDATION

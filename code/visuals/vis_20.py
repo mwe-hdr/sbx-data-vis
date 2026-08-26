@@ -3,7 +3,7 @@
 #
 # Description :
 #
-# Extends the Facility Patient Flow Sankey by focusing on ambulatory arrivals and
+# Extends the Facility Patient Flow Sankey by focusing on EMT arrivals and
 # stratifying patient progression by ESI level.
 #
 # Flow:
@@ -25,7 +25,7 @@
 #     Exit w/o Care
 #     Expired
 #
-# Ambulatory arrivals are defined using the arrival-method grouping logic
+# EMT arrivals are defined using the arrival-method grouping logic
 # established in vis_19:
 #
 #     EMT Arrival
@@ -54,8 +54,7 @@ from utils.vis_helpers import (
     map_arrival_method,
     map_disposition
 )
-from utils.date_helpers import prepare_dates
-from utils.col_helpers import add_common_helper_columns
+from utils.date_helpers import df_date_splitter
 
 logger = logging.getLogger(__name__)
 
@@ -117,14 +116,13 @@ def run(
         "has_triage",
         "tmt_start_dtm",
         "has_ed",
-        "disposition"
+        "disposition_group"
     }
 
     # --------------------------------------------------
     # HELP MY DATAFRAME
     # --------------------------------------------------
-    _, df = prepare_dates(df, start_date, end_date)
-    df = add_common_helper_columns(df)
+    _, df = df_date_splitter(df, start_date, end_date)
 
     if df is None:
         logger.warning(f"[{VISUAL_ID}] dataframe is None")
@@ -245,7 +243,7 @@ def run(
 
             count = len(
                 ed_df[
-                    ed_df["disposition"] == disp
+                    ed_df["disposition_group"] == disp
                 ]
             )
 
@@ -499,7 +497,8 @@ def run(
         "Observation",
         "Transfer",
         "Exit w/o Care",
-        "Expired"
+        "Expired",
+        "Unknown"
     ]
 
     disp_counts = {}
@@ -508,7 +507,7 @@ def run(
 
         disp_counts[disp] = len(
             ed_df[
-                ed_df["disposition"] == disp
+                ed_df["disposition_group"] == disp
             ]
         )
 
@@ -594,6 +593,7 @@ def run(
         "#4292C6",
         "#4292C6",
         "#4292C6",
+        "#6BAED6",
         "#6BAED6",
         "#6BAED6",
         "#6BAED6",

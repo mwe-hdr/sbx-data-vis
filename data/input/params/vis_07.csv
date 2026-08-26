@@ -28,7 +28,7 @@ color_wheelchair,#d62728,Wheelchair
 color_other,#7f7f7f,Other
 font_family,Segoe UI,Global font family
 #### ===== CATEGORY =====
-category_field,patient_type_ip_op,Grouping field
-category_display_name,Patient Type,Display label
-expected_categories,Inpatient|Outpatient,Expected category order
-category_colors,Inpatient=#084594|Outpatient=#6baed6,Category colors
+category_field,arrival_group,Grouping field
+category_display_name,Arrival Type,Display label
+expected_categories,EMT|Car/Walk-in|Wheelchair|Police|Other,Expected category order
+category_colors,EMT=#08306B|Car/Walk-in=#2171B5|Car/Walk-in=#4292C6|Car/Walk-in=#6BAED6|Car/Walk-in=#9ECAE1,Category colors

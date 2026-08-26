@@ -81,8 +81,7 @@ from utils.vis_helpers import (
     save_title_png,
     map_disposition
 )
-from utils.date_helpers import prepare_dates
-from utils.col_helpers import add_common_helper_columns
+from utils.date_helpers import df_date_splitter
 
 logger = logging.getLogger(__name__)
 
@@ -132,13 +131,11 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     # --------------------------------------------------
     # HELP MY DATAFRAME
     # --------------------------------------------------
-    _, df = prepare_dates(df, start_date, end_date)
+    _, df = df_date_splitter(df, start_date, end_date)
 
     if df is None:
         logger.warning(f"[{VISUAL_ID}] Input dataframe is None. Skipping.")
         return
-
-    df = add_common_helper_columns(df)
 
     required_cols = {
         "arrival_dtm",

@@ -98,9 +98,10 @@ def load_mapping_file(mapping_file):
 
             for _, row in group.iterrows():
 
-                mapping_key = str(
-                    row["source_value"]
-                ).strip()
+                mapping_key = normalize_field_format(
+                    pd.Series([row["source_value"]]),
+                    source_format
+                ).iloc[0]
 
                 mapping_dict[mapping_key] = row["target_value"]           
 

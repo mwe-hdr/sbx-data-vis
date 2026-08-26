@@ -47,8 +47,7 @@ from utils.vis_helpers import (
     save_title_png,
     map_arrival_method
 )
-from utils.date_helpers import prepare_dates
-from utils.col_helpers import add_common_helper_columns
+from utils.date_helpers import df_date_splitter
 
 logger = logging.getLogger(__name__)
 
@@ -288,8 +287,7 @@ def run(
     # --------------------------------------------------
     # HELP MY DATAFRAME
     # --------------------------------------------------
-    _, df = prepare_dates(df, start_date, end_date)
-    df = add_common_helper_columns(df)
+    _, df = df_date_splitter(df, start_date, end_date)
 
     # ============================================================
     # REQUIRED COLUMNS

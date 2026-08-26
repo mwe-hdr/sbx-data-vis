@@ -24,7 +24,7 @@ label_fontsize,9
 tick_fontsize,8
 
 ### ===== CHART TEXT =====
-chart_title,Lancaster ADF Daily Census Trend with Capacity Reference Line
+chart_title,Give me a Title
 x_label,Time
 y_label,ED Census
 
@@ -60,8 +60,8 @@ save_csv,True
 
 ### ===== CENSUS HELPER =====
 census_helper_csv,
-census_helper_type,operation
-census_helper_operation,subtract
+census_helper_type,
+census_helper_operation,
 
 #### ===== OLS TREND PROJECTION =====
 

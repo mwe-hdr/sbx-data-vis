@@ -11,8 +11,7 @@ from utils.vis_helpers import (
     save_title_png,
     save_legend_png
 )
-from utils.date_helpers import prepare_dates
-from utils.col_helpers import add_common_helper_columns
+from utils.date_helpers import df_date_splitter
 
 logger = logging.getLogger(__name__)
 
@@ -190,8 +189,7 @@ def run(
         # --------------------------------------------------
         # HELP MY DATAFRAME
         # --------------------------------------------------
-        _, df = prepare_dates(df, start_date, end_date)
-        df = add_common_helper_columns(df)
+        _, df = df_date_splitter(df, start_date, end_date)
 
         # =====================================================
         # DATA PREP
@@ -200,7 +198,7 @@ def run(
         df = df.copy()
 
         df = df.dropna(
-            df=[
+            subset=[
                 "arrival_dtm",
                 "tmt_stop_dtm"
             ]
@@ -214,9 +212,7 @@ def run(
             )
             return
 
-        los_hours = los_hours.clip(lower=0.0167)
-
-        df["los_hours"] = los_hours
+        df["los_hours"] = df["los_hours"].clip(lower=0.0167)
 
         # =====================================================
         # AGGREGATION
