@@ -220,6 +220,13 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         enable_rdb = int(params.get("rdb_write", 0))
         rdb_rows = []
 
+        above_line = None
+        capacity_line = None
+        avg_line = None
+        trend_line = None
+        projection_line = None
+        confidence_band = None
+
         # =========================================================
         # VISUALIZATION
         # =========================================================
@@ -505,19 +512,18 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # -----------------------------------------------------
         # CAPACITY LINE
         # -----------------------------------------------------
+        capacity_line = None
+
         if capacity_value is not None:
-            capacity_line = None
 
-            if capacity_value is not None:
-
-                capacity_line = plt.axhline(
-                    y=capacity_value,
-                    linestyle=capacity_linestyle,
-                    linewidth=capacity_linewidth,
-                    color="dodgerblue",
-                    label=f"Capacity ({capacity_value})",
-                    zorder=10
-                )
+            capacity_line = plt.axhline(
+                y=capacity_value,
+                linestyle=capacity_linestyle,
+                linewidth=capacity_linewidth,
+                color="dodgerblue",
+                label=f"Capacity ({capacity_value})",
+                zorder=10
+            )
 
         # -----------------------------------------------------
         # AVERAGE LINE

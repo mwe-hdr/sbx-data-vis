@@ -61,7 +61,7 @@ DOMAINS = {
     },
 
         "adf": {
-        "data_file": "lc_adf_class_pod_history_flat_enriched.csv",
+        "data_file": "lc_adf_booking_housing_classification.csv",
         "cohort_dir": "adf",
         "domain": "adf"
     }

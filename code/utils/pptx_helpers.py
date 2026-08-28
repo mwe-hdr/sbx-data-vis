@@ -158,21 +158,73 @@ def build_powerpoint(
         "cohort_id"
     ):
 
+        #
+        # backward compatibility
+        #
+        if "ppt_slide_group" not in cohort_rows.columns:
+
+            cohort_rows["ppt_slide_group"] = (
+                cohort_rows["visual_id"]
+            )
+
+        if "ppt_slide_group_order" not in cohort_rows.columns:
+
+            cohort_rows["ppt_slide_group_order"] = (
+                cohort_rows["ppt_visual_order"]
+            )
+
+        #
+        # sort slide groups
+        #
         cohort_rows = cohort_rows.sort_values(
-            "ppt_visual_order"
+            [
+                "ppt_slide_group_order",
+                "ppt_visual_order"
+            ]
         )
 
-        for _, row in cohort_rows.iterrows():
+        #
+        # one slide per group
+        #
+        for slide_group, slide_rows in (
+            cohort_rows.groupby(
+                "ppt_slide_group"
+            )
+        ):
 
-            visual_id = row["visual_id"]
+            slide_rows = slide_rows.sort_values(
+                "ppt_visual_order"
+            )
+
+            first_row = slide_rows.iloc[0]
 
             template_file = os.path.join(
                 os.getcwd(),
                 "data",
                 "input",
                 "templates",
-                row["ppt_template"]
+                first_row["ppt_template"]
             )
+
+            #
+            # validate templates
+            #
+            template_values = (
+                slide_rows["ppt_template"]
+                .dropna()
+                .astype(str)
+                .unique()
+            )
+
+            if len(template_values) != 1:
+
+                logging.error(
+                    "[ppt] Slide group "
+                    f"{slide_group} "
+                    "contains multiple templates"
+                )
+
+                continue
 
             if master_prs is None:
 
@@ -184,7 +236,9 @@ def build_powerpoint(
                 template_file
             )
 
-            template_slide = template_prs.slides[0]
+            template_slide = (
+                template_prs.slides[0]
+            )
 
             base_dir = os.getcwd()
 
@@ -197,16 +251,10 @@ def build_powerpoint(
             )
 
             if not os.path.exists(outputs_dir):
+
                 raise FileNotFoundError(
                     outputs_dir
                 )
-
-            logging.info(
-                f"[ppt] Loading template: "
-                f"{template_file}"
-            )
-
-            params = row.to_dict()
 
             cohort_dir = os.path.join(
                 outputs_dir,
@@ -218,6 +266,9 @@ def build_powerpoint(
             ):
                 continue
 
+            #
+            # CREATE SINGLE SLIDE
+            #
             slide = add_template_slide(
                 master_prs,
                 template_slide
@@ -228,20 +279,40 @@ def build_powerpoint(
                 cohort_id
             )
 
-            populate_slide(
-                slide,
-                cohort_dir,
-                params
-            )
+            #
+            # APPLY ALL VISUALS
+            #
+            for _, row in (
+                slide_rows.iterrows()
+            ):
+
+                visual_id = row[
+                    "visual_id"
+                ]
+
+                params = row.to_dict()
+
+                populate_slide(
+                    slide,
+                    cohort_dir,
+                    params
+                )
+
+                logging.info(
+                    "[ppt] Applied "
+                    f"{visual_id} "
+                    f"to group "
+                    f"{slide_group}"
+                )
 
             remove_unwanted_placeholders(
                 slide
             )
 
             logging.info(
-                f"[ppt] Added "
-                f"{visual_id} "
-                f"{cohort_id}"
+                "[ppt] Added slide "
+                f"group={slide_group} "
+                f"cohort={cohort_id}"
             )
 
     if len(master_prs.slides) > 1:

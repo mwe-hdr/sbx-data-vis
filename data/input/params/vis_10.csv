@@ -67,19 +67,22 @@ census_helper_operation,
 #### ===== POWERPOINT =====
 ppt_template,pptx_template.vis_10.test.pptx
 
-ppt_visual_order,2
+ppt_slide_group,group3
+ppt_slide_group_order,3
+
+ppt_visual_order,8
 
 ppt_asset_01_keyword,vis_10_title
-ppt_asset_01_placeholder,vis_title
+ppt_asset_01_placeholder,vis_10_title
 
 ppt_asset_02_keyword,vis_10_legend
-ppt_asset_02_placeholder,vis_legend
+ppt_asset_02_placeholder,vis_10_legend
 
 ppt_asset_03_keyword,vis_10_parameters
-ppt_asset_03_placeholder,vis_param
+ppt_asset_03_placeholder,vis_10_param
 
 ppt_asset_04_keyword,_room_need_
-ppt_asset_04_placeholder,vis_tbl01
+ppt_asset_04_placeholder,vis_10_tbl01
 
 ppt_asset_05_keyword,vis_10__
-ppt_asset_05_placeholder,vis_image
+ppt_asset_05_placeholder,vis_10_image

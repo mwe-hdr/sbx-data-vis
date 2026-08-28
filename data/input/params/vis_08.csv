@@ -34,7 +34,7 @@ below_color,#000000
 above_color,#d62728
 
 ### ===== CAPACITY =====
-capacity_value,24
+capacity_value,
 capacity_threshold_pct,0.85
 capacity_linestyle,--
 capacity_linewidth,1.5
@@ -65,7 +65,7 @@ census_helper_operation,
 
 #### ===== OLS TREND PROJECTION =====
 
-enable_trend_projection,False
+enable_trend_projection,True
 
 trend_start_month,2020-04-01
 trend_input_months,60
@@ -102,19 +102,22 @@ confidence_alpha,0.15
 #### ===== POWERPOINT =====
 ppt_template,pptx_template.vis_08.test.pptx
 
-ppt_visual_order,1
+ppt_slide_group,group2
+ppt_slide_group_order,2
+
+ppt_visual_order,7
 
 ppt_asset_01_keyword,vis_08_title
-ppt_asset_01_placeholder,vis_title
+ppt_asset_01_placeholder,vis_08_title
 
 ppt_asset_02_keyword,vis_08_legend
-ppt_asset_02_placeholder,vis_legend
+ppt_asset_02_placeholder,vis_08_legend
 
 ppt_asset_03_keyword,vis_08_parameters
-ppt_asset_03_placeholder,vis_param
+ppt_asset_03_placeholder,vis_08_param
 
-ppt_asset_04_keyword,
-ppt_asset_04_placeholder,
+ppt_asset_04_keyword,vis_08_projection_table
+ppt_asset_04_placeholder,vis_08_projection_table
 
 ppt_asset_05_keyword,vis_08__
-ppt_asset_05_placeholder,vis_image
+ppt_asset_05_placeholder,vis_08_image

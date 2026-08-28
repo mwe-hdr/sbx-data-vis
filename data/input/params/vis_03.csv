@@ -50,3 +50,50 @@ title,ED Visits by Year,Chart title
 
 y_axis_decimals,0,Y-axis decimal formatting
 y_axis_use_commas,True,Y-axis comma formatting
+
+#### ===== POWERPOINT =====
+ppt_template,pptx_template.vis_01to06.test.pptx
+
+ppt_slide_group,group1
+ppt_slide_group_order,1
+
+ppt_visual_order,3
+
+ppt_asset_01_keyword,vis_01_title
+ppt_asset_01_placeholder,vis_01_title
+
+ppt_asset_02_keyword,vis_01__
+ppt_asset_02_placeholder,vis_01_image
+
+ppt_asset_03_keyword,vis_01_legend
+ppt_asset_03_placeholder,vis_01_legend
+
+ppt_asset_04_keyword,vis_02_title
+ppt_asset_04_placeholder,vis_02_title
+
+ppt_asset_05_keyword,vis_02__
+ppt_asset_05_placeholder,vis_02_image
+
+ppt_asset_06_keyword,vis_03_title
+ppt_asset_06_placeholder,vis_03_title
+
+ppt_asset_07_keyword,vis_03__
+ppt_asset_07_placeholder,vis_03_image
+
+ppt_asset_07_keyword,vis_04_title
+ppt_asset_07_placeholder,vis_04_title
+
+ppt_asset_08_keyword,vis_04__
+ppt_asset_08_placeholder,vis_04_image
+
+ppt_asset_09_keyword,vis_05_title
+ppt_asset_09_placeholder,vis_05_title
+
+ppt_asset_10_keyword,vis_05__
+ppt_asset_10_placeholder,vis_05_image
+
+ppt_asset_11_keyword,vis_06_title
+ppt_asset_11_placeholder,vis_06_title
+
+ppt_asset_12_keyword,vis_06__
+ppt_asset_12_placeholder,vis_06_image

@@ -1,85 +1,85 @@
 domain,mapping_type,source_field,source_format,source_value,target_field,target_format,target_value,active_flag
-adf,field,arrival_dtm,str,,arrival_dtm,datetime,,Y
-adf,field,tmt_start_dtm,str,,tmt_start_dtm,datetime,,Y
-adf,field,tmt_stop_dtm,str,,tmt_stop_dtm,datetime,,Y
-adf,field,triage_start_dtm,str,,triage_start_dtm,datetime,,Y
-ed,value,esi,str,0,esi_category,str,0 - Unknown,Y
-ed,value,esi,str,1,esi_category,str,1 - Immediate,Y
-ed,value,esi,str,2,esi_category,str,2 - Emergent,Y
-ed,value,esi,str,3,esi_category,str,3 - Urgent,Y
-ed,value,esi,str,4,esi_category,str,4 - Less Urgent,Y
-ed,value,esi,str,5,esi_category,str,5 - Non-Urgent,Y
-ed,value,esi,str,1,disposition_group,str,Discharge,Y
-ed,value,esi,str,2,disposition_group,str,Transfer,Y
-ed,value,esi,str,3,disposition_group,str,Inpatient,Y
-ed,value,esi,str,4,disposition_group,str,Exit w/o Care,Y
-ed,value,esi,str,5,disposition_group,str,Exit w/o Care,Y
-ed,value,esi,str,6,disposition_group,str,Exit w/o Care,Y
-ed,value,esi,str,7,disposition_group,str,Exit w/o Care,Y
-ed,value,esi,str,8,disposition_group,str,Expired,Y
-ed,value,esi,str,9,disposition_group,str,Transfer,Y
-ed,value,esi,str,10,disposition_group,str,Observation,Y
-ed,value,esi,str,12,disposition_group,str,Inpatient,Y
-ed,value,esi,str,13,disposition_group,str,Inpatient,Y
-ed,value,esi,str,102,disposition_group,str,Transfer,Y
-ed,value,esi,str,105,disposition_group,str,Transfer,Y
-ed,value,esi,str,110,disposition_group,str,Discharge,Y
-ed,value,esi,str,113,disposition_group,str,Unknown,Y
-ed,value,esi,str,119,disposition_group,str,Transfer,Y
-ed,value,esi,str,Ambulance,arrival_group,str,Ambulance,Y
-ed,value,esi,str,Car,arrival_group,str,Car / Walk-in,Y
-ed,value,esi,str,Police,arrival_group,str,Police,Y
-ed,value,esi,str,Wheelchair,arrival_group,str,Wheelchair,Y
-ed,value,esi,str,Hospital Transport,arrival_group,str,Car / Walk-in,Y
-ed,value,esi,str,Assist From Vehicle,arrival_group,str,Car / Walk-in,Y
-ed,value,esi,str,Other,arrival_group,str,Other,Y
-ed,value,esi,str,Other (Code green ),arrival_group,str,Other,Y
-ed,value,esi,str,Medical Flight,arrival_group,str,Ambulance,Y
-ed,value,esi,str,Ambulance (NN8),arrival_group,str,Ambulance,Y
-ed,value,esi,str,Public Transportation,arrival_group,str,Car / Walk-in,Y
-ed,value,esi,str,Taxi,arrival_group,str,Car / Walk-in,Y
-ed,value,esi,str,TC BLS Stretcher,arrival_group,str,Ambulance,Y
-ed,value,esi,str,TC ALS Stretcher,arrival_group,str,Ambulance,Y
-ed,value,esi,str,Ambulance (H7),arrival_group,str,Ambulance,Y
-ed,value,esi,str,Ambulance (NN6),arrival_group,str,Ambulance,Y
-ed,value,esi,str,Other (walk in),arrival_group,str,Car / Walk-in,Y
-ed,value,esi,str,TC Wheelchair Van,arrival_group,str,Wheelchair,Y
-ed,value,esi,str,TC Critical Care Team,arrival_group,str,Ambulance,Y
-ed,value,esi,str,TC ALS Stretcher (AMR),arrival_group,str,Ambulance,Y
-ed,value,esi,str,Ambulance (H9),arrival_group,str,Ambulance,Y
-ed,value,esi,str,Other (Working in RRMC ED),arrival_group,str,Other,Y
-ed,value,esi,str,0,arrival_group,str,Other,Y
-ed,value,esi,str,Other (walk),arrival_group,str,Car / Walk-in,Y
-ed,value,esi,str,Other (Ambulatory),arrival_group,str,Car / Walk-in,Y
-ed,value,esi,str,Other (Bike),arrival_group,str,Car / Walk-in,Y
-ed,value,esi,str,Ambulance (Newport News 10),arrival_group,str,Ambulance,Y
-ed,value,esi,str,Ambulance (Newport News EMS #6),arrival_group,str,Ambulance,Y
-ed,value,esi,str,Ambulance (NN 7),arrival_group,str,Ambulance,Y
-ed,value,esi,str,Police (NNSD),arrival_group,str,Police,Y
-ed,value,esi,str,Ambulance (nn medic6),arrival_group,str,Ambulance,Y
-ed,value,esi,str,Ambulance (H10),arrival_group,str,Ambulance,Y
-ed,value,esi,str,Ambulance (NN1),arrival_group,str,Ambulance,Y
-ed,value,esi,str,Ambulance (NN3),arrival_group,str,Ambulance,Y
-ed,value,esi,str,TC PALS Stretcher,arrival_group,str,Ambulance,Y
-ed,value,esi,str,Other (hospital nurse (code green)),arrival_group,str,Other,Y
-ed,value,esi,str,Other (walked),arrival_group,str,Car / Walk-in,Y
-ed,value,esi,str,Ambulance (YC 6),arrival_group,str,Ambulance,Y
-ed,value,esi,str,Ambulance (NN2),arrival_group,str,Ambulance,Y
-ed,value,esi,str,Other (wheelchair),arrival_group,str,Wheelchair,Y
-ed,value,esi,str,Ambulance (NN 8),arrival_group,str,Ambulance,Y
-ed,value,esi,str,Other (Bus),arrival_group,str,Car / Walk-in,Y
-ed,value,esi,str,Ambulance (HM2),arrival_group,str,Ambulance,Y
-ed,value,esi,str,Ambulance (NN9),arrival_group,str,Ambulance,Y
-ed,value,esi,str,Ambulance (HM8),arrival_group,str,Ambulance,Y
-ed,value,esi,str,Other (Sheriff),arrival_group,str,Police,Y
-ed,value,esi,str,Ambulance (NN 8 ),arrival_group,str,Ambulance,Y
-ed,value,esi,str,Ambulance (NN medic 6),arrival_group,str,Ambulance,Y
-ed,value,esi,str,Other (Non Emergency Medic ),arrival_group,str,Other,Y
-ed,value,esi,str,Ambulance (NN 2),arrival_group,str,Ambulance,Y
-ed,value,esi,str,Other (Code Green),arrival_group,str,Other,Y
-ed,value,esi,str,Other (in the hospital with spouse),arrival_group,str,Other,Y
-ed,value,esi,str,Other (self),arrival_group,str,Car / Walk-in,Y
-ed,value,esi,str,Other (Community Assistance),arrival_group,str,Other,Y
-ed,value,esi,str,Car (self),arrival_group,str,Car / Walk-in,Y
-ed,value,esi,str,Other (Vascular lab),arrival_group,str,Other,Y
-ed,value,esi,str,TC Bariatric,arrival_group,str,Ambulance,Y
+ed,field,arrival_dtm,str,,arrival_dtm,datetime,,Y
+ed,field,tmt_start_dtm,str,,tmt_start_dtm,datetime,,Y
+ed,field,tmt_stop_dtm,str,,tmt_stop_dtm,datetime,,Y
+ed,field,triage_start_dtm,str,,triage_start_dtm,datetime,,Y
+ed,value,esi,int,0,esi_category,str,0 - Unknown,Y
+ed,value,esi,int,1,esi_category,str,1 - Immediate,Y
+ed,value,esi,int,2,esi_category,str,2 - Emergent,Y
+ed,value,esi,int,3,esi_category,str,3 - Urgent,Y
+ed,value,esi,int,4,esi_category,str,4 - Less Urgent,Y
+ed,value,esi,int,5,esi_category,str,5 - Non-Urgent,Y
+ed,value,disch_disp_code,int,1,disposition_group,str,Discharge,Y
+ed,value,disch_disp_code,int,2,disposition_group,str,Transfer,Y
+ed,value,disch_disp_code,int,3,disposition_group,str,Inpatient,Y
+ed,value,disch_disp_code,int,4,disposition_group,str,Exit w/o Care,Y
+ed,value,disch_disp_code,int,5,disposition_group,str,Exit w/o Care,Y
+ed,value,disch_disp_code,int,6,disposition_group,str,Exit w/o Care,Y
+ed,value,disch_disp_code,int,7,disposition_group,str,Exit w/o Care,Y
+ed,value,disch_disp_code,int,8,disposition_group,str,Expired,Y
+ed,value,disch_disp_code,int,9,disposition_group,str,Transfer,Y
+ed,value,disch_disp_code,int,10,disposition_group,str,Observation,Y
+ed,value,disch_disp_code,int,12,disposition_group,str,Inpatient,Y
+ed,value,disch_disp_code,int,13,disposition_group,str,Inpatient,Y
+ed,value,disch_disp_code,int,102,disposition_group,str,Transfer,Y
+ed,value,disch_disp_code,int,105,disposition_group,str,Transfer,Y
+ed,value,disch_disp_code,int,110,disposition_group,str,Discharge,Y
+ed,value,disch_disp_code,int,113,disposition_group,str,Unknown,Y
+ed,value,disch_disp_code,int,119,disposition_group,str,Transfer,Y
+ed,value,arrival_method,str,Ambulance,arrival_group,str,EMT,Y
+ed,value,arrival_method,str,Car,arrival_group,str,Car / Walk-in,Y
+ed,value,arrival_method,str,Police,arrival_group,str,Police,Y
+ed,value,arrival_method,str,Wheelchair,arrival_group,str,Wheelchair,Y
+ed,value,arrival_method,str,Hospital Transport,arrival_group,str,Car / Walk-in,Y
+ed,value,arrival_method,str,Assist From Vehicle,arrival_group,str,Car / Walk-in,Y
+ed,value,arrival_method,str,Other,arrival_group,str,Other,Y
+ed,value,arrival_method,str,Other (Code green ),arrival_group,str,Other,Y
+ed,value,arrival_method,str,Medical Flight,arrival_group,str,EMT,Y
+ed,value,arrival_method,str,Ambulance (NN8),arrival_group,str,EMT,Y
+ed,value,arrival_method,str,Public Transportation,arrival_group,str,Car / Walk-in,Y
+ed,value,arrival_method,str,Taxi,arrival_group,str,Car / Walk-in,Y
+ed,value,arrival_method,str,TC BLS Stretcher,arrival_group,str,EMT,Y
+ed,value,arrival_method,str,TC ALS Stretcher,arrival_group,str,EMT,Y
+ed,value,arrival_method,str,Ambulance (H7),arrival_group,str,EMT,Y
+ed,value,arrival_method,str,Ambulance (NN6),arrival_group,str,EMT,Y
+ed,value,arrival_method,str,Other (walk in),arrival_group,str,Car / Walk-in,Y
+ed,value,arrival_method,str,TC Wheelchair Van,arrival_group,str,Wheelchair,Y
+ed,value,arrival_method,str,TC Critical Care Team,arrival_group,str,EMT,Y
+ed,value,arrival_method,str,TC ALS Stretcher (AMR),arrival_group,str,EMT,Y
+ed,value,arrival_method,str,Ambulance (H9),arrival_group,str,EMT,Y
+ed,value,arrival_method,str,Other (Working in RRMC ED),arrival_group,str,Other,Y
+ed,value,arrival_method,str,0,arrival_group,str,Other,Y
+ed,value,arrival_method,str,Other (walk),arrival_group,str,Car / Walk-in,Y
+ed,value,arrival_method,str,Other (Ambulatory),arrival_group,str,Car / Walk-in,Y
+ed,value,arrival_method,str,Other (Bike),arrival_group,str,Car / Walk-in,Y
+ed,value,arrival_method,str,Ambulance (Newport News 10),arrival_group,str,EMT,Y
+ed,value,arrival_method,str,Ambulance (Newport News EMS #6),arrival_group,str,EMT,Y
+ed,value,arrival_method,str,Ambulance (NN 7),arrival_group,str,EMT,Y
+ed,value,arrival_method,str,Police (NNSD),arrival_group,str,Police,Y
+ed,value,arrival_method,str,Ambulance (nn medic6),arrival_group,str,EMT,Y
+ed,value,arrival_method,str,Ambulance (H10),arrival_group,str,EMT,Y
+ed,value,arrival_method,str,Ambulance (NN1),arrival_group,str,EMT,Y
+ed,value,arrival_method,str,Ambulance (NN3),arrival_group,str,EMT,Y
+ed,value,arrival_method,str,TC PALS Stretcher,arrival_group,str,EMT,Y
+ed,value,arrival_method,str,Other (hospital nurse (code green)),arrival_group,str,Other,Y
+ed,value,arrival_method,str,Other (walked),arrival_group,str,Car / Walk-in,Y
+ed,value,arrival_method,str,Ambulance (YC 6),arrival_group,str,EMT,Y
+ed,value,arrival_method,str,Ambulance (NN2),arrival_group,str,EMT,Y
+ed,value,arrival_method,str,Other (wheelchair),arrival_group,str,Wheelchair,Y
+ed,value,arrival_method,str,Ambulance (NN 8),arrival_group,str,EMT,Y
+ed,value,arrival_method,str,Other (Bus),arrival_group,str,Car / Walk-in,Y
+ed,value,arrival_method,str,Ambulance (HM2),arrival_group,str,EMT,Y
+ed,value,arrival_method,str,Ambulance (NN9),arrival_group,str,EMT,Y
+ed,value,arrival_method,str,Ambulance (HM8),arrival_group,str,EMT,Y
+ed,value,arrival_method,str,Other (Sheriff),arrival_group,str,Police,Y
+ed,value,arrival_method,str,Ambulance (NN 8 ),arrival_group,str,EMT,Y
+ed,value,arrival_method,str,Ambulance (NN medic 6),arrival_group,str,EMT,Y
+ed,value,arrival_method,str,Other (Non Emergency Medic ),arrival_group,str,Other,Y
+ed,value,arrival_method,str,Ambulance (NN 2),arrival_group,str,EMT,Y
+ed,value,arrival_method,str,Other (Code Green),arrival_group,str,Other,Y
+ed,value,arrival_method,str,Other (in the hospital with spouse),arrival_group,str,Other,Y
+ed,value,arrival_method,str,Other (self),arrival_group,str,Car / Walk-in,Y
+ed,value,arrival_method,str,Other (Community Assistance),arrival_group,str,Other,Y
+ed,value,arrival_method,str,Car (self),arrival_group,str,Car / Walk-in,Y
+ed,value,arrival_method,str,Other (Vascular lab),arrival_group,str,Other,Y
+ed,value,arrival_method,str,TC Bariatric,arrival_group,str,EMT,Y

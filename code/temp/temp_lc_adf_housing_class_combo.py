@@ -1,118 +1,253 @@
 import pandas as pd
 
-# Input files
-CLASS_FILE = r"C:\lwf\sbx-data-vis\data\input\lc_adf_class_pod_history_flat_enriched.csv"
-HOUSING_FILE = r"C:\lwf\sbx-data-vis\data\input\lc_adf_housing_history_flat.csv"
+# ============================================================
+# Files
+# ============================================================
 
-# Output file
-OUTPUT_FILE = r"C:\lwf\sbx-data-vis\data\input\lc_adf_housing_classification_combo.csv"
+BOOKINGS_FILE = (
+    r"C:\lwf\sbx-data-vis\data\input\lc_adf_20260824\INMATES_BOOKED.CSV"
+)
 
-# ------------------------------------------------------------------
-# Read files
-# ------------------------------------------------------------------
-housing = pd.read_csv(HOUSING_FILE)
-classification = pd.read_csv(CLASS_FILE)
+HOUSING_FILE = (
+    r"C:\lwf\sbx-data-vis\data\input\lc_adf_housing_history_flat.csv"
+)
 
-# ------------------------------------------------------------------
-# Standardize column names
-# ------------------------------------------------------------------
+CLASS_FILE = (
+    r"C:\lwf\sbx-data-vis\data\input\lc_adf_class_pod_history_flat_enriched.csv"
+)
+
+OUTPUT_FILE = (
+    r"C:\lwf\sbx-data-vis\data\input\lc_adf_booking_housing_classification.csv"
+)
+
+FUTURE_DATE = pd.Timestamp("2099-12-31")
+
+# ============================================================
+# Load bookings
+# ============================================================
+
+bookings = pd.read_csv(
+    BOOKINGS_FILE,
+    parse_dates=[
+        "BOOKINGDATE",
+        "RELEASEDATE"
+    ]
+)
+
+bookings["BOOKNUMBER"] = (
+    bookings["BOOKNUMBER"]
+    .astype(str)
+    .str.strip()
+)
+
+bookings["RELEASEDATE"] = (
+    bookings["RELEASEDATE"]
+    .fillna(FUTURE_DATE)
+)
+
+bookings = bookings.rename(
+    columns={
+        "BOOKNUMBER": "BookNumber",
+        "BOOKINGDATE": "BookingStart",
+        "RELEASEDATE": "BookingEnd",
+        "SEX": "Sex"
+    }
+)
+
+# ============================================================
+# Load housing
+# ============================================================
+
+housing = pd.read_csv(
+    HOUSING_FILE,
+    parse_dates=[
+        "HOUSING_START_DATE",
+        "HOUSING_END_DATE"
+    ]
+)
+
 housing = housing.rename(
     columns={
         "BOOK#": "BookNumber",
-        "WindowStartDate": "HousingStart",
-        "WindowEndDate": "HousingEnd",
-        "housing": "Housing"
+        "HOUSING_START_DATE": "HousingStart",
+        "HOUSING_END_DATE": "HousingEnd"
     }
+)
+
+housing["BookNumber"] = (
+    housing["BookNumber"]
+    .astype(str)
+    .str.strip()
+)
+
+# ============================================================
+# Load classification
+# ============================================================
+
+classification = pd.read_csv(
+    CLASS_FILE,
+    parse_dates=[
+        "WindowStartDate",
+        "WindowEndDate"
+    ]
 )
 
 classification = classification.rename(
     columns={
+        "custody_class": "CustodyClass",
         "WindowStartDate": "ClassStart",
-        "WindowEndDate": "ClassEnd",
-        "Pod": "custody_class"
+        "WindowEndDate": "ClassEnd"
     }
 )
 
-# Ensure merge keys have the same datatype
-housing["BookNumber"] = housing["BookNumber"].astype(str).str.strip()
-classification["BookNumber"] = classification["BookNumber"].astype(str).str.strip()
-
-merged = housing.merge(
-    classification,
-    on="BookNumber",
-    how="inner",
-    suffixes=("_Housing", "_Class")
+classification["BookNumber"] = (
+    classification["BookNumber"]
+    .astype(str)
+    .str.strip()
 )
 
-# ------------------------------------------------------------------
-# Convert dates
-# ------------------------------------------------------------------
-housing["HousingStart"] = pd.to_datetime(housing["HousingStart"])
-housing["HousingEnd"] = pd.to_datetime(housing["HousingEnd"])
+# ============================================================
+# Build final result
+# ============================================================
 
-classification["ClassStart"] = pd.to_datetime(classification["ClassStart"])
-classification["ClassEnd"] = pd.to_datetime(classification["ClassEnd"])
+results = []
 
-# ------------------------------------------------------------------
-# Merge by inmate
-# ------------------------------------------------------------------
-merged = housing.merge(
-    classification,
-    on="BookNumber",
-    how="inner",
-    suffixes=("_Housing", "_Class")
+for _, booking in bookings.iterrows():
+
+    book_no = booking["BookNumber"]
+
+    booking_start = booking["BookingStart"]
+    booking_end = booking["BookingEnd"]
+
+    sex = booking["Sex"]
+
+    h = housing[housing["BookNumber"] == book_no].copy()
+    c = classification[classification["BookNumber"] == book_no].copy()
+
+    # --------------------------------------------------------
+    # Case 1
+    # No housing and no classification
+    # --------------------------------------------------------
+
+    if len(h) == 0 and len(c) == 0:
+
+        results.append({
+            "BookNumber": book_no,
+            "Sex": sex,
+            "SegmentStart": booking_start,
+            "SegmentEnd": booking_end,
+            "Housing": None,
+            "CustodyClass": None
+        })
+
+        continue
+
+    # --------------------------------------------------------
+    # Housing only
+    # --------------------------------------------------------
+
+    if len(h) > 0 and len(c) == 0:
+
+        for _, hh in h.iterrows():
+
+            results.append({
+                "BookNumber": book_no,
+                "Sex": sex,
+                "SegmentStart": max(
+                    booking_start,
+                    hh["HousingStart"]
+                ),
+                "SegmentEnd": min(
+                    booking_end,
+                    hh["HousingEnd"]
+                ),
+                "Housing": hh["HOUSING"],
+                "CustodyClass": None
+            })
+
+        continue
+
+    # --------------------------------------------------------
+    # Classification only
+    # --------------------------------------------------------
+
+    if len(h) == 0 and len(c) > 0:
+
+        for _, cc in c.iterrows():
+
+            results.append({
+                "BookNumber": book_no,
+                "Sex": sex,
+                "SegmentStart": max(
+                    booking_start,
+                    cc["ClassStart"]
+                ),
+                "SegmentEnd": min(
+                    booking_end,
+                    cc["ClassEnd"]
+                ),
+                "Housing": None,
+                "CustodyClass": cc["CustodyClass"]
+            })
+
+        continue
+
+    # --------------------------------------------------------
+    # Housing + Classification
+    # --------------------------------------------------------
+
+    pairwise = h.merge(
+        c,
+        how="cross"
+    )
+
+    overlap = (
+        (pairwise["HousingStart"] <= pairwise["ClassEnd"])
+        &
+        (pairwise["HousingEnd"] >= pairwise["ClassStart"])
+    )
+
+    pairwise = pairwise.loc[overlap]
+
+    for _, row in pairwise.iterrows():
+
+        seg_start = max(
+            booking_start,
+            row["HousingStart"],
+            row["ClassStart"]
+        )
+
+        seg_end = min(
+            booking_end,
+            row["HousingEnd"],
+            row["ClassEnd"]
+        )
+
+        if seg_start <= seg_end:
+
+            results.append({
+                "BookNumber": book_no,
+                "Sex": sex,
+                "SegmentStart": seg_start,
+                "SegmentEnd": seg_end,
+                "Housing": row["HOUSING"],
+                "CustodyClass": row["CustodyClass"]
+            })
+
+# ============================================================
+# Save
+# ============================================================
+
+final_df = pd.DataFrame(results)
+
+final_df = final_df.sort_values(
+    ["BookNumber", "SegmentStart"]
 )
 
-# ------------------------------------------------------------------
-# Keep only overlapping windows
-# ------------------------------------------------------------------
-overlap_mask = (
-    (merged["HousingStart"] <= merged["ClassEnd"]) &
-    (merged["HousingEnd"] >= merged["ClassStart"])
+final_df.to_csv(
+    OUTPUT_FILE,
+    index=False
 )
 
-merged = merged.loc[overlap_mask].copy()
-
-# ------------------------------------------------------------------
-# Calculate overlap period
-# ------------------------------------------------------------------
-merged["OverlapStart"] = merged[
-    ["HousingStart", "ClassStart"]
-].max(axis=1)
-
-merged["OverlapEnd"] = merged[
-    ["HousingEnd", "ClassEnd"]
-].min(axis=1)
-
-merged["OverlapDays"] = (
-    merged["OverlapEnd"] - merged["OverlapStart"]
-).dt.days + 1
-
-# ------------------------------------------------------------------
-# Select output columns
-# ------------------------------------------------------------------
-output_cols = [
-    "BookNumber",
-    "sex",
-    "Housing",
-    "HousingStart",
-    "HousingEnd",
-    "custody_class",
-    "ClassStart",
-    "ClassEnd",
-    "OverlapStart",
-    "OverlapEnd",
-    "OverlapDays"
-]
-
-result = merged[output_cols].sort_values(
-    ["BookNumber", "OverlapStart"]
-)
-
-# ------------------------------------------------------------------
-# Write output
-# ------------------------------------------------------------------
-result.to_csv(OUTPUT_FILE, index=False)
-
-print(f"Output records: {len(result):,}")
-print(f"Saved to: {OUTPUT_FILE}")
+print(f"Output rows: {len(final_df):,}")
+print(f"Output file: {OUTPUT_FILE}")
