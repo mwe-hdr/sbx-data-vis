@@ -106,7 +106,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         plt.rcParams["font.family"] = font_family
 
         fig_height = max(
-            1.5,
+            1.2,
             len(df) * 0.45
         )
 
@@ -144,7 +144,8 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
         plt.savefig(
             output_file,
-            bbox_inches="tight"
+            bbox_inches="tight",
+            dpi=dpi
         )
 
         plt.close()
@@ -233,7 +234,6 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
         capacity_value = _get_float(params, "capacity_value", None)
         include_avg_line = _get_bool(params, "include_avg_line", True)
-        chart_title = _get_str(params, "chart_title", "Facility Census Trend")
         capacity_threshold_pct = _get_float(params, "capacity_threshold_pct", 0.8)
         below_color = params.get("below_color", "black")
         above_color = params.get("above_color", "red")
@@ -243,6 +243,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             "Segoe UI"
         )
         plt.rcParams["font.family"] = font_family
+        cohort_desc = params.get("cohort_desc", "")
 
         figure_width = _get_float(
             params,
@@ -261,7 +262,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         )
 
         title_height = float(
-            params.get("title_height", 0.6) or 0.6
+            params.get("title_height", 0.4) or 0.6
         )
 
         title_width = float(
@@ -556,7 +557,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         projection_table_df = pd.DataFrame(
             columns=[
                 "Period",
-                "Projected Facility Room Need"
+                "Projected Facility Bed Need"
             ]
         )
 
@@ -667,6 +668,19 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                     x_train,
                     y_train,
                     1
+                )
+
+                yoy_census_change = slope * 365.25
+
+                logger.info(
+                    f"[{VISUAL_ID}] OLS trend results: "
+                    f"slope={slope:.6f} census/day, "
+                    f"intercept={intercept:.4f}"
+                )
+
+                logger.info(
+                    f"[{VISUAL_ID}] YoY Census Change: "
+                    f"{yoy_census_change:+.2f} census/year"
                 )
 
                 training_df["trend"] = (
@@ -826,11 +840,19 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                         else np.nan
                     )
 
+                    logger.info(
+                        f"[{VISUAL_ID}] Projection Table Entry | "
+                        f"Period={format_projection_period(month_offset)} | "
+                        f"Month Offset={month_offset} | "
+                        f"Projected Census={projected_value:.2f} | "
+                        f"Projected Facility Bed Need={facility_room_need:.1f}"
+                    )
+
                     table_rows.append({
                         "Period": format_projection_period(
                             month_offset
                         ),
-                        "Projected Facility\nRoom Need": round(
+                        "Projected Facility\nBed Need": round(
                             facility_room_need,
                             1
                         )
@@ -1019,8 +1041,24 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             )
         )
 
+        enable_trend_projection = bool(
+            int(params.get("enable_trend_projection", 0))
+        )
+
+        title_suffix = (
+            "Census with Capacity Line and Linear Projection"
+            if enable_trend_projection
+            else "Census with Capacity Line"
+        )
+
+        report_title = (
+            f"{cohort_desc} | "
+            f"Facility Daily "
+            f"{title_suffix}"
+        )
+
         save_title_png(
-            title=chart_title,
+            title=report_title,
             subtitle=date_range,
             output_file=title_output_file,
             width=title_width,
@@ -1178,7 +1216,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                     "start_date": start_date,
                     "end_date": end_date,
 
-                    "report_title": chart_title
+                    "report_title": report_title
                 }) 
 
             if (
@@ -1238,7 +1276,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                             end_date,
 
                         "report_title":
-                            chart_title
+                            report_title
 
                     })       
 

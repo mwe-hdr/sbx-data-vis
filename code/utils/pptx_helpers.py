@@ -105,12 +105,12 @@ def load_ppt_rows(
     df = pd.read_csv(
         processing_driver_file
     )
-
+    
     return df[
-        df["enabled"]
-        .astype(str)
-        .str.upper()
-        .isin(["Y","YES","TRUE","1"])
+        pd.to_numeric(
+            df["enabled"],
+            errors="coerce"
+        ).fillna(0).astype(int) == 1
     ]
 
 def add_template_slide(
@@ -141,6 +141,15 @@ def build_powerpoint(
 ):
     rows = load_ppt_rows(
         run_id
+    )
+
+    logging.info(
+        f"[ppt] Loaded {len(rows)} enabled rows"
+    )
+
+    logging.info(
+        f"[ppt] Cohorts found: "
+        f"{rows['cohort_id'].nunique()}"
     )
 
     ppt_run_dir, ppt_output_dir = (
@@ -261,9 +270,13 @@ def build_powerpoint(
                 cohort_id
             )
 
-            if not os.path.exists(
-                cohort_dir
-            ):
+            if not os.path.exists(cohort_dir):
+
+                logging.warning(
+                    f"[ppt] Skipping cohort {cohort_id}. "
+                    f"Output folder not found: {cohort_dir}"
+                )
+
                 continue
 
             #
@@ -314,6 +327,14 @@ def build_powerpoint(
                 f"group={slide_group} "
                 f"cohort={cohort_id}"
             )
+
+    if master_prs is None:
+
+        raise RuntimeError(
+            "[ppt] No slides were generated. "
+            "Verify processing_driver.csv, "
+            "templates, and cohort output folders."
+        )
 
     if len(master_prs.slides) > 1:
 

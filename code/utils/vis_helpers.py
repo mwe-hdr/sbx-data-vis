@@ -91,8 +91,7 @@ def save_title_png(
 
     plt.savefig(
         output_file,
-        bbox_inches="tight",
-        pad_inches=0
+        bbox_inches="tight"
     )
 
     plt.close(fig)
@@ -390,7 +389,7 @@ def save_parameter_table_png(
     )
 
     fig_height = max(
-        1.8,
+        0.7,
         len(table_df) * 0.40
     )
 

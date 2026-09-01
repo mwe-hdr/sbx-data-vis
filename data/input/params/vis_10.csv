@@ -16,10 +16,10 @@ font_family,Segoe UI,Global font family,0,
 
 ### ===== TITLE IMAGE =====
 
-title_width,13,Title image width,0,
-title_height,0.25,Title image height,0,
-title_fontsize,10,Title font size,0,
-subtitle_fontsize,10,Subtitle font size,0,
+title_width,13.33,Title image width,0,
+title_height,0.30,Title image height,0,
+title_fontsize,16,Title font size,0,
+subtitle_fontsize,12,Subtitle font size,0,
 title_background_color,#d9d9d9,Background color,0,
 title_weight,bold,Title font weight,0,
 

@@ -468,13 +468,20 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
         room_need = peak_census / utilization if utilization > 0 else peak_census
 
+        logger.info(
+            f"[{VISUAL_ID}] Projected Facility Bed Need = "
+            f"{room_need:.2f} beds "
+            f"(Peak Census={peak_census:.2f}, "
+            f"Utilization={utilization:.1%})"
+        )
+
         if utilization < 1:
             room_need = max(room_need, peak_census)
 
         logger.info(
             f"[{VISUAL_ID}] Capacity Metrics | "
             f"Peak Census: {round(peak_census, 2)} | "
-            f"Room Need: {round(room_need, 2)} | "
+            f"Bed Need: {round(room_need, 2)} | "
             f"Utilization: {utilization}"
         )
 
@@ -605,7 +612,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             color=colors["room_need"],
             linestyle="-.",
             linewidth=2,
-            label="Room Need",
+            label="Bed Need",
         )
 
         # Labels
@@ -703,7 +710,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
         logger.info(
             f"Peak Census={peak_census}, "
-            f"Room Need={room_need}, "
+            f"Bed Need={room_need}, "
             f"Y Max={ax.get_ylim()[1]}"
         )
 
@@ -758,7 +765,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         report_title = (
             f"{cohort_desc} | "
             f"Facility {aggregation_name[aggregation_level]} "
-            f"Census with Peak Period and Projected Room Need"
+            f"Census with Peak Period and Projected Bed Need"
         )
 
         save_title_png(
@@ -818,7 +825,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         )
 
         fig, ax = plt.subplots(
-            figsize=(3.6, 1.5),
+            figsize=(2.75, 0.9),
             dpi=dpi
         )
 
@@ -826,11 +833,10 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
         tbl = ax.table(
             cellText=[[f"{room_need:,.1f}"]],
-            colLabels=["Projected Facility Room Need"],
+            colLabels=["Projected Facility Bed Need"],
             cellLoc="center",
             colLoc="center",
-            loc="center",
-            bbox=[0.08, 0.20, 0.84, 0.60]
+            loc="center"
         )
 
         tbl.auto_set_font_size(False)
@@ -857,17 +863,19 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             fontfamily=font_family
         )
 
+        plt.tight_layout()
+
         plt.savefig(
             room_need_png,
             bbox_inches="tight",
-            pad_inches=0.025,
-            dpi=dpi
+            dpi=dpi,
+            pad_inches=0.03
         )
 
         plt.close()
 
         logger.info(
-            f"[{VISUAL_ID}] Room Need table saved to "
+            f"[{VISUAL_ID}] Bed Need table saved to "
             f"{room_need_png}"
         )
 
@@ -1009,7 +1017,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                     "dimension_value_label": row["dimension_label"],
 
                     "secondary_dimension": "benchmark",
-                    "secondary_dimension_value": "Room Need",
+                    "secondary_dimension_value": "Bed Need",
 
                     "metric": "capacity",
                     "metric_type": "room_need",

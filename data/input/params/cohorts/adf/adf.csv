@@ -14,7 +14,6 @@ maximum.female,filter,(custody_class.isin(['MAX'])) & (sex == 'F'),Maximum Custo
 close,filter,"custody_class.isin(['CLOS','CLO'])",Close Custody,close
 close.male,filter,"(custody_class.isin(['CLOS','CLO'])) & (sex == 'M')",Close Custody Male,close.male
 close.female,filter,"(custody_class.isin(['CLOS','CLO'])) & (sex == 'F')",Close Custody Female,close.female
-close_hi,filter,"custody_class.isin(['CLHI','CHI','CLOSE HI'])",Close High Custody,close_hi
 special_needs,filter,"custody_class.str.contains('SN', na=False) | custody_class.isin(['SN- HOUSE IN SUB','SN (IPOD SUBDAY)','SN J-POD'])",Special Needs,special_needs
 special_needs.male,filter,"(custody_class.str.contains('SN', na=False) | custody_class.isin(['SN- HOUSE IN SUB','SN (IPOD SUBDAY)','SN J-POD'])) & (sex == 'M')",Special Needs Male,special_needs.male
 special_needs.female,filter,"(custody_class.str.contains('SN', na=False) | custody_class.isin(['SN- HOUSE IN SUB','SN (IPOD SUBDAY)','SN J-POD'])) & (sex == 'F')",Special Needs Female,special_needs.female

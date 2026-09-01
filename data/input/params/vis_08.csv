@@ -6,9 +6,9 @@ figure_height,6
 dpi,300
 
 ### ===== TITLE IMAGE =====
-title_width,13
-title_height,0.25
-subtitle_fontsize,10
+title_width,13.33
+title_height,0.30
+subtitle_fontsize,12
 title_background_color,#d9d9d9
 title_weight,bold
 
@@ -19,14 +19,13 @@ legend_fontsize,10
 
 ### ===== FONTS =====
 font_family,Segoe UI
-title_fontsize,10
+title_fontsize,16
 label_fontsize,9
-tick_fontsize,8
+tick_fontsize,10
 
 ### ===== CHART TEXT =====
-chart_title,Give me a Title
 x_label,Time
-y_label,ED Census
+y_label,Facility Census
 
 ### ===== CENSUS LINE =====
 line_width,0.8
