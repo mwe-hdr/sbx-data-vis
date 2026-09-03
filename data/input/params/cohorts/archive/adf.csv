@@ -2,6 +2,12 @@ name,param,value,description,cohort_file
 all,filter,,All Detainees,all
 male,filter,(sex == 'M'),Male Detainees,male
 female,filter,(sex == 'F'),Female Detainees,female
+admitted_classified,filter,"custody_class.notna() & (custody_class.str.strip() != '')",Admitted Classified,admitted_classified
+admitted_classified.male,filter,"(custody_class.notna() & (custody_class.str.strip() != '')) & (sex == 'M')",Admitted Classified Male,admitted_classified.male
+admitted_classified.female,filter,"(custody_class.notna() & (custody_class.str.strip() != '')) & (sex == 'F')",Admitted Classified Female,admitted_classified.female
+admitted_not_classified,filter,custody_class.isna() | (custody_class.str.strip() == ''),Admitted Not Classified,admitted_not_classified
+admitted_not_classified.male,filter,(custody_class.isna() | (custody_class.str.strip() == '')) & (sex == 'M'),Admitted Not Classified Male,admitted_not_classified.male
+admitted_not_classified.female,filter,(custody_class.isna() | (custody_class.str.strip() == '')) & (sex == 'F'),Admitted Not Classified Female,admitted_not_classified.female
 minimum,filter,"custody_class.isin(['MIN','MINIMUM','MIIN'])",Minimum Custody,minimum
 minimum.male,filter,"(custody_class.isin(['MIN','MINIMUM','MIIN'])) & (sex == 'M')",Minimum Custody Male,minimum.male
 minimum.female,filter,"(custody_class.isin(['MIN','MINIMUM','MIIN'])) & (sex == 'F')",Minimum Custody Female,minimum.female
@@ -17,13 +23,16 @@ close.female,filter,"(custody_class.isin(['CLOS','CLO'])) & (sex == 'F')",Close 
 special_needs,filter,"custody_class.str.contains('SN', na=False) | custody_class.isin(['SN- HOUSE IN SUB','SN (IPOD SUBDAY)','SN J-POD'])",Special Needs,special_needs
 special_needs.male,filter,"(custody_class.str.contains('SN', na=False) | custody_class.isin(['SN- HOUSE IN SUB','SN (IPOD SUBDAY)','SN J-POD'])) & (sex == 'M')",Special Needs Male,special_needs.male
 special_needs.female,filter,"(custody_class.str.contains('SN', na=False) | custody_class.isin(['SN- HOUSE IN SUB','SN (IPOD SUBDAY)','SN J-POD'])) & (sex == 'F')",Special Needs Female,special_needs.female
-as_ks_cs,filter,"(custody_class.str.contains('AS', na=False)) | (custody_class.isin(['AS/KS','SN/KS','SN/ KS','PC/KS','AK/KS','SK/KS','G2 SN/KS','S3 AS/KS','S3- AS/KS'])) | (custody_class.str.contains('CS', na=False)) | custody_class.isin(['S3-CS','S3 (CS)','S3 - CS','S3-CONTROL SEG','S3-CONTROL SEGRE','S3 CONT. SEG.','CONTROL SEGREGAT','G2-CS','I POD SUBDAY CS'])",AS/KS/CS,as_ks_cs
-as_ks_cs.male,filter,"((custody_class.str.contains('AS', na=False)) | (custody_class.isin(['AS/KS','SN/KS','SN/ KS','PC/KS','AK/KS','SK/KS','G2 SN/KS','S3 AS/KS','S3- AS/KS'])) | (custody_class.str.contains('CS', na=False)) | custody_class.isin(['S3-CS','S3 (CS)','S3 - CS','S3-CONTROL SEG','S3-CONTROL SEGRE','S3 CONT. SEG.','CONTROL SEGREGAT','G2-CS','I POD SUBDAY CS'])) & (sex == 'M')",AS/KS/CS Male,as_ks_cs.male
-as_ks_cs.female,filter,"((custody_class.str.contains('AS', na=False)) | (custody_class.isin(['AS/KS','SN/KS','SN/ KS','PC/KS','AK/KS','SK/KS','G2 SN/KS','S3 AS/KS','S3- AS/KS'])) | (custody_class.str.contains('CS', na=False)) | custody_class.isin(['S3-CS','S3 (CS)','S3 - CS','S3-CONTROL SEG','S3-CONTROL SEGRE','S3 CONT. SEG.','CONTROL SEGREGAT','G2-CS','I POD SUBDAY CS'])) & (sex == 'F')",AS/KS/CS Female,as_ks_cs.female
+as,filter,"(custody_class.str.contains('AS', na=False)) | custody_class.isin(['AS/KS','S3 AS/KS','S3- AS/KS'])",Administrative Segregation,as
+as.male,filter,"((custody_class.str.contains('AS', na=False)) | custody_class.isin(['AS/KS','S3 AS/KS','S3- AS/KS'])) & (sex == 'M')",Administrative Segregation Male,as.male
+as.female,filter,"((custody_class.str.contains('AS', na=False)) | custody_class.isin(['AS/KS','S3 AS/KS','S3- AS/KS'])) & (sex == 'F')",Administrative Segregation Female,as.female
+ks,filter,"custody_class.isin(['AS/KS','SN/KS','SN/ KS','PC/KS','AK/KS','SK/KS','G2 SN/KS','S3 AS/KS','S3- AS/KS'])",Keep Separate,ks
+ks.male,filter,"(custody_class.isin(['AS/KS','SN/KS','SN/ KS','PC/KS','AK/KS','SK/KS','G2 SN/KS','S3 AS/KS','S3- AS/KS'])) & (sex == 'M')",Keep Separate Male,ks.male
+ks.female,filter,"(custody_class.isin(['AS/KS','SN/KS','SN/ KS','PC/KS','AK/KS','SK/KS','G2 SN/KS','S3 AS/KS','S3- AS/KS'])) & (sex == 'F')",Keep Separate Female,ks.female
+cs,filter,"(custody_class.str.contains('CS', na=False)) | custody_class.isin(['S3-CS','S3 (CS)','S3 - CS','S3-CONTROL SEG','S3-CONTROL SEGRE','S3 CONT. SEG.','CONTROL SEGREGAT','G2-CS','I POD SUBDAY CS'])",Control Segregation,cs
+cs.male,filter,"((custody_class.str.contains('CS', na=False)) | custody_class.isin(['S3-CS','S3 (CS)','S3 - CS','S3-CONTROL SEG','S3-CONTROL SEGRE','S3 CONT. SEG.','CONTROL SEGREGAT','G2-CS','I POD SUBDAY CS'])) & (sex == 'M')",Control Segregation Male,cs.male
+cs.female,filter,"((custody_class.str.contains('CS', na=False)) | custody_class.isin(['S3-CS','S3 (CS)','S3 - CS','S3-CONTROL SEG','S3-CONTROL SEGRE','S3 CONT. SEG.','CONTROL SEGREGAT','G2-CS','I POD SUBDAY CS'])) & (sex == 'F')",Control Segregation Female,cs.female
 pc,filter,"custody_class.str.contains('PC', na=False) | custody_class.isin(['PEND PC'])",Protective Custody,pc
 pc.male,filter,"(custody_class.str.contains('PC', na=False) | custody_class.isin(['PEND PC'])) & (sex == 'M')",Protective Custody Male,pc.male
 pc.female,filter,"(custody_class.str.contains('PC', na=False) | custody_class.isin(['PEND PC'])) & (sex == 'F')",Protective Custody Female,pc.female
-admitted_not_classified,filter,custody_class.isna() | (custody_class.str.strip() == ''),Admitted Not Classified,admitted_not_classified
-admitted_not_classified.male,filter,(custody_class.isna() | (custody_class.str.strip() == '')) & (sex == 'M'),Admitted Not Classified Male,admitted_not_classified.male
-admitted_not_classified.female,filter,(custody_class.isna() | (custody_class.str.strip() == '')) & (sex == 'F'),Admitted Not Classified Female,admitted_not_classified.female
 work_release,filter,(sex == 'M') & (housing == 'A1'),Work Release,work_release

@@ -1,0 +1,1654 @@
+## Reporting Framework Context
+
+Below are pasted files from the current production framework:
+These files may include:
+- main.py
+- processing_helpers.py
+- io_helpers.py
+- mapping_helpers.py
+- col_helpers.py
+- date_helpers.py
+- vis_helpers.py
+- pptx_helpers.py
+- user-defined functions (UDFs)
+- supporting utilities
+
+### Purpose
+
+The attached files represent the current production state of the reporting framework.
+Before generating new visual reports, review all attached files and use them as the primary source of truth.
+Do not assume framework behavior when the implementation can be inferred from the attached files.
+
+### FRAMEWORK OVERVIEW
+
+The reporting framework operates in three stages.
+
+Stage 1
+PROCESSING_MODE = parameters_only
+Produces parameterized report definitions.
+
+Typical flow:
+vis_driver.csv
++
+visual parameter csv files
++
+cohort definitions
+→ processing_driver.csv
+
+Stage 2
+PROCESSING_MODE = full_reports
+Produces final reports.
+
+Typical flow:
+processing_driver.csv
+→ main.py
+→ row_to_params()
+run(
+    df,
+    params,
+    start_date,
+    end_date,
+    output_dir,
+    enabled_visuals
+)
+→ PNG outputs
+→ parameter outputs
+→ legend outputs
+→ RDB outputs
+
+Stage 3
+PROCESSING_MODE = powerpoint
+Produces powerpoint output from Stage 2 outputs.
+
+Typical flow:
+→ main.py
+→ build_powerpoint(
+	run_id,
+	template_file,
+	output_file
+)
+→ PPTX output
+
+### REVIEW REQUIREMENTS
+
+Before generating a new visual program, review all attached files.
+Use the files to understand:
+
+Framework Integration
+- execution flow
+- report lifecycle
+- run() expectations
+- return contracts
+- output generation conventions
+
+Parameters
+- normalize_params() behavior
+- parameter naming conventions
+- parameter retrieval conventions
+- safe parameter handling patterns
+
+Outputs
+- PNG generation
+- parameter image generation
+- legend generation
+- file naming conventions
+- generate_output_name() usage
+
+RDB
+- schema conventions
+- metadata conventions
+- dimension conventions
+- aggregation conventions
+- output structure
+
+Coding Style
+- logging patterns
+- error handling patterns
+- helper usage patterns
+- chart construction conventions
+- report organization conventions
+
+### NEW VISUAL PROGRAM INSTRUCTIONS
+
+Assume the attached files are authoritative.
+When reviewing the implementation:
+- Trace current behavior against the actual framework implementation.
+- Identify opportunities to improve functionality, reliability, maintainability, usability, performance, and framework compliance.
+- Reference specific code locations when possible.
+- Preserve existing framework conventions and architectural patterns.
+- Prefer incremental, production-safe enhancements before larger redesigns.
+- Highlight enhancements that improve consistency with existing framework standards.
+
+When generating a new visual program:
+- Design to fit within the framework.
+
+### AREAS TO EVALUATE
+
+Review the implementation for:
+
+Functionality
+- missing capabilities
+- incomplete workflows
+- opportunities to improve outputs
+- opportunities to improve user value
+
+Parameters
+- parameter validation
+- parameter safety
+- parameter defaults
+- parameter discoverability
+- parameter consistency with framework standards
+
+Outputs
+- PNG quality
+- table readability
+- legend quality
+- parameter documentation outputs
+- file naming consistency
+
+RDB
+- completeness of records
+- metadata quality
+- dimensional consistency
+- downstream analytics usefulness
+- alignment with framework RDB patterns
+
+Performance
+- computational efficiency
+- memory usage
+- scalability concerns
+- census-generation efficiency
+- aggregation efficiency
+
+Maintainability
+- code organization
+- helper reuse opportunities
+- defensive programming
+- logging quality
+- clarity and readability
+
+Framework Compliance
+- run() contract compliance
+- output contract compliance
+- return contract compliance
+- parameter normalization compliance
+- naming convention compliance
+
+### IMPORTANT
+
+Treat the attached files as the source of truth.
+Prefer observed implementation behavior over assumptions.
+When framework behavior is unclear:
+- state the uncertainty explicitly
+- identify which file or function requires verification
+
+Do not redesign the framework unless explicitly requested.
+Focus on maintaining compatibility with the existing production reporting environment.
+
+### ENVIRONMENT CONTEXT:
+
+The primary file(s) for environment context are below:
+
+main:
+import os
+import logging
+import shutil
+import pandas as pd
+import importlib
+import argparse
+
+from utils.io_helpers import (
+    load_data,
+    load_driver,
+    load_params,
+    load_cohort_params
+)
+
+from utils.processing_helpers import (
+    apply_filter,
+    initialize_run,
+    generate_output_name,
+    build_processing_driver,
+    load_processing_driver,
+    row_to_params,
+    normalize_reporting_window
+)
+
+from utils.mapping_helpers import (
+    load_mapping_file,
+    apply_standard_mappings
+)
+
+from utils.pptx_helpers import (
+    build_powerpoint
+)
+
+
+# =========================
+# CONFIG
+# =========================
+DOMAINS = {
+    "inpatient": {
+        "data_file": "ecu_hospital_encounters_export.csv",
+        "cohort_dir": "inpatient",
+        "domain": "inpatient"
+    },
+
+    "surgery_ts": {
+        "data_file": "ecu_surgery_export.csv",
+        "cohort_dir": "surgery_ts",
+        "domain": "surgery_ts"
+    },
+
+    "surgery_alt": {
+        "data_file": "ecu_surgery_and_gi_export_flat.csv",
+        "cohort_dir": "surgery_alt",
+        "domain": "surgery_alt"
+    },    
+
+    "emergency": {
+        "data_file": "rmc_emergency_export.csv",
+        "cohort_dir": "ed",
+        "domain": "ed"
+    },
+
+        "adf": {
+        "data_file": "lc_adf_booking_housing_classification.csv",
+        "cohort_dir": "adf",
+        "domain": "adf"
+    }
+}
+
+BASE_DIR = os.getcwd()
+INPUT_DIR = os.path.join(BASE_DIR, "data", "input")
+COHORT_LOCATIONS_FILE = os.path.join(
+    INPUT_DIR,
+    "geo",
+    "cohort_locations",
+    "cohort_locations.csv"
+)
+PARAM_DIR = os.path.join(INPUT_DIR, "params")
+VIS_DRIVER_FILE = os.path.join(PARAM_DIR, "vis_driver.csv")
+PROCESSING_MODE = os.getenv("PROCESSING_MODE", "full_reports").strip().lower()
+if PROCESSING_MODE in {"full_processing", "full_reports"}:
+    PROCESSING_MODE = "full_reports"
+elif PROCESSING_MODE != "parameters_only":
+    raise ValueError(f"[main] Unsupported PROCESSING_MODE: {PROCESSING_MODE}")
+MAPPINGS_FILE = os.path.join(
+    PARAM_DIR,
+    "mappings.csv"
+)
+mappings = load_mapping_file(
+    MAPPINGS_FILE
+)
+# =========================
+# DYNAMIC VISUAL LOADER
+# =========================
+def get_visual_function(visual_id):
+    try:
+        module = importlib.import_module(f"visuals.{visual_id}")
+        return module.run
+    except Exception as e:
+        logging.error(f"[main] Failed to load {visual_id}: {str(e)}")
+        return None
+
+
+def mirror_processing_driver_to_params(run_dir):
+
+    source_file = os.path.join(
+        run_dir,
+        "processing_driver.csv"
+    )
+
+    destination_file = os.path.join(
+        PARAM_DIR,
+        "processing_driver.csv"
+    )
+
+    if not os.path.exists(source_file):
+        logging.warning(
+            f"[main] Processing driver not found: {source_file}"
+        )
+        logging.info(f"[main] No processing driver found in {run_dir}")
+        return
+
+    if os.path.exists(destination_file):
+
+        backup_file = (
+            destination_file
+            + "."
+            + run_id
+            + ".bak"
+        )
+
+        shutil.copy2(
+            destination_file,
+            backup_file
+        )
+
+        logging.info(
+            f"[main] Created backup: {backup_file}"
+        )
+
+    shutil.copy2(
+        source_file,
+        destination_file
+    )
+
+    logging.info(
+        f"[main] Copied processing driver to: {destination_file}"
+    )
+
+# =========================
+# PROCESSING DRIVER BUILDER
+# =========================
+def load_all_cohorts():
+
+    logging.info(
+        f"[load_all_cohorts] DOMAINS={list(DOMAINS.keys())}"
+    )
+
+    all_cohorts = {}
+
+    for domain, config in DOMAINS.items():
+
+        domain_cohorts = load_cohort_params(
+            os.path.join(
+                PARAM_DIR,
+                "cohorts",
+                config["cohort_dir"]
+            )
+        )
+
+        all_cohorts.update(domain_cohorts)
+
+    return all_cohorts
+
+# =========================
+# MAIN EXECUTION LOOP
+# =========================
+def run_visuals(
+    df,
+    driver_df,
+    cohorts,
+    output_dir,
+    enabled_visuals
+):
+
+    rdb_records = []
+    cohort_cache = {}
+
+    logging.info("[main] Loaded cohort keys:")
+    for k in cohorts.keys():
+        logging.info(f"[main] - {k}")
+
+    for _, row in driver_df.iterrows():
+
+        if str(row.get("active_flag", "Y")).upper() not in {"Y", "YES", "TRUE", "1"}:
+            continue
+
+        try:
+            if int(row.get("enabled", 0)) != 1:
+                continue
+        except (TypeError, ValueError):
+            if str(row.get("enabled", "")).upper() not in {"Y", "YES", "TRUE", "1"}:
+                continue
+
+        if str(row.get("type", "")).lower() != "cohort":
+            continue
+
+        report_id = row.get("visual_id") or row.get("report_id")
+        if not report_id:
+            logging.warning("[main] Skipping driver row without report identifier")
+            continue
+        if report_id not in enabled_visuals:
+            logging.info(
+                f"[main] Skipping disabled visual: {report_id}"
+            )
+            continue
+
+        cohort_id = row.get("cohort_id")
+        if not cohort_id:
+            logging.warning("[main] Skipping driver row without cohort identifier")
+            continue
+
+        cohort_meta = cohorts.get(cohort_id)
+
+        driver_filter = row.get("filter_str")
+        current_filter = cohort_meta.get("filter")
+
+        if str(driver_filter).strip() != str(current_filter).strip():
+
+            logging.warning(
+                "[main] Cohort filter mismatch "
+                f"cohort={cohort_id} "
+                f"driver_filter={driver_filter} "
+                f"runtime_filter={current_filter}"
+            )
+
+        if not cohort_meta:
+
+            logging.error(
+                "[main] Processing driver references "
+                f"unknown cohort_id={cohort_id}"
+            )
+
+            logging.error(
+                f"[main] Available cohorts: "
+                f"{list(cohorts.keys())}"
+            )
+
+            continue
+
+        if cohort_id not in cohort_cache:
+            cohort_cache[cohort_id] = apply_filter(df, cohort_meta.get("filter"))
+
+        cohort_df = cohort_cache[cohort_id]
+        if cohort_df.empty:
+            logging.warning(f"[main] No data for {cohort_id}")
+            continue
+
+        cohort_output_dir = os.path.join(output_dir, cohort_id)
+        os.makedirs(cohort_output_dir, exist_ok=True)
+
+        start_date = row.get("start_date")
+        end_date = row.get("end_date")
+
+        start_date, end_date = normalize_reporting_window(
+            start_date,
+            end_date
+        )
+
+        params = row_to_params(row)
+        params.update({
+            "cohort_id": cohort_id,
+            "filter_str": cohort_meta.get("filter"),
+            "cohort_desc": cohort_meta.get("description"),
+            "visual_name": row.get("name"),
+            "run_id": run_id,
+            "domain": cohort_meta.get("domain"),
+            "client_name": row.get("client_name"),
+            "cohort_locations_file": COHORT_LOCATIONS_FILE,
+            "year_type": row.get("year_type"),
+            "write_rdb": row.get("write_rdb"),
+            "start_date": start_date,
+            "end_date": end_date,
+            "visual_id": report_id,
+            "report_id": report_id
+        })
+
+        vis_func = get_visual_function(report_id)
+        if vis_func is None:
+            continue
+
+        logging.info(
+            "[main] Executing "
+            f"visual={report_id} "
+            f"cohort={cohort_id} "
+            f"cohort_file={cohort_meta.get('cohort_file')} "
+            f"cohort_desc={cohort_meta.get('description')}"
+        )
+
+        result = vis_func(
+            cohort_df,
+            params,
+            start_date,
+            end_date,
+            cohort_output_dir,
+            generate_output_name
+        )
+
+        if result and "rdb" in result:
+            for rec in result["rdb"]:
+                rec["visual_id"] = report_id
+                rec["visual_name"] = row.get("name")
+            rdb_records.extend(result["rdb"])
+
+    return rdb_records
+
+# =========================
+# ENTRY POINT
+# =========================
+parser = argparse.ArgumentParser()
+
+parser.add_argument(
+    "--update-processing-driver",
+    action="store_true",
+    help=(
+        "Overwrite input/params/processing_driver.csv "
+        "when rebuilding processing driver"
+    )
+)
+
+parser.add_argument(
+    "--powerpoint",
+    action="store_true",
+    help="Generate PowerPoint from a completed run"
+)
+
+parser.add_argument(
+    "--ppt-run-id",
+    default=None,
+    help="Run ID containing output folders"
+)
+
+parser.add_argument(
+    "--ppt-output",
+    default=None,
+    help="Output PPTX file"
+)
+
+args = parser.parse_args()
+
+if args.powerpoint:
+
+    if not args.ppt_run_id:
+        raise ValueError(
+            "--ppt-run-id is required"
+        )
+    build_powerpoint(
+        run_id=args.ppt_run_id,
+        output_file=args.ppt_output
+    )
+
+    raise SystemExit(0)
+
+if __name__ == "__main__":
+
+    run_dir, output_dir = initialize_run()
+
+    logging.info(f"[main] Run initialized: {run_dir}")
+
+    run_id = os.path.basename(run_dir)
+
+    driver_df = load_driver(VIS_DRIVER_FILE)
+
+    enabled_visuals = set(
+        driver_df[
+            pd.to_numeric(
+                driver_df["enabled"],
+                errors="coerce"
+            ).fillna(0).astype(int) == 1
+        ]["visual_id"]
+    )
+
+    processing_driver_file = os.path.join(run_dir, "processing_driver.csv")
+
+    if PROCESSING_MODE == "parameters_only":
+
+        all_cohorts = load_all_cohorts()
+
+        build_processing_driver(
+            cohorts=all_cohorts,
+            visual_driver_df=driver_df,
+            param_dir=PARAM_DIR,
+            output_file=processing_driver_file
+        )
+
+        logging.info(
+            f"[main] Processing driver generated successfully."
+        )
+
+        if args.update_processing_driver:
+            mirror_processing_driver_to_params(run_dir)
+
+            logging.info(
+                f"[main] Updated input/params/processing_driver.csv"
+            )
+
+        raise SystemExit(0)
+
+    processing_driver_file = os.path.join(PARAM_DIR, "processing_driver.csv")
+    if not os.path.exists(processing_driver_file):
+        logging.error(f"[main] Missing processing driver: {processing_driver_file}")
+        raise SystemExit(1)
+
+    processing_driver_df = load_processing_driver(processing_driver_file)
+
+    if processing_driver_df.empty:
+        logging.error(f"[main] Processing driver file is empty.")
+        raise SystemExit(1)
+
+    logging.info(f"[main] Using processing driver: {processing_driver_file}")
+
+    all_rdb_records = []
+
+    for domain, config in DOMAINS.items():
+
+        logging.info(f"[main] Starting domain: {domain}")
+
+        expected_domain = str(config.get("domain", domain)).strip().lower()
+
+        domain_driver_df = processing_driver_df[
+            processing_driver_df["domain"].astype(str).str.strip().str.lower() == expected_domain
+        ].copy()
+
+        if domain_driver_df.empty:
+            logging.info(
+                f"[main] No processing requests for domain {domain}; skipping."
+            )
+            continue
+
+        df = load_data(
+            os.path.join(
+                INPUT_DIR,
+                config["data_file"]
+            )
+        )
+
+        data_path = os.path.join(
+            INPUT_DIR,
+            config["data_file"]
+        )
+
+        logging.info(f"[main] Loading file: {data_path}")
+
+        df = load_data(data_path)
+
+        logging.info(f"[main] Loaded shape: {df.shape}")
+        logging.info(f"[main] Columns: {df.columns.tolist()}")
+
+        domain_mapping = mappings.get(
+            expected_domain,
+            {}
+        )
+
+        df = apply_standard_mappings(
+            df,
+            domain_mapping
+        )
+
+        cohorts = load_cohort_params(
+            os.path.join(
+                PARAM_DIR,
+                "cohorts",
+                config["cohort_dir"]
+            )
+        )
+
+        rdb = run_visuals(
+            df,
+            domain_driver_df,
+            cohorts,
+            output_dir,
+            enabled_visuals
+        )
+
+        if rdb:
+            all_rdb_records.extend(rdb)
+
+    master_rdb_df = pd.DataFrame(all_rdb_records)
+
+    master_rdb_df.to_csv(
+        os.path.join(
+            output_dir,
+            "rdb_domain_cohort_metrics.csv"
+        ),
+        index=False
+    )
+
+    raise SystemExit(0)
+
+col_helpers:
+import pandas as pd
+import logging
+
+logger = logging.getLogger(__name__)
+
+def add_calculated_helper_columns(df):
+
+    if "esi" in df.columns:
+
+        df["valid_esi"] = (
+            df["esi"]
+            .isin([0, 1, 2, 3, 4, 5])
+        )
+
+    if (
+        "arrival_dtm" in df.columns
+        and
+        "tmt_stop_dtm" in df.columns
+    ):
+
+        logger.info(
+            f"[col] arrival_dtm dtype="
+            f"{df['arrival_dtm'].dtype}"
+        )
+
+        logger.info(
+            f"[col] tmt_stop_dtm dtype="
+            f"{df['tmt_stop_dtm'].dtype}"
+        )
+
+        df["los_hours"] = (
+            (
+                df["tmt_stop_dtm"]
+                - df["arrival_dtm"]
+            )
+            .dt.total_seconds()
+            / 3600
+        )
+
+        df.loc[
+            df["los_hours"] < 0,
+            "los_hours"
+        ] = pd.NA
+
+        df["los_days"] = (
+            (
+                df["tmt_stop_dtm"]
+                - df["arrival_dtm"]
+            )
+            .dt.total_seconds()
+            / (24 * 3600)
+        )
+
+        df.loc[
+            df["los_days"] < 0,
+            "los_days"
+        ] = pd.NA
+
+        df["valid_los_days"] = (
+            df["los_days"].notna()
+            &
+            (df["los_days"] >= 0)
+        )
+
+        df["valid_los"] = (
+            df["los_hours"].notna()
+            &
+            (df["los_hours"] >= 0)
+        )
+
+    if "triage_start_dtm" in df.columns:
+
+        df["has_triage"] = (
+            df["triage_start_dtm"].notna()
+        )
+
+    if "tmt_start_dtm" in df.columns:
+
+        df["has_ed"] = (
+            df["tmt_start_dtm"].notna()
+        )
+
+    return df
+
+def add_date_helper_columns(df):
+
+    if "arrival_dtm" not in df.columns:
+        return df
+
+    dt = df["arrival_dtm"]
+
+    df["arrival_hour"] = dt.dt.hour
+    df["arrival_year"] = dt.dt.year
+    df["arrival_month"] = dt.dt.month
+
+    df["arrival_year_month"] = (
+        dt.dt.to_period("M")
+        .dt.to_timestamp()
+    )
+
+    df["arrival_weekday_num"] = dt.dt.dayofweek
+
+    df["arrival_weekday"] = (
+        dt.dt.day_name()
+        .str[:3]
+    )
+
+    df["arrival_day_of_week"] = (
+        dt.dt.day_name()
+    )
+
+    return df
+
+def prepare_common_columns(df):
+
+    if "arrival_dtm" in df.columns:
+
+        if not pd.api.types.is_datetime64_any_dtype(
+            df["arrival_dtm"]
+        ):
+            raise TypeError(
+                "arrival_dtm must be datetime before "
+                "calling prepare_common_columns()"
+            )
+
+    df = add_calculated_helper_columns(df)
+
+    df = add_date_helper_columns(df)
+
+    return df
+
+io_helpers:
+import os
+import pandas as pd
+import logging
+
+def load_data(file_path):
+    logging.info("[load_data] Loading data")
+    df = pd.read_csv(file_path, low_memory=False)
+
+    # defensive datetime parsing
+    if "visit_dtm" in df.columns:
+        df["visit_dtm"] = pd.to_datetime(df["visit_dtm"], errors="coerce")
+
+    return df
+
+
+def load_driver(file_path):
+    logging.info("[load_driver] Loading visual driver")
+    return pd.read_csv(file_path)
+
+
+def load_params(param_dir, visual_id):
+
+    param_file = os.path.join(param_dir, f"{visual_id}.csv")
+
+    if not os.path.exists(param_file):
+        logging.warning(f"[load_params] No params found for {visual_id}")
+        return pd.DataFrame()
+
+    try:
+        return pd.read_csv(param_file)
+
+    except Exception as e:
+        logging.error(
+            f"[load_params] Failed to load params for {visual_id}: {str(e)}"
+        )
+        return pd.DataFrame()
+    
+def load_cohort_params(cohort_root_dir):
+    """
+    Recursively load all cohort CSVs.
+    Supports existing structure:
+        cohorts/<domain>/<file>.csv
+
+    Each row = subcohort
+    """
+
+    cohorts = {}
+
+    for root, _, files in os.walk(cohort_root_dir):
+
+        logging.info(
+            f"[load_cohort_params] Searching: "
+            f"{cohort_root_dir}"
+        )
+
+        for file in files:
+            if not file.endswith(".csv"):
+                continue
+
+            file_path = os.path.join(root, file)
+
+            logging.info(
+                f"[load_cohort_params] Reading: "
+                f"{file_path}"
+            )
+
+            try:
+                df = pd.read_csv(file_path)
+            except Exception as e:
+                logging.error(f"[load_cohort_params] Failed to read {file_path}: {e}")
+                continue
+
+            required_cols = {"name", "param", "value"}
+            if not required_cols.issubset(df.columns):
+                logging.warning(f"[load_cohort_params] Skipping {file_path} (invalid columns)")
+                continue
+
+            # derive namespace from folder + filename
+            relative_path = os.path.relpath(file_path, cohort_root_dir)
+            parts = relative_path.replace(".csv", "").split(os.sep)
+
+            # e.g. emergency/beaufort → emergency.beaufort
+            cohort_group = ".".join(parts)
+
+            for _, row in df.iterrows():
+
+                sub_name = str(row["name"]).strip()
+
+                cohort_id = f"{cohort_group}.{sub_name}"
+
+                if cohort_id not in cohorts:
+
+                    desc = row.get("description")
+                    domain = row.get("domain")
+
+                    if pd.isna(domain) or str(domain).strip() == "":
+                        domain = parts[0] if parts else None
+
+                    cohort_file = (
+                        row.get("cohort_file")
+                        if "cohort_file" in df.columns
+                        else None
+                    )
+
+                    cohorts[cohort_id] = {
+                        "group": cohort_group,
+                        "name": sub_name,
+                        "description":
+                            str(desc).strip()
+                            if pd.notna(desc)
+                            else None,
+                        "domain":
+                            str(domain).strip()
+                            if pd.notna(domain)
+                            else None,
+                        "cohort_file":
+                            str(cohort_file).strip()
+                            if pd.notna(cohort_file)
+                            else None
+                    }
+
+                param = str(row["param"]).strip()
+
+                cohorts[cohort_id][param] = row["value"]
+
+                if param == "filter":
+                    cohorts[cohort_id]["filter"] = row["value"]
+
+    logging.info(f"[load_cohort_params] Loaded {len(cohorts)} cohorts")
+    return cohorts
+
+mapping_helpers:
+import logging
+import pandas as pd
+from utils.col_helpers import (
+    prepare_common_columns
+)
+
+logger = logging.getLogger(__name__)
+
+def load_mapping_file(mapping_file):
+
+    df = pd.read_csv(
+    mapping_file,
+    dtype={
+        "source_value": str,
+        "target_value": str
+        }
+    )
+
+    mappings = {}
+
+    for domain in df["domain"].dropna().unique():
+
+        domain_df = df[
+            df["domain"].astype(str).str.lower()
+            == str(domain).lower()
+        ]
+
+        field_mappings = {}
+
+        value_mappings = []
+
+        active_df = domain_df[
+            domain_df["active_flag"]
+            .astype(str)
+            .str.upper()
+            .isin(["Y", "YES", "TRUE", "1"])
+        ]
+
+        field_rows = active_df[
+            active_df["mapping_type"]
+            .astype(str)
+            .str.lower()
+            == "field"
+        ]
+
+        logger.info(
+            f"[mapping] Loaded {len(field_rows)} field rows "
+            f"for domain={domain}"
+        )
+
+        value_rows = active_df[
+            active_df["mapping_type"]
+            .astype(str)
+            .str.lower()
+            == "value"
+        ]
+
+        logger.info(
+            f"[mapping] Loaded {len(value_rows)} value rows "
+            f"for domain={domain}"
+        )
+
+        for _, row in field_rows.iterrows():     
+
+            field_mappings[
+                row["source_field"]
+            ] = {
+                "target_field": row["target_field"],
+                "source_format": row["source_format"],
+                "target_format": row["target_format"]
+            }
+
+            logger.info(
+                f"[mapping] Registered field mapping "
+                f"{row['source_field']} -> "
+                f"{row['target_field']} "
+                f"({row['source_format']} -> "
+                f"{row['target_format']})"
+            )
+
+        grouped = value_rows.groupby(
+            [
+                "source_field",
+                "target_field",
+                "source_format",
+                "target_format"
+            ]
+        )
+
+        for (
+            source_field,
+            target_field,
+            source_format,
+            target_format
+        ), group in grouped:
+
+            mapping_dict = {}
+
+            for _, row in group.iterrows():
+
+                mapping_key = normalize_field_format(
+                    pd.Series([row["source_value"]]),
+                    source_format
+                ).iloc[0]
+
+                mapping_dict[mapping_key] = row["target_value"]           
+
+            value_mappings.append(
+                {
+                    "domain": str(domain).lower(),
+                    "source_field": source_field,
+                    "target_field": target_field,
+                    "source_format": source_format,
+                    "target_format": target_format,
+                    "mapping": mapping_dict,
+                    "mapping_type": "value"
+                }
+            )
+
+        mappings[str(domain).lower()] = {
+            "field_mappings": field_mappings,
+            "value_mappings": value_mappings
+        }
+
+    return mappings
+
+def normalize_field_format(
+    series,
+    format_type
+):
+
+    format_type = str(format_type).lower()
+
+    if format_type == "str":
+
+        return (
+            series
+            .fillna("")
+            .astype(str)
+            .str.strip()
+            .str.lower()
+        )
+
+    if format_type == "int":
+
+        return (
+            pd.to_numeric(
+                series,
+                errors="coerce"
+            )
+            .astype("Int64")
+            .astype(str)
+            .replace("<NA>", "")
+        )
+
+    if format_type == "zip5":
+
+        return (
+            series
+            .fillna("")
+            .astype(str)
+            .str.extract(r"(\d+)", expand=False)
+            .fillna("")
+            .str[:5]
+            .str.zfill(5)
+        )
+
+    return (
+        series
+        .fillna("")
+        .astype(str)
+        .str.strip()
+        .str.lower()
+    )
+
+def apply_target_format(series, format_type):
+
+    format_type = str(format_type).lower()
+
+    if format_type == "str":
+        return (
+            series
+            .fillna("")
+            .astype(str)
+        )
+
+    if format_type == "int":
+        return pd.to_numeric(
+            series,
+            errors="coerce"
+        )
+
+    if format_type == "datetime":
+
+        return pd.to_datetime(
+            series,
+            errors="coerce"
+        )
+
+    if format_type == "zip5":
+        return (
+            series
+            .fillna("")
+            .astype(str)
+            .str.extract(r"(\d+)", expand=False)
+            .fillna("")
+            .str.zfill(5)
+            .str[:5]
+        )
+
+    return series
+
+def apply_field_mappings(df, field_mappings):
+
+    for source_field, config in field_mappings.items():
+
+        if source_field not in df.columns:
+            logger.warning(
+                f"[mapping] Missing source field: {source_field}"
+            )
+            continue
+
+        target_field = config["target_field"]
+
+        normalized_source = normalize_field_format(
+            df[source_field],
+            config.get("source_format", "str")
+        )
+
+        transformed_target = apply_target_format(
+            normalized_source,
+            config.get("target_format", "str")
+        )
+
+        df[target_field] = transformed_target
+
+    return df
+
+def apply_value_mappings(
+    df,
+    value_mappings
+):
+
+    for config in value_mappings:
+
+        source_field = config["source_field"]
+        target_field = config["target_field"]
+        mapping = config["mapping"]
+
+        if source_field not in df.columns:
+
+            logger.warning(
+                f"[mapping] Missing source field: "
+                f"{source_field}"
+            )
+
+            continue
+
+        source_values = normalize_field_format(
+            df[source_field],
+            config.get("source_format", "str")
+        )
+
+        logger.info(
+            f"[mapping] source_field={source_field} "
+        )
+
+        raw_mapped_values = source_values.map(mapping)
+
+        logger.info(
+            f"[mapping] mapping keys={list(mapping.keys())}"
+        )
+
+        logger.info(
+            f"[mapping] top 20 unique source values="
+            f"{sorted(source_values.dropna().unique().tolist())[:20]}"
+        )
+
+        logger.info(
+            f"[mapping] Mapping audit "
+            f"source_field={source_field} "
+            f"target_field={target_field}"
+        )
+
+        for source_value, target_value in mapping.items():
+
+            mapped_record_count = (
+                source_values == source_value
+            ).sum()
+
+            if mapped_record_count > 0:
+
+                logger.info(
+                    f"[mapping] "
+                    f"{source_value!r} -> "
+                    f"{target_value!r} "
+                    f"records={mapped_record_count:,}"
+                )
+
+        unmapped_counts = (
+            source_values[
+                raw_mapped_values.isna()
+                & source_values.notna()
+                & (source_values.astype(str) != "")
+            ]
+            .value_counts()
+        )
+
+        if not unmapped_counts.empty:
+
+            logger.warning(
+                f"[mapping] Unmapped values "
+                f"source_field={source_field} "
+                f"target_field={target_field}"
+            )
+
+            for value, count in unmapped_counts.items():
+
+                logger.warning(
+                    f"[mapping] "
+                    f"value={value!r} "
+                    f"records={count:,}"
+                )
+
+        mapped_values = apply_target_format(
+            raw_mapped_values,
+            config.get("target_format", "str")
+        )
+
+        df[target_field] = mapped_values
+
+    return df
+
+def apply_standard_mappings(
+    df,
+    domain_mapping
+):
+
+    field_mappings = domain_mapping.get(
+        "field_mappings",
+        {}
+    )
+
+    value_mappings = domain_mapping.get(
+        "value_mappings",
+        []
+    )
+
+    logger.info(
+        f"[mapping] Field mappings loaded: "
+        f"{len(field_mappings)}"
+    )
+
+    logger.info(
+        f"[mapping] Value mappings loaded: "
+        f"{len(value_mappings)}"
+    )
+
+    df = apply_field_mappings(
+        df,
+        field_mappings
+    )
+
+    df = apply_value_mappings(
+        df,
+        value_mappings
+    )
+
+    required_fields = [
+        "patient_zipcode"
+    ]
+
+    missing_fields = [
+        col
+        for col in required_fields
+        if col not in df.columns
+    ]
+
+    if missing_fields:
+
+        logger.warning(
+            "[mapping] Missing required "
+            f"standardized fields: "
+            f"{missing_fields}"
+        )
+
+    df = prepare_common_columns(df)
+
+    return df
+
+processing_helpers:
+from datetime import datetime
+import os
+import logging
+import pandas as pd
+
+from utils.io_helpers import load_params
+
+def build_processing_driver(
+    cohorts,
+    visual_driver_df,
+    param_dir,
+    output_file
+):
+    """
+    Build processing driver file.
+
+    Creates one row per cohort x report combination using each report
+    parameter file as the default parameter set.
+    """
+
+    logging.info("Building processing driver")
+
+    driver_rows = []
+
+    enabled_reports = visual_driver_df.copy()
+
+    if "enabled" in enabled_reports.columns:
+        enabled_reports = enabled_reports[
+            enabled_reports["enabled"]
+            .astype(str)
+            .str.upper()
+            .isin(["Y", "YES", "TRUE", "1"])
+        ]
+
+    for _, report_row in enabled_reports.iterrows():
+
+        report_id = report_row.get("visual_id") or report_row.get("report_id")
+
+        if not report_id:
+            logging.warning("[build_processing_driver] Skipping row without report identifier")
+            continue
+
+        try:
+            params_df = load_params(param_dir, report_id)
+        except Exception as e:
+
+            logging.error(
+                f"[build_processing_driver] Unable to load params for {report_id}: {e}"
+            )
+
+            continue
+
+        report_domain = str(report_row.get("domain", "")).strip().lower()
+
+        for cohort_id, cohort_meta in cohorts.items():
+
+            cohort_meta = cohort_meta or {}
+
+            cohort_domain = str(
+                cohort_meta.get("domain") or cohort_meta.get("group") or ""
+            ).strip().lower()
+
+            if cohort_domain and report_domain and cohort_domain != report_domain:
+                continue
+
+            row = {
+                "active_flag": "Y",
+                "report_id": report_id,
+                "visual_id": report_id,
+                "domain": cohort_meta.get("domain"),
+                "cohort_id": cohort_id,
+                "cohort_file": cohort_meta.get("cohort_file"),
+                "cohort_desc": cohort_meta.get("description"),
+                "filter_str": cohort_meta.get("filter"),
+                "group": cohort_meta.get("group"),
+                "name": cohort_meta.get("name")
+            }
+
+            # include vis_driver metadata
+            for col in visual_driver_df.columns:
+                if col not in row:
+                    row[col] = report_row[col]
+
+            # flatten report parameters
+            if not params_df.empty:
+
+                for _, param_row in params_df.iterrows():
+
+                    param_name = str(param_row["param"]).strip()
+
+                    row[param_name] = param_row.get("value")
+
+                    row[f"{param_name}_desc"] = (
+                        param_row.get("description")
+                    )
+
+                    row[f"{param_name}_display"] = (
+                        param_row.get("display")
+                    )
+
+                    row[f"{param_name}_format"] = (
+                        param_row.get("display_format")
+                    )
+
+            driver_rows.append(row)
+
+    driver_df = pd.DataFrame(driver_rows)
+
+    if driver_df.empty:
+        logging.warning("[build_processing_driver] No processing driver rows generated")
+        return driver_df
+
+    system_cols = [
+        "active_flag",
+        "report_id",
+        "visual_id",
+        "domain",
+        "cohort_id",
+        "cohort_file",
+        "cohort_desc",
+        "filter_str",
+        "group",
+        "name"
+    ]
+
+    other_cols = [
+        c for c in driver_df.columns
+        if c not in system_cols
+    ]
+
+    driver_df = driver_df[
+        system_cols + sorted(other_cols, key=str)
+    ]
+
+    os.makedirs(
+        os.path.dirname(output_file),
+        exist_ok=True
+    )
+
+    driver_df.to_csv(
+        output_file,
+        index=False
+    )
+
+    logging.info(
+        f"[build_processing_driver] Generated processing driver with {len(driver_df):,} rows"
+    )
+    logging.info(f"[build_processing_driver] Saved processing driver: {output_file}")
+
+    return driver_df
+
+
+def load_processing_driver(file_path):
+
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(
+            f"[build_processing_driver] Missing processing driver: {file_path}"
+        )
+
+    return pd.read_csv(file_path)
+
+
+def row_to_params(row):
+
+    system_fields = {
+        "execution_id",
+        "active_flag",
+        "report_id",
+        "visual_id",
+        "domain",
+        "cohort_id",
+        "cohort_file",
+        "cohort_desc",
+        "filter_str",
+        "group",
+        "name",
+        "client_name",
+        "year_type",
+        "write_rdb",
+        "start_date",
+        "end_date",
+        "enabled",
+        "type"
+    }
+
+    return {
+        k: v
+        for k, v in row.items()
+        if k not in system_fields
+    }
+
+def apply_filter(df, filter_str):
+    if df is None or df.empty:
+        logging.warning("[apply_filter] input dataframe is empty")
+        return df
+
+    if not filter_str or pd.isna(filter_str):
+        logging.info("[apply_filter] no filter provided; returning original dataframe")
+        return df
+
+    try:
+        before_count = len(df)
+
+        # Minimal normalization (safe + cheap)
+        df_copy = df.copy()
+        logging.info(df_copy.columns.tolist())
+        for col in df_copy.columns:
+            if pd.api.types.is_string_dtype(df_copy[col]):
+                df_copy[col] = df_copy[col].str.strip()
+
+        logging.info(f"[apply_filter] Filter: {filter_str}")
+
+        filtered_df = df_copy.query(filter_str, engine="python")
+
+        after_count = len(filtered_df)
+
+        logging.info(
+            f"[apply_filter] rows {before_count:,} -> {after_count:,} | filter: {filter_str}"
+        )
+
+        return filtered_df
+
+    except Exception as e:
+        logging.info(f"[apply_filter] Filter: {filter_str}")
+        logging.error(f"[apply_filter] failed: {str(e)}")
+        return df.iloc[0:0]
+    
+BASE_DIR = os.getcwd()
+RUNS_DIR = os.path.join(BASE_DIR, "data", "runs")
+
+def initialize_run():
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+
+    run_dir = os.path.join(RUNS_DIR, f"run_{timestamp}")
+    output_dir = os.path.join(run_dir, "outputs")
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    # setup logging
+    log_file = os.path.join(run_dir, "logfile.txt")
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s | %(levelname)s | %(message)s",
+        handlers=[
+            logging.FileHandler(log_file),
+            logging.StreamHandler()
+        ]
+    )
+
+    return run_dir, output_dir
+
+
+def normalize_reporting_window(start_date, end_date):
+
+    start_date = pd.to_datetime(start_date)
+    end_date = pd.to_datetime(end_date)
+
+    if (
+        end_date.hour == 0
+        and end_date.minute == 0
+        and end_date.second == 0
+    ):
+        end_date = (
+            end_date
+            + pd.Timedelta(days=1)
+            - pd.Timedelta(microseconds=1)
+        )
+
+    return start_date, end_date
+
+def generate_output_name(
+    *,
+    visual_id,
+    start_date,
+    end_date,
+    cohort_id=None,
+    ext="csv"
+):
+    def clean(val):
+        if val is None:
+            return ""
+
+        return (
+            str(val)
+            .replace("/", "-")
+            .replace("\\", "-")
+            .replace(" ", "_")
+            .replace(".", "_")
+            .replace(":", "-")
+        )
+
+    parts = [clean(visual_id)]
+
+    if cohort_id:
+        parts.append(clean(cohort_id))
+
+    if start_date and end_date:
+        parts.append(f"{clean(start_date)}_to_{clean(end_date)}")
+
+    filename = "__".join(parts) + f".{ext}"
+
+    return filename
+
+
+

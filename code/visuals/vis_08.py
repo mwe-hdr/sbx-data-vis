@@ -96,6 +96,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     def save_projection_table_png(
         df,
         output_file,
+        title=None,
         font_family="Segoe UI",
         font_size=9
     ):
@@ -115,6 +116,14 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         )
 
         ax.axis("off")
+
+        if title:
+            ax.set_title(
+                title,
+                fontsize=11,
+                fontweight="bold",
+                pad=10
+            )
 
         table = ax.table(
             cellText=df.values,
@@ -557,7 +566,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         projection_table_df = pd.DataFrame(
             columns=[
                 "Period",
-                "Projected Facility Bed Need"
+                "Projected Facility ADP"
             ]
         )
 
@@ -668,6 +677,41 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                     x_train,
                     y_train,
                     1
+                )
+
+                # --------------------------------------------------
+                # PEAK ANCHORED PROJECTION MODEL
+                # --------------------------------------------------
+
+                peak_observed_census = float(
+                    training_df["census"].max()
+                )
+
+                peak_anchor_date = training_df.loc[
+                    training_df["census"].idxmax(),
+                    "interval"
+                ]
+
+                peak_marker = None
+
+                peak_marker = plt.scatter(
+                    [peak_anchor_date],
+                    [peak_observed_census],
+                    s=90,
+                    facecolors="white",
+                    edgecolors="red",
+                    linewidths=2,
+                    zorder=20,
+                    label=(
+                        f"Observed Peak "
+                        f"({peak_observed_census:.1f})"
+                    )
+                )
+
+                logger.info(
+                    f"[{VISUAL_ID}] Peak census anchor: "
+                    f"{peak_observed_census:.2f} "
+                    f"on {peak_anchor_date:%Y-%m-%d}"
                 )
 
                 yoy_census_change = slope * 365.25
@@ -845,20 +889,83 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                         f"Period={format_projection_period(month_offset)} | "
                         f"Month Offset={month_offset} | "
                         f"Projected Census={projected_value:.2f} | "
-                        f"Projected Facility Bed Need={facility_room_need:.1f}"
+                        f"Projected Facility ADP={facility_room_need:.1f}"
                     )
 
                     table_rows.append({
                         "Period": format_projection_period(
                             month_offset
                         ),
-                        "Projected Facility\nBed Need": round(
+                        "Projected Facility\nADP": round(
                             facility_room_need,
                             1
                         )
                     })
 
+                peak_future_x = (
+                    future_dates
+                    - peak_anchor_date
+                ).total_seconds() / 86400.0
+
+                peak_future_census = (
+                    peak_observed_census
+                    + (slope * peak_future_x)
+                )
+
+                peak_projection_df = pd.DataFrame({
+                    "interval": future_dates,
+                    "census": peak_future_census,
+                    "record_type": "peak_projection"
+                })
+
+                peak_projection_df["month_offset"] = range(
+                    len(peak_projection_df)
+                )
+
                 projection_table_df = pd.DataFrame(table_rows)
+
+                peak_projection_rows = []
+
+                for i in range(projection_table_rows):
+
+                    month_offset = (
+                        projection_table_start_month
+                        + i * projection_table_interval_months
+                    )
+
+                    matching_row = peak_projection_df[
+                        peak_projection_df["month_offset"]
+                        == month_offset
+                    ]
+
+                    if matching_row.empty:
+                        continue
+
+                    projected_value = (
+                        matching_row.iloc[0]["census"]
+                    )
+
+                    facility_room_need = (
+                        projected_value / capacity_threshold_pct
+                        if capacity_threshold_pct not in [None, 0]
+                        else np.nan
+                    )
+
+                    peak_projection_rows.append({
+                        "Period":
+                            format_projection_period(
+                                month_offset
+                            ),
+                        "Projected Facility\nADP":
+                            round(
+                                facility_room_need,
+                                1
+                            )
+                    })
+
+                peak_projection_table_df = pd.DataFrame(
+                    peak_projection_rows
+                )
 
                 plot_projection_df = projection_df[
                     projection_df["month_offset"]
@@ -1139,6 +1246,16 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                 "95% Confidence Band"
             )
 
+        if peak_marker is not None:
+
+            legend_handles.append(
+                peak_marker
+            )
+
+            legend_labels.append(
+                f"Observed Peak ({peak_observed_census:.1f})"
+            )
+
         legend_output_file = os.path.join(
             output_dir,
             generate_output_name(
@@ -1175,6 +1292,105 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         save_projection_table_png(
             df=projection_table_df,
             output_file=projection_table_output_file,
+            title="Trend Projection",
+            font_family=font_family
+        )
+
+        peak_kpi_output_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=f"{VISUAL_ID}_peak_point",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
+        )
+
+        peak_display = (
+            f"{peak_observed_census:.1f}"
+        )
+
+        fig, ax = plt.subplots(
+            figsize=(1.0, 0.45)
+        )
+
+        ax.axis("off")
+
+        table = ax.table(
+            cellText=[[peak_display]],
+            colLabels=["Observed Peak"],
+            cellLoc="center",
+            colLoc="center",
+            loc="center"
+        )
+
+        table.auto_set_font_size(False)
+        table.set_fontsize(10)
+        table.scale(1.5, 1.6)
+
+        for (row, col), cell in table.get_celld().items():
+
+            cell.set_edgecolor("black")
+            cell.set_linewidth(1.5)
+
+            if row == 0:
+                cell.set_facecolor("#d9d9d9")
+                cell.set_text_props(
+                    weight="bold",
+                    color="black",
+                    fontfamily=font_family
+                )
+            else:
+                cell.set_facecolor("white")
+                cell.set_text_props(
+                    color="black",
+                    fontfamily=font_family
+                )
+
+        fig.subplots_adjust(
+            left=0,
+            right=1,
+            top=1,
+            bottom=0
+        )
+
+        fig.subplots_adjust(
+            left=0,
+            right=1,
+            top=1,
+            bottom=0
+        )
+
+        plt.savefig(
+            peak_kpi_output_file,
+            dpi=int(dpi),
+            bbox_inches="tight",
+            pad_inches=0
+        )
+
+        plt.close(fig)
+
+        logger.info(
+            f"[{VISUAL_ID}] peak KPI written: "
+            f"{peak_kpi_output_file}"
+        )
+
+        peak_projection_table_output_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=f"{VISUAL_ID}_peak_projection_table",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
+        )
+
+        save_projection_table_png(
+            df=peak_projection_table_df,
+            output_file=peak_projection_table_output_file,
+            title="Peak Anchored Projection",
             font_family=font_family
         )
 

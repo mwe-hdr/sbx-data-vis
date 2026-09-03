@@ -1559,13 +1559,72 @@ def run(
         f"{title_output_file}"
     )
 
-    # ============================================================
-    # RDB
-    # ============================================================
-
+    # =========================
+    # RDB OUTPUT
+    # =========================
+    write_rdb = int(params.get("write_rdb", 0))
     rdb_rows = []
 
-    return {
-        "output_path": output_file,
-        "rdb": rdb_rows
-    }
+    if write_rdb == 1:
+
+                report_title = "Facility Peak Census and Room Need by Acuity"
+
+                for _, row in table_df.iterrows():
+
+                    # Peak Census
+                    rdb_rows.append({
+                        "run_id": params.get("run_id"),
+                        "visual_id": VISUAL_ID,
+                        "client_name": params.get("client_name"),
+
+                        "domain": params.get("domain"),
+                        "cohort_id": params.get("cohort_id"),
+
+                        "domain_cohort":
+                            f"{params.get('domain')}.{params.get('cohort_id')}",
+
+                        "dimension": "acuity",
+                        "dimension_value": row["acuity_name"],
+                        "dimension_value_label": row["acuity_name"],
+
+                        "secondary_dimension": None,
+                        "secondary_dimension_value": None,
+
+                        "metric": "peak_census",
+                        "metric_type": "value",
+                        "value": float(row["peak_census"]),
+
+                        "start_date": start_date,
+                        "end_date": end_date,
+
+                        "report_title": report_title
+                    })
+
+                    # Room Need
+                    rdb_rows.append({
+                        "run_id": params.get("run_id"),
+                        "visual_id": VISUAL_ID,
+                        "client_name": params.get("client_name"),
+
+                        "domain": params.get("domain"),
+                        "cohort_id": params.get("cohort_id"),
+
+                        "domain_cohort":
+                            f"{params.get('domain')}.{params.get('cohort_id')}",
+
+                        "dimension": "acuity",
+                        "dimension_value": row["acuity_name"],
+                        "dimension_value_label": row["acuity_name"],
+
+                        "secondary_dimension": None,
+                        "secondary_dimension_value": None,
+
+                        "metric": "room_need",
+                        "metric_type": "value",
+                        "value": float(row["room_need"]),
+
+                        "start_date": start_date,
+                        "end_date": end_date,
+
+                        "report_title": report_title
+                    })

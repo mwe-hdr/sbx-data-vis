@@ -437,12 +437,58 @@ def get_assets(
     return assets
 
 
+# def replace_picture(
+#     slide,
+#     shape_name,
+#     image_path
+# ):
+
+#     if not image_path:
+#         logging.warning(
+#             f"[ppt] Missing image for "
+#             f"{shape_name}"
+#         )
+#         return
+
+#     shape = get_shape_by_name(
+#         slide,
+#         shape_name
+#     )
+
+#     if shape is None:
+
+#         logging.warning(
+#             f"[ppt] Placeholder not found: "
+#             f"{shape_name}"
+#         )
+
+#         return
+
+#     left = shape.left
+#     top = shape.top
+#     width = shape.width
+#     height = shape.height
+
+#     element = shape._element
+#     element.getparent().remove(
+#         element
+#     )
+
+#     new_pic = slide.shapes.add_picture(
+#         image_path,
+#         left,
+#         top,
+#         width=width,
+#         height=height
+#     )
+
+#     new_pic.name = shape_name
+
 def replace_picture(
     slide,
     shape_name,
     image_path
 ):
-
     if not image_path:
         logging.warning(
             f"[ppt] Missing image for "
@@ -456,12 +502,10 @@ def replace_picture(
     )
 
     if shape is None:
-
         logging.warning(
             f"[ppt] Placeholder not found: "
             f"{shape_name}"
         )
-
         return
 
     left = shape.left
@@ -469,12 +513,14 @@ def replace_picture(
     width = shape.width
     height = shape.height
 
-    element = shape._element
-    element.getparent().remove(
-        element
+    # Capture original position in shape tree
+    spTree = shape._element.getparent()
+    insert_idx = list(spTree).index(
+        shape._element
     )
 
-    new_pic = slide.shapes.add_picture(
+    # Create temporary picture
+    temp_pic = slide.shapes.add_picture(
         image_path,
         left,
         top,
@@ -482,7 +528,33 @@ def replace_picture(
         height=height
     )
 
-    new_pic.name = shape_name
+    temp_pic.name = shape_name
+
+    # Copy picture XML
+    pic_xml = deepcopy(
+        temp_pic._element
+    )
+
+    # Remove temporary picture
+    spTree.remove(
+        temp_pic._element
+    )
+
+    # Remove original placeholder
+    spTree.remove(
+        shape._element
+    )
+
+    # Insert new picture in exact same layer position
+    spTree.insert(
+        insert_idx,
+        pic_xml
+    )
+
+    logging.info(
+        f"[ppt] Replaced {shape_name} "
+        f"while preserving z-order"
+    )
 
 def populate_slide(
     slide,

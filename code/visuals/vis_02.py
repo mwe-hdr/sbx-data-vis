@@ -154,7 +154,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # --------------------------------------------------
         # REQUIRED COLUMNS CHECK
         # --------------------------------------------------
-        required_cols = ["arrival_dtm", "tmt_stop_dtm", "valid_los"]
+        required_cols = ["arrival_dtm", "tmt_stop_dtm", "valid_los","los_hours"]
         for col in required_cols:
             if col not in df.columns:
                 logger.error(f"[{VISUAL_ID}] Missing required column: {col}")
@@ -179,7 +179,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         )
 
         # Remove invalid LOS
-        df = df[(df["valid_los"] == 1)]
+        df = df[df["valid_los"]]
 
         logger.info(
             f"[{VISUAL_ID}] Completed valid_los filter. "

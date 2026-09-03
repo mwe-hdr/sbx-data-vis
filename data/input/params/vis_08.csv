@@ -66,14 +66,14 @@ census_helper_operation,
 
 enable_trend_projection,True
 
-trend_start_month,2020-04-01
+trend_start_month,2021-05-01
 trend_input_months,60
 projection_months,300
 projection_plot_months,6
 
-projection_table_start_month,180
+projection_table_start_month,60
 projection_table_interval_months,60
-projection_table_rows,3
+projection_table_rows,5
 
 trend_line_color,#1f77b4
 trend_linewidth,2.0
@@ -90,7 +90,7 @@ write_projection_rdb,False
 
 #### ===== CONFIDENCE BAND =====
 
-show_confidence_band,True
+show_confidence_band,False
 
 confidence_level,0.95
 
@@ -115,8 +115,14 @@ ppt_asset_02_placeholder,vis_08_legend
 ppt_asset_03_keyword,vis_08_parameters
 ppt_asset_03_placeholder,vis_08_param
 
-ppt_asset_04_keyword,vis_08_projection_table
-ppt_asset_04_placeholder,vis_08_projection_table
+ppt_asset_04_keyword,vis_08_peak_projection_table
+ppt_asset_04_placeholder,vis_08_peak_projection_table
 
 ppt_asset_05_keyword,vis_08__
 ppt_asset_05_placeholder,vis_08_image
+
+ppt_asset_06_keyword,vis_08_projection_table
+ppt_asset_06_placeholder,vis_08_projection_table
+
+ppt_asset_07_keyword,vis_08_peak_point
+ppt_asset_07_placeholder,vis_08_peak_point

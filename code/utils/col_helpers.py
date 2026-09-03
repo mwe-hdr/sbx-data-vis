@@ -42,10 +42,63 @@ def add_calculated_helper_columns(df):
             "los_hours"
         ] = pd.NA
 
+        df["los_days"] = (
+            (
+                df["tmt_stop_dtm"]
+                - df["arrival_dtm"]
+            )
+            .dt.total_seconds()
+            / (24 * 3600)
+        )
+
+        df.loc[
+            df["los_days"] < 0,
+            "los_days"
+        ] = pd.NA
+
+        # --------------------------------------------------
+        # UNBOUND / INVALID LOS DETECTION
+        # --------------------------------------------------
+
+        MAX_LOS_YEARS = 10
+        MAX_LOS_HOURS = MAX_LOS_YEARS * 365.25 * 24
+
+        df["invalid_long_los"] = (
+            df["los_hours"].notna()
+            &
+            (df["los_hours"] > MAX_LOS_HOURS)
+        )
+
+        invalid_long_count = int(
+            df["invalid_long_los"].sum()
+        )
+
+        if invalid_long_count > 0:
+            logger.warning(
+                f"[col] Found {invalid_long_count:,} LOS values "
+                f"exceeding {MAX_LOS_YEARS} years. "
+                f"Marking as invalid."
+            )
+
+        # --------------------------------------------------
+        # VALID LOS FLAG
+        # --------------------------------------------------
+
         df["valid_los"] = (
             df["los_hours"].notna()
             &
             (df["los_hours"] >= 0)
+            &
+            (~df["invalid_long_los"])
+        )
+
+        # keep valid_los_days aligned
+        df["valid_los_days"] = (
+            df["los_days"].notna()
+            &
+            (df["los_days"] >= 0)
+            &
+            (~df["invalid_long_los"])
         )
 
     if "triage_start_dtm" in df.columns:
