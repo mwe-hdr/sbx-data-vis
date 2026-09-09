@@ -5,6 +5,71 @@ import pandas as pd
 
 from utils.io_helpers import load_params
 
+def combine_processing_drivers(
+    run_ids,
+    runs_dir,
+    output_file
+):
+    """
+    Combine processing_driver.csv files from prior runs.
+    """
+
+    dfs = []
+
+    for run_id in run_ids:
+
+        file_path = os.path.join(
+            runs_dir,
+            run_id,
+            "processing_driver.csv"
+        )
+
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(
+                f"Missing processing driver: {file_path}"
+            )
+
+        logging.info(
+            f"[combine_processing_drivers] Loading {file_path}"
+        )
+
+        dfs.append(
+            load_processing_driver(file_path)
+        )
+
+    if not dfs:
+        raise ValueError(
+            "No processing drivers supplied"
+        )
+
+    combined_df = pd.concat(
+        dfs,
+        ignore_index=True
+    )
+
+    before = len(combined_df)
+
+    combined_df = combined_df.drop_duplicates()
+
+    after = len(combined_df)
+
+    logging.info(
+        "[combine_processing_drivers] "
+        f"rows={before:,} "
+        f"after_dedup={after:,}"
+    )
+
+    combined_df.to_csv(
+        output_file,
+        index=False
+    )
+
+    logging.info(
+        f"[combine_processing_drivers] Saved: {output_file}"
+    )
+
+    return combined_df
+
 def build_processing_driver(
     cohorts,
     visual_driver_df,

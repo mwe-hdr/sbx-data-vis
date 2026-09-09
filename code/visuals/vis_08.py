@@ -52,6 +52,7 @@ import logging
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from statsmodels.tsa.arima.model import ARIMA
 from utils.vis_helpers import (
     normalize_params,
     format_date_range,
@@ -70,112 +71,389 @@ logger = logging.getLogger(__name__)
 
 VISUAL_ID = "vis_08"
 
-def run(df, params, start_date, end_date, output_dir, generate_output_name):
-
-    def _get_float(params, key, default=None):
-        try:
-            val = params.get(key, default)
-            return float(val) if val not in [None, "", "None"] else None
-        except:
-            return default
-
-
-    def _get_bool(params, key, default=False):
-        val = str(params.get(key, default)).strip().lower()
-        if val in ["true", "1", "yes"]:
-            return True
-        if val in ["false", "0", "no"]:
-            return False
+def _get_float(params, key, default=None):
+    try:
+        val = params.get(key, default)
+        return float(val) if val not in [None, "", "None"] else None
+    except:
         return default
 
 
-    def _get_str(params, key, default=""):
-        val = params.get(key, default)
-        return str(val) if val is not None else default
+def _get_bool(params, key, default=False):
+    val = str(params.get(key, default)).strip().lower()
+    if val in ["true", "1", "yes"]:
+        return True
+    if val in ["false", "0", "no"]:
+        return False
+    return default
 
-    def save_projection_table_png(
-        df,
+
+def _get_str(params, key, default=""):
+    val = params.get(key, default)
+    return str(val) if val is not None else default
+
+def save_projection_table_png(
+    df,
+    output_file,
+    title=None,
+    font_family="Segoe UI",
+    font_size=9
+):
+
+    if df.empty:
+        return None
+
+    plt.rcParams["font.family"] = font_family
+
+    fig_height = max(
+        1.2,
+        len(df) * 0.45
+    )
+
+    fig, ax = plt.subplots(
+        figsize=(2.75, fig_height)
+    )
+
+    ax.axis("off")
+
+    if title:
+        ax.set_title(
+            title,
+            fontsize=11,
+            fontweight="bold",
+            pad=10
+        )
+
+    table = ax.table(
+        cellText=df.values,
+        colLabels=df.columns,
+        loc="center",
+        cellLoc="center"
+    )
+
+    table.auto_set_font_size(False)
+    table.set_fontsize(font_size)
+    table.scale(1.2, 1.5)
+
+    for col in range(len(df.columns)):
+
+        header = table[(0, col)]
+
+        header.set_facecolor("#d9d9d9")
+        header.get_text().set_weight("bold")
+        header.get_text().set_multialignment("center")
+
+        # increase header row height
+        header.set_height(
+            header.get_height() * 1.8
+        )
+
+    plt.tight_layout()
+
+    plt.savefig(
         output_file,
-        title=None,
-        font_family="Segoe UI",
-        font_size=9
-    ):
+        bbox_inches="tight",
+        dpi=300
+    )
 
-        if df.empty:
-            return None
+    plt.close(fig)
 
-        plt.rcParams["font.family"] = font_family
+    return output_file
 
-        fig_height = max(
-            1.2,
-            len(df) * 0.45
+def format_projection_period(months):
+
+    years = months // 12
+    remaining = months % 12
+
+    if years > 0 and remaining > 0:
+        return f"{years}y {remaining}m"
+
+    if years > 0:
+        return f"{years} Years"
+
+    return f"{months} Months"
+
+def build_projection_table(
+    projection_df,
+    projection_table_rows,
+    projection_table_start_month,
+    projection_table_interval_months,
+    capacity_threshold_pct
+):
+
+    rows = []
+
+    for i in range(projection_table_rows):
+
+        month_offset = (
+            projection_table_start_month
+            + i * projection_table_interval_months
         )
 
-        fig, ax = plt.subplots(
-            figsize=(2.75, fig_height)
+        matching_row = projection_df[
+            projection_df["month_offset"]
+            == month_offset
+        ]
+
+        if matching_row.empty:
+            continue
+
+        projected_value = (
+            matching_row.iloc[0]["census"]
         )
 
-        ax.axis("off")
+        facility_room_need = (
+            projected_value
+            / capacity_threshold_pct
+        )
 
-        if title:
-            ax.set_title(
-                title,
-                fontsize=11,
-                fontweight="bold",
-                pad=10
+        rows.append({
+            "Period":
+                format_projection_period(
+                    month_offset
+                ),
+            "Projected Facility\nADP":
+                round(
+                    facility_room_need,
+                    1
+                )
+        })
+
+    return pd.DataFrame(rows)
+
+def build_ols_projection(
+    training_df,
+    ts,
+    projection_months,
+    projection_table_rows,
+    projection_table_start_month,
+    projection_table_interval_months,
+    capacity_threshold_pct
+):
+
+    base_date = training_df["interval"].min()
+
+    x_train = (
+        training_df["interval"] - base_date
+    ).dt.total_seconds() / 86400.0
+
+    y_train = training_df["census"]
+
+    slope, intercept = np.polyfit(
+        x_train,
+        y_train,
+        1
+    )
+
+    peak_observed_census = float(
+        training_df["census"].max()
+    )
+
+    peak_anchor_date = training_df.loc[
+        training_df["census"].idxmax(),
+        "interval"
+    ]
+
+    trend_df = training_df.copy()
+
+    trend_df["trend"] = (
+        intercept + slope * x_train
+    )
+
+    projection_anchor = (
+        pd.Timestamp(
+            ts["interval"].max()
+        )
+        .to_period("M")
+        .to_timestamp()
+    )
+
+    future_dates = pd.date_range(
+        start=projection_anchor,
+        periods=projection_months + 1,
+        freq="MS"
+    )
+
+    future_x = (
+        future_dates - base_date
+    ).total_seconds() / 86400.0
+
+    future_census = (
+        intercept + slope * future_x
+    )
+
+    projection_df = pd.DataFrame({
+        "interval": future_dates,
+        "census": future_census,
+        "record_type": "projection"
+    })
+
+    projection_df["month_offset"] = range(
+        len(projection_df)
+    )
+
+    peak_future_x = (
+        future_dates - peak_anchor_date
+    ).total_seconds() / 86400.0
+
+    peak_projection_df = pd.DataFrame({
+        "interval": future_dates,
+        "census": (
+            peak_observed_census
+            + slope * peak_future_x
+        ),
+        "record_type": "peak_projection"
+    })
+
+    peak_projection_df["month_offset"] = range(
+        len(peak_projection_df)
+    )
+
+    projection_table_df = build_projection_table(
+        projection_df,
+        projection_table_rows,
+        projection_table_start_month,
+        projection_table_interval_months,
+        capacity_threshold_pct
+    )
+
+    peak_projection_table_df = build_projection_table(
+        peak_projection_df,
+        projection_table_rows,
+        projection_table_start_month,
+        projection_table_interval_months,
+        capacity_threshold_pct
+    )
+
+    return {
+        "trend_df": trend_df,
+        "projection_df": projection_df,
+        "projection_table_df": projection_table_df,
+        "peak_projection_df": peak_projection_df,
+        "peak_projection_table_df": peak_projection_table_df,
+        "peak_observed_census": peak_observed_census,
+        "peak_anchor_date": peak_anchor_date
+    }
+
+def build_arima_projection(
+    training_df,
+    ts,
+    projection_months,
+    projection_table_rows,
+    projection_table_start_month,
+    projection_table_interval_months,
+    capacity_threshold_pct,
+    arima_p,
+    arima_d,
+    arima_q
+):
+
+    forecast_series = (
+    ts
+    .set_index("interval")
+    .resample("MS")
+    .mean()
+    ["census"]
+    )
+
+    model = ARIMA(
+        forecast_series,
+        order=(
+            arima_p,
+            arima_d,
+            arima_q
+        )
+    )
+
+    fitted = model.fit()
+
+    trend_df = training_df.copy()
+
+    trend_df["trend"] = fitted.fittedvalues
+
+    future_dates = pd.date_range(
+        start=(
+            pd.Timestamp(
+                ts["interval"].max()
             )
+            .to_period("M")
+            .to_timestamp()
+        ),
+        periods=projection_months + 1,
+        freq="MS"
+    )
 
-        table = ax.table(
-            cellText=df.values,
-            colLabels=df.columns,
-            loc="center",
-            cellLoc="center"
-        )
+    forecast = fitted.forecast(
+        steps=len(future_dates)
+    )
 
-        table.auto_set_font_size(False)
-        table.set_fontsize(font_size)
-        table.scale(1.2, 1.5)
+    projection_df = pd.DataFrame({
+        "interval": future_dates,
+        "census": forecast.values,
+        "record_type": "projection"
+    })
 
-        for col in range(len(df.columns)):
+    projection_df["month_offset"] = range(
+        len(projection_df)
+    )
 
-            header = table[(0, col)]
+    peak_observed_census = float(
+        training_df["census"].max()
+    )
 
-            header.set_facecolor("#d9d9d9")
-            header.get_text().set_weight("bold")
-            header.get_text().set_multialignment("center")
+    peak_anchor_date = training_df.loc[
+        training_df["census"].idxmax(),
+        "interval"
+    ]
 
-            # increase header row height
-            header.set_height(
-                header.get_height() * 1.8
-            )
+    forecast_peak_delta = (
+        peak_observed_census
+        - projection_df["census"].iloc[0]
+    )
 
-        plt.tight_layout()
+    peak_projection_df = projection_df.copy()
 
-        plt.savefig(
-            output_file,
-            bbox_inches="tight",
-            dpi=dpi
-        )
+    peak_projection_df["census"] = (
+        peak_projection_df["census"]
+        + forecast_peak_delta
+    )
 
-        plt.close()
+    peak_projection_df["record_type"] = (
+        "peak_projection"
+    )
 
-        return output_file
+    projection_table_df = build_projection_table(
+        projection_df,
+        projection_table_rows,
+        projection_table_start_month,
+        projection_table_interval_months,
+        capacity_threshold_pct
+    )
 
-    def format_projection_period(months):
+    peak_projection_table_df = build_projection_table(
+        peak_projection_df,
+        projection_table_rows,
+        projection_table_start_month,
+        projection_table_interval_months,
+        capacity_threshold_pct
+    )
 
-        years = months // 12
-        remaining = months % 12
+    return {
+        "trend_df": trend_df,
+        "projection_df": projection_df,
+        "projection_table_df": projection_table_df,
+        "peak_projection_df": peak_projection_df,
+        "peak_projection_table_df": peak_projection_table_df,
+        "peak_observed_census": peak_observed_census,
+        "peak_anchor_date": peak_anchor_date
+    }
 
-        if years > 0 and remaining > 0:
-            return f"{years}y {remaining}m"
-
-        if years > 0:
-            return f"{years} Years"
-
-        return f"{months} Months"
+def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
     logger.info(f"[{VISUAL_ID}] Starting Facility Census Trend visualization")
     params = normalize_params(params)
+
+    output_visual_id = VISUAL_ID
 
     try:
 
@@ -235,7 +513,6 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         avg_line = None
         trend_line = None
         projection_line = None
-        confidence_band = None
 
         # =========================================================
         # VISUALIZATION
@@ -397,6 +674,41 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             False
         )
 
+        forecast_method = _get_str(
+            params,
+            "forecast_method",
+            "ols"
+        ).strip().lower()
+
+        if enable_trend_projection:
+            output_visual_id = (
+                f"{VISUAL_ID}_{forecast_method}"
+            )
+
+        arima_p = int(
+            _get_float(
+                params,
+                "arima_p",
+                1
+            ) or 1
+        )
+
+        arima_d = int(
+            _get_float(
+                params,
+                "arima_d",
+                1
+            ) or 1
+        )
+
+        arima_q = int(
+            _get_float(
+                params,
+                "arima_q",
+                1
+            ) or 1
+        )
+
         trend_input_months = int(
             _get_float(
                 params,
@@ -453,30 +765,6 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             params,
             "projection_linestyle",
             "--"
-        )
-
-        show_confidence_band = _get_bool(
-            params,
-            "show_confidence_band",
-            False
-        )
-
-        confidence_level = _get_float(
-            params,
-            "confidence_level",
-            0.95
-        )
-
-        confidence_fill_color = _get_str(
-            params,
-            "confidence_fill_color",
-            "#1f77b4"
-        )
-
-        confidence_alpha = _get_float(
-            params,
-            "confidence_alpha",
-            0.15
         )
 
         # -----------------------------------------------------
@@ -558,10 +846,17 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # -----------------------------------------------------
         trend_line = None
         projection_line = None
-        confidence_band = None
-        projection_df = pd.DataFrame()
+        peak_marker = None
 
+        trend_df = pd.DataFrame()
         projection_df = pd.DataFrame()
+        projection_table_df = pd.DataFrame()
+
+        peak_projection_df = pd.DataFrame()
+        peak_projection_table_df = pd.DataFrame()
+
+        peak_observed_census = None
+        peak_anchor_date = None
 
         projection_table_df = pd.DataFrame(
             columns=[
@@ -607,11 +902,8 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             projection_plot_months
         )  
 
+        #NEW DISPATCHER
         if enable_trend_projection:
-
-            logger.info(
-                f"[{VISUAL_ID}] Building OLS trend projection"
-            )
 
             if trend_start_month:
 
@@ -621,22 +913,15 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
             else:
 
-                training_start = ts[
-                    "interval"
-                ].min()
+                training_start = (
+                    ts["interval"].min()
+                )
 
             training_end = (
                 training_start
                 + pd.DateOffset(
                     months=trend_input_months
                 )
-            )
-
-            logger.info(
-                f"[{VISUAL_ID}] Trend model window: "
-                f"{training_start:%Y-%m-%d} "
-                f"through "
-                f"{training_end:%Y-%m-%d}"
             )
 
             training_df = ts[
@@ -651,378 +936,172 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                 )
             ].copy()
 
-            if training_df.empty:
-
-                logger.warning(
-                    f"[{VISUAL_ID}] No data in "
-                    "specified trend window."
-                )
-
-                enable_trend_projection = False
-
             if len(training_df) >= 5:
 
-                base_date = training_df[
-                    "interval"
-                ].min()
+                if forecast_method == "ols":
 
-                x_train = (
-                    training_df["interval"]
-                    - base_date
-                ).dt.total_seconds() / 86400.0
+                    forecast_results = (
+                        build_ols_projection(
+                            training_df=training_df,
+                            ts=ts,
+                            projection_months=projection_months,
+                            projection_table_rows=projection_table_rows,
+                            projection_table_start_month=projection_table_start_month,
+                            projection_table_interval_months=projection_table_interval_months,
+                            capacity_threshold_pct=capacity_threshold_pct
+                        )
+                    )
 
-                y_train = training_df["census"]
+                elif forecast_method == "arima":
 
-                slope, intercept = np.polyfit(
-                    x_train,
-                    y_train,
-                    1
-                )
+                    forecast_results = (
+                        build_arima_projection(
+                            training_df=training_df,
+                            ts=ts,
+                            projection_months=projection_months,
+                            projection_table_rows=projection_table_rows,
+                            projection_table_start_month=projection_table_start_month,
+                            projection_table_interval_months=projection_table_interval_months,
+                            capacity_threshold_pct=capacity_threshold_pct,
+                            arima_p=arima_p,
+                            arima_d=arima_d,
+                            arima_q=arima_q
+                        )
+                    )
 
-                # --------------------------------------------------
-                # PEAK ANCHORED PROJECTION MODEL
-                # --------------------------------------------------
+                else:
 
-                peak_observed_census = float(
-                    training_df["census"].max()
-                )
+                    raise ValueError(
+                        f"Unsupported forecast_method: "
+                        f"{forecast_method}"
+                    )
 
-                peak_anchor_date = training_df.loc[
-                    training_df["census"].idxmax(),
-                    "interval"
+                trend_df = forecast_results[
+                    "trend_df"
                 ]
 
-                peak_marker = None
-
-                peak_marker = plt.scatter(
-                    [peak_anchor_date],
-                    [peak_observed_census],
-                    s=90,
-                    facecolors="white",
-                    edgecolors="red",
-                    linewidths=2,
-                    zorder=20,
-                    label=(
-                        f"Observed Peak "
-                        f"({peak_observed_census:.1f})"
-                    )
-                )
-
-                logger.info(
-                    f"[{VISUAL_ID}] Peak census anchor: "
-                    f"{peak_observed_census:.2f} "
-                    f"on {peak_anchor_date:%Y-%m-%d}"
-                )
-
-                yoy_census_change = slope * 365.25
-
-                logger.info(
-                    f"[{VISUAL_ID}] OLS trend results: "
-                    f"slope={slope:.6f} census/day, "
-                    f"intercept={intercept:.4f}"
-                )
-
-                logger.info(
-                    f"[{VISUAL_ID}] YoY Census Change: "
-                    f"{yoy_census_change:+.2f} census/year"
-                )
-
-                training_df["trend"] = (
-                    intercept
-                    + slope * x_train
-                )
-
-                # ------------------------------------------
-                # CONFIDENCE INTERVALS
-                # ------------------------------------------
-                n = len(x_train)
-
-                residuals = (
-                    y_train
-                    - training_df["trend"]
-                )
-
-                mse = np.sum(
-                    residuals ** 2
-                ) / (n - 2)
-
-                mean_x = np.mean(x_train)
-
-                sxx = np.sum(
-                    (x_train - mean_x) ** 2
-                )
-
-                standard_error = np.sqrt(
-                    mse * (
-                        (1 / n)
-                        +
-                        (
-                            (x_train - mean_x) ** 2
-                            / sxx
-                        )
-                    )
-                )
-
-                z_score = 1.96
-
-                training_df["ci_upper"] = (
-                    training_df["trend"]
-                    + z_score * standard_error
-                )
-
-                training_df["ci_lower"] = (
-                    training_df["trend"]
-                    - z_score * standard_error
-                )
-
-                trend_line, = plt.plot(
-                    training_df["interval"],
-                    training_df["trend"],
-                    color=trend_line_color,
-                    linewidth=trend_linewidth,
-                    linestyle=trend_linestyle,
-                    label=(
-                        f"Trend "
-                        f"({training_start:%Y-%m}"
-                        f" + {trend_input_months} mo)"
-                    ),
-                    zorder=12
-                )
-
-                if show_confidence_band:
-
-                    confidence_band = plt.fill_between(
-                        training_df["interval"],
-                        training_df["ci_lower"],
-                        training_df["ci_upper"],
-                        color=confidence_fill_color,
-                        alpha=confidence_alpha,
-                        label="95% Confidence Band",
-                        zorder=8
-                    )
-
-                projection_anchor = (
-                    pd.Timestamp(
-                        ts["interval"].max()
-                    ).to_period("M")
-                    .to_timestamp()
-                )
-
-                future_dates = pd.date_range(
-                    start=projection_anchor,
-                    periods=projection_months + 1,
-                    freq="MS"
-                )
-
-                future_x = (
-                    future_dates
-                    - base_date
-                ).total_seconds() / 86400.0
-
-                future_census = (
-                    intercept
-                    + slope * future_x
-                )
-
-                projection_standard_error = np.sqrt(
-                    mse * (
-                        (1 / n)
-                        +
-                        (
-                            (future_x - mean_x) ** 2
-                            / sxx
-                        )
-                    )
-                )
-
-                future_upper = (
-                    future_census
-                    + z_score * projection_standard_error
-                )
-
-                future_lower = (
-                    future_census
-                    - z_score * projection_standard_error
-                )
-
-                projection_df = pd.DataFrame({
-                    "interval": future_dates,
-                    "census": future_census,
-                    "ci_upper": future_upper,
-                    "ci_lower": future_lower,
-                    "record_type": "projection"
-                })
-
-                projection_df["month_offset"] = range(
-                    len(projection_df)
-                )
-
-                table_rows = []
-
-                for i in range(projection_table_rows):
-
-                    month_offset = (
-                        projection_table_start_month
-                        + i * projection_table_interval_months
-                    )
-
-                    matching_row = projection_df[
-                        projection_df["month_offset"]
-                        == month_offset
-                    ]
-
-                    if matching_row.empty:
-                        continue
-
-                    projected_value = (
-                        matching_row.iloc[0]["census"]
-                    )
-
-                    facility_room_need = (
-                        projected_value / capacity_threshold_pct
-                        if capacity_threshold_pct not in [None, 0]
-                        else np.nan
-                    )
-
-                    logger.info(
-                        f"[{VISUAL_ID}] Projection Table Entry | "
-                        f"Period={format_projection_period(month_offset)} | "
-                        f"Month Offset={month_offset} | "
-                        f"Projected Census={projected_value:.2f} | "
-                        f"Projected Facility ADP={facility_room_need:.1f}"
-                    )
-
-                    table_rows.append({
-                        "Period": format_projection_period(
-                            month_offset
-                        ),
-                        "Projected Facility\nADP": round(
-                            facility_room_need,
-                            1
-                        )
-                    })
-
-                peak_future_x = (
-                    future_dates
-                    - peak_anchor_date
-                ).total_seconds() / 86400.0
-
-                peak_future_census = (
-                    peak_observed_census
-                    + (slope * peak_future_x)
-                )
-
-                peak_projection_df = pd.DataFrame({
-                    "interval": future_dates,
-                    "census": peak_future_census,
-                    "record_type": "peak_projection"
-                })
-
-                peak_projection_df["month_offset"] = range(
-                    len(peak_projection_df)
-                )
-
-                projection_table_df = pd.DataFrame(table_rows)
-
-                peak_projection_rows = []
-
-                for i in range(projection_table_rows):
-
-                    month_offset = (
-                        projection_table_start_month
-                        + i * projection_table_interval_months
-                    )
-
-                    matching_row = peak_projection_df[
-                        peak_projection_df["month_offset"]
-                        == month_offset
-                    ]
-
-                    if matching_row.empty:
-                        continue
-
-                    projected_value = (
-                        matching_row.iloc[0]["census"]
-                    )
-
-                    facility_room_need = (
-                        projected_value / capacity_threshold_pct
-                        if capacity_threshold_pct not in [None, 0]
-                        else np.nan
-                    )
-
-                    peak_projection_rows.append({
-                        "Period":
-                            format_projection_period(
-                                month_offset
-                            ),
-                        "Projected Facility\nADP":
-                            round(
-                                facility_room_need,
-                                1
-                            )
-                    })
-
-                peak_projection_table_df = pd.DataFrame(
-                    peak_projection_rows
-                )
-
-                plot_projection_df = projection_df[
-                    projection_df["month_offset"]
-                    <= projection_plot_months
+                projection_df = forecast_results[
+                    "projection_df"
                 ]
 
-                if not plot_projection_df.empty:
-                    max_projection_date = (
-                        plot_projection_df["interval"].max()
-                    )
+                projection_table_df = forecast_results[
+                    "projection_table_df"
+                ]
 
-                    plt.xlim(
-                        ts["interval"].min(),
-                        max_projection_date
-                    )
+                peak_projection_df = forecast_results[
+                    "peak_projection_df"
+                ]
 
-                projection_line, = plt.plot(
-                    plot_projection_df["interval"],
-                    plot_projection_df["census"],
-                    color=projection_line_color,
-                    linewidth=projection_linewidth,
-                    linestyle=projection_linestyle,
-                    label=(
-                        f"Projection "
-                        f"({projection_months} mo)"
-                    ),
-                    zorder=13
-                )
+                peak_projection_table_df = forecast_results[
+                    "peak_projection_table_df"
+                ]
 
-                if show_confidence_band:
+                peak_observed_census = forecast_results[
+                    "peak_observed_census"
+                ]
 
-                    plt.fill_between(
-                        plot_projection_df["interval"],
-                        plot_projection_df["ci_lower"],
-                        plot_projection_df["ci_upper"],
-                        color=confidence_fill_color,
-                        alpha=confidence_alpha,
-                        zorder=7
-                    )
-
-                logger.info(
-                    f"[{VISUAL_ID}] Projection records generated: "
-                    f"{len(projection_df):,}"
-                )
+                peak_anchor_date = forecast_results[
+                    "peak_anchor_date"
+                ]
 
             else:
-
                 logger.warning(
-                    f"[{VISUAL_ID}] Not enough records "
-                    f"for trend projection."
+                    f"[{VISUAL_ID}] Insufficient data for "
+                    f"{forecast_method.upper()} projection. "
+                    f"Training records: {len(training_df)}"
                 )
+
+        if (
+            enable_trend_projection
+            and peak_anchor_date is not None
+            and peak_observed_census is not None
+        ):
+
+            peak_marker = plt.scatter(
+                [peak_anchor_date],
+                [peak_observed_census],
+                s=90,
+                facecolors="white",
+                edgecolors="red",
+                linewidths=2,
+                zorder=20,
+                label=(
+                    f"Observed Peak "
+                    f"({peak_observed_census:.1f})"
+                )
+            )
+
+            logger.info(
+                f"[{VISUAL_ID}] Peak census anchor: "
+                f"{peak_observed_census:.2f} "
+                f"on {peak_anchor_date:%Y-%m-%d}"
+            )
+
+        if (
+            enable_trend_projection
+            and not trend_df.empty
+            and "trend" in trend_df.columns
+        ):
+
+            trend_line, = plt.plot(
+                trend_df["interval"],
+                trend_df["trend"],
+                color=trend_line_color,
+                linewidth=trend_linewidth,
+                linestyle=trend_linestyle,
+                label=(
+                    f"{forecast_method.upper()} Trend"
+                ),
+                zorder=12
+            )
+
+        plot_projection_df = projection_df.copy()
+
+        if "month_offset" in plot_projection_df.columns:
+
+            plot_projection_df = plot_projection_df[
+                plot_projection_df["month_offset"]
+                <= projection_plot_months
+            ]
+
+        if not plot_projection_df.empty:
+
+            max_projection_date = (
+                plot_projection_df["interval"].max()
+            )
+
+            plt.xlim(
+                ts["interval"].min(),
+                max_projection_date
+            )
+
+        if not plot_projection_df.empty:
+
+            projection_line, = plt.plot(
+                plot_projection_df["interval"],
+                plot_projection_df["census"],
+                color=projection_line_color,
+                linewidth=projection_linewidth,
+                linestyle=projection_linestyle,
+                label=(
+                    f"{forecast_method.upper()} Projection "
+                    f"({projection_months} mo)"
+                ),
+                zorder=13
+            )
+
+        if not projection_df.empty:
+
+            logger.info(
+                f"[{VISUAL_ID}] Projection records generated: "
+                f"{len(projection_df):,}"
+            )
 
         # =========================================================
         # OUTPUT CSV
         # =========================================================
         filename = generate_output_name(
-            visual_id=VISUAL_ID,
+            visual_id=output_visual_id,
             start_date=start_date,
             end_date=end_date,
             cohort_id=params.get("cohort_id"),
@@ -1119,7 +1198,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
         # Save PNG
         png_filename = generate_output_name(
-            visual_id=VISUAL_ID,
+            visual_id=output_visual_id,
             start_date=start_date,
             end_date=end_date,
             cohort_id=params.get("cohort_id"),
@@ -1140,7 +1219,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         title_output_file = os.path.join(
             output_dir,
             generate_output_name(
-                visual_id=f"{VISUAL_ID}_title",
+                visual_id=f"{output_visual_id}_title",
                 start_date=start_date,
                 end_date=end_date,
                 cohort_id=params.get("cohort_id"),
@@ -1152,11 +1231,23 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             int(params.get("enable_trend_projection", 0))
         )
 
-        title_suffix = (
-            "Census with Capacity Line and Linear Projection"
-            if enable_trend_projection
-            else "Census with Capacity Line"
-        )
+        if enable_trend_projection:
+
+            projection_label = (
+                "ARIMA Projection"
+                if forecast_method == "arima"
+                else "Linear Projection"
+            )
+
+            title_suffix = (
+                f"Census with Capacity Line and {projection_label}"
+            )
+
+        else:
+
+            title_suffix = (
+                "Census with Capacity Line"
+            )
 
         report_title = (
             f"{cohort_desc} | "
@@ -1236,16 +1327,6 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                 projection_line.get_label()
             )
 
-        if confidence_band is not None:
-
-            legend_handles.append(
-                confidence_band
-            )
-
-            legend_labels.append(
-                "95% Confidence Band"
-            )
-
         if peak_marker is not None:
 
             legend_handles.append(
@@ -1259,7 +1340,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         legend_output_file = os.path.join(
             output_dir,
             generate_output_name(
-                visual_id=f"{VISUAL_ID}_legend",
+                visual_id=f"{output_visual_id}_legend",
                 start_date=start_date,
                 end_date=end_date,
                 cohort_id=params.get("cohort_id"),
@@ -1281,7 +1362,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         projection_table_output_file = os.path.join(
             output_dir,
             generate_output_name(
-                visual_id=f"{VISUAL_ID}_projection_table",
+                visual_id=f"{output_visual_id}_projection_table",
                 start_date=start_date,
                 end_date=end_date,
                 cohort_id=params.get("cohort_id"),
@@ -1296,90 +1377,85 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             font_family=font_family
         )
 
-        peak_kpi_output_file = os.path.join(
-            output_dir,
-            generate_output_name(
-                visual_id=f"{VISUAL_ID}_peak_point",
-                start_date=start_date,
-                end_date=end_date,
-                cohort_id=params.get("cohort_id"),
-                ext="png"
+        if peak_observed_census is not None:
+
+            peak_kpi_output_file = os.path.join(
+                output_dir,
+                generate_output_name(
+                    visual_id=f"{output_visual_id}_peak_point",
+                    start_date=start_date,
+                    end_date=end_date,
+                    cohort_id=params.get("cohort_id"),
+                    ext="png"
+                )
             )
-        )
 
-        peak_display = (
-            f"{peak_observed_census:.1f}"
-        )
+            peak_display = (
+                f"{peak_observed_census:.1f}"
+            )
 
-        fig, ax = plt.subplots(
-            figsize=(1.0, 0.45)
-        )
+            fig, ax = plt.subplots(
+                figsize=(1.0, 0.45)
+            )
 
-        ax.axis("off")
+            ax.axis("off")
 
-        table = ax.table(
-            cellText=[[peak_display]],
-            colLabels=["Observed Peak"],
-            cellLoc="center",
-            colLoc="center",
-            loc="center"
-        )
+            table = ax.table(
+                cellText=[[peak_display]],
+                colLabels=["Observed Peak"],
+                cellLoc="center",
+                colLoc="center",
+                loc="center"
+            )
 
-        table.auto_set_font_size(False)
-        table.set_fontsize(10)
-        table.scale(1.5, 1.6)
+            table.auto_set_font_size(False)
+            table.set_fontsize(10)
+            table.scale(1.5, 1.6)
 
-        for (row, col), cell in table.get_celld().items():
+            for (row, col), cell in table.get_celld().items():
 
-            cell.set_edgecolor("black")
-            cell.set_linewidth(1.5)
+                cell.set_edgecolor("black")
+                cell.set_linewidth(1.5)
 
-            if row == 0:
-                cell.set_facecolor("#d9d9d9")
-                cell.set_text_props(
-                    weight="bold",
-                    color="black",
-                    fontfamily=font_family
-                )
-            else:
-                cell.set_facecolor("white")
-                cell.set_text_props(
-                    color="black",
-                    fontfamily=font_family
-                )
+                if row == 0:
+                    cell.set_facecolor("#d9d9d9")
+                    cell.set_text_props(
+                        weight="bold",
+                        color="black",
+                        fontfamily=font_family
+                    )
+                else:
+                    cell.set_facecolor("white")
+                    cell.set_text_props(
+                        color="black",
+                        fontfamily=font_family
+                    )
 
-        fig.subplots_adjust(
-            left=0,
-            right=1,
-            top=1,
-            bottom=0
-        )
+            fig.subplots_adjust(
+                left=0,
+                right=1,
+                top=1,
+                bottom=0
+            )
 
-        fig.subplots_adjust(
-            left=0,
-            right=1,
-            top=1,
-            bottom=0
-        )
+            plt.savefig(
+                peak_kpi_output_file,
+                dpi=int(dpi),
+                bbox_inches="tight",
+                pad_inches=0
+            )
 
-        plt.savefig(
-            peak_kpi_output_file,
-            dpi=int(dpi),
-            bbox_inches="tight",
-            pad_inches=0
-        )
+            plt.close(fig)
 
-        plt.close(fig)
-
-        logger.info(
-            f"[{VISUAL_ID}] peak KPI written: "
-            f"{peak_kpi_output_file}"
-        )
+            logger.info(
+                f"[{VISUAL_ID}] peak KPI written: "
+                f"{peak_kpi_output_file}"
+            )
 
         peak_projection_table_output_file = os.path.join(
             output_dir,
             generate_output_name(
-                visual_id=f"{VISUAL_ID}_peak_projection_table",
+                visual_id=f"{output_visual_id}_peak_projection_table",
                 start_date=start_date,
                 end_date=end_date,
                 cohort_id=params.get("cohort_id"),
@@ -1387,12 +1463,14 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             )
         )
 
-        save_projection_table_png(
-            df=peak_projection_table_df,
-            output_file=peak_projection_table_output_file,
-            title="Peak Anchored Projection",
-            font_family=font_family
-        )
+        if not peak_projection_table_df.empty:
+
+            save_projection_table_png(
+                df=peak_projection_table_df,
+                output_file=peak_projection_table_output_file,
+                title="Peak Anchored Projection",
+                font_family=font_family
+            )
 
         plt.close()
 
@@ -1504,4 +1582,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         }
 
     except Exception as e:
-        logger.error(f"[{VISUAL_ID}] Failed: {str(e)}")
+        logger.error(
+            f"[{VISUAL_ID}] Failed: {str(e)}"
+        )
+        raise

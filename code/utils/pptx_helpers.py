@@ -618,4 +618,3 @@ def remove_unwanted_placeholders(slide):
 
 
 
-

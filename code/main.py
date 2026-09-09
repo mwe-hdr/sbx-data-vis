@@ -19,7 +19,8 @@ from utils.processing_helpers import (
     build_processing_driver,
     load_processing_driver,
     row_to_params,
-    normalize_reporting_window
+    normalize_reporting_window,
+    combine_processing_drivers
 )
 
 from utils.mapping_helpers import (
@@ -76,6 +77,11 @@ COHORT_LOCATIONS_FILE = os.path.join(
     "cohort_locations.csv"
 )
 PARAM_DIR = os.path.join(INPUT_DIR, "params")
+RUNS_DIR = os.path.join(
+    BASE_DIR,
+    "data",
+    "runs"
+)
 VIS_DRIVER_FILE = os.path.join(PARAM_DIR, "vis_driver.csv")
 PROCESSING_MODE = os.getenv("PROCESSING_MODE", "full_reports").strip().lower()
 if PROCESSING_MODE in {"full_processing", "full_reports"}:
@@ -102,6 +108,8 @@ def get_visual_function(visual_id):
 
 
 def mirror_processing_driver_to_params(run_dir):
+
+    run_id = os.path.basename(run_dir)
 
     source_file = os.path.join(
         run_dir,
@@ -320,6 +328,16 @@ def run_visuals(
 parser = argparse.ArgumentParser()
 
 parser.add_argument(
+    "--combine-parameters",
+    nargs="+",
+    metavar="RUN_ID",
+    help=(
+        "Combine processing_driver.csv files from one or more "
+        "parameter-generation runs"
+    )
+)
+
+parser.add_argument(
     "--update-processing-driver",
     action="store_true",
     help=(
@@ -347,6 +365,28 @@ parser.add_argument(
 )
 
 args = parser.parse_args()
+
+if args.combine_parameters:
+    
+    run_dir, output_dir = initialize_run()
+
+    output_file = os.path.join(
+        run_dir,
+        "processing_driver.csv"
+    )
+
+    combine_processing_drivers(
+        run_ids=args.combine_parameters,
+        runs_dir=RUNS_DIR,
+        output_file=output_file
+    )
+
+    if args.update_processing_driver:
+        mirror_processing_driver_to_params(
+            run_dir
+        )
+
+    raise SystemExit(0)
 
 if args.powerpoint:
 
