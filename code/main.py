@@ -4,6 +4,11 @@ import shutil
 import pandas as pd
 import importlib
 import argparse
+import time
+from concurrent.futures import (
+    ProcessPoolExecutor,
+    as_completed
+)
 
 from utils.io_helpers import (
     load_data,
@@ -106,6 +111,96 @@ def get_visual_function(visual_id):
         logging.error(f"[main] Failed to load {visual_id}: {str(e)}")
         return None
 
+# =========================
+# WORKER FUNCTION
+# =========================
+def execute_cohort_job(job):
+
+    log_file = job["log_file"]
+
+    logger = logging.getLogger()
+
+    if not logger.handlers:
+
+        logger.setLevel(logging.INFO)
+
+        formatter = logging.Formatter(
+            "%(asctime)s | PID=%(process)d | %(processName)s | %(levelname)s | %(message)s"
+        )
+
+        file_handler = logging.FileHandler(
+            log_file,
+            mode="a"
+        )
+
+        file_handler.setFormatter(formatter)
+
+        logger.addHandler(file_handler)
+
+    cohort_id = job["cohort_id"]
+
+    cohort_df = job["cohort_df"]
+
+    output_dir = job["output_dir"]
+
+    rows = job["rows"]
+
+    rdb_records = []
+
+    logging.info(
+        f"[worker] Started cohort {cohort_id}"
+    )
+
+    for row_dict in rows:
+
+        report_id = row_dict["report_id"]
+
+        params = row_dict["params"]
+
+        start_date = row_dict["start_date"]
+
+        end_date = row_dict["end_date"]
+
+        visual_name = row_dict["visual_name"]
+
+        vis_func = get_visual_function(report_id)
+
+        if vis_func is None:
+            continue
+
+        start = time.perf_counter()
+
+        result = vis_func(
+            cohort_df,
+            params,
+            start_date,
+            end_date,
+            output_dir,
+            generate_output_name
+        )
+
+        elapsed = time.perf_counter() - start
+
+        logging.info(
+            f"[worker] {report_id} "
+            f"{cohort_id} "
+            f"completed in {elapsed:.2f}s"
+        )
+
+        if result and "rdb" in result:
+
+            for rec in result["rdb"]:
+
+                rec["visual_id"] = report_id
+                rec["visual_name"] = visual_name
+
+            rdb_records.extend(result["rdb"])
+
+    logging.info(
+        f"[worker] Finished cohort {cohort_id}"
+    )
+
+    return rdb_records
 
 def mirror_processing_driver_to_params(run_dir):
 
@@ -188,11 +283,13 @@ def run_visuals(
     driver_df,
     cohorts,
     output_dir,
-    enabled_visuals
+    enabled_visuals,
+    log_file
 ):
 
     rdb_records = []
     cohort_cache = {}
+    cohort_jobs = {}
 
     logging.info("[main] Loaded cohort keys:")
     for k in cohorts.keys():
@@ -230,18 +327,6 @@ def run_visuals(
 
         cohort_meta = cohorts.get(cohort_id)
 
-        driver_filter = row.get("filter_str")
-        current_filter = cohort_meta.get("filter")
-
-        if str(driver_filter).strip() != str(current_filter).strip():
-
-            logging.warning(
-                "[main] Cohort filter mismatch "
-                f"cohort={cohort_id} "
-                f"driver_filter={driver_filter} "
-                f"runtime_filter={current_filter}"
-            )
-
         if not cohort_meta:
 
             logging.error(
@@ -255,6 +340,18 @@ def run_visuals(
             )
 
             continue
+
+        driver_filter = row.get("filter_str")
+        current_filter = cohort_meta.get("filter")
+
+        if str(driver_filter).strip() != str(current_filter).strip():
+
+            logging.warning(
+                "[main] Cohort filter mismatch "
+                f"cohort={cohort_id} "
+                f"driver_filter={driver_filter} "
+                f"runtime_filter={current_filter}"
+            )
 
         if cohort_id not in cohort_cache:
             cohort_cache[cohort_id] = apply_filter(df, cohort_meta.get("filter"))
@@ -293,32 +390,79 @@ def run_visuals(
             "report_id": report_id
         })
 
-        vis_func = get_visual_function(report_id)
-        if vis_func is None:
-            continue
-
         logging.info(
-            "[main] Executing "
+            "[main] Queued "
             f"visual={report_id} "
             f"cohort={cohort_id} "
             f"cohort_file={cohort_meta.get('cohort_file')} "
             f"cohort_desc={cohort_meta.get('description')}"
         )
 
-        result = vis_func(
-            cohort_df,
-            params,
-            start_date,
-            end_date,
-            cohort_output_dir,
-            generate_output_name
+        if cohort_id not in cohort_jobs:
+
+            cohort_jobs[cohort_id] = {
+                "cohort_df": cohort_df,
+                "output_dir": cohort_output_dir,
+                "rows": []
+            }
+
+        cohort_jobs[cohort_id]["rows"].append(
+            {
+                "report_id": report_id,
+                "params": params,
+                "start_date": start_date,
+                "end_date": end_date,
+                "visual_name": row.get("name")
+            }
         )
 
-        if result and "rdb" in result:
-            for rec in result["rdb"]:
-                rec["visual_id"] = report_id
-                rec["visual_name"] = row.get("name")
-            rdb_records.extend(result["rdb"])
+    workers = min(
+        12,
+        len(cohort_jobs)
+    )
+
+    logging.info(
+        f"[main] Executing "
+        f"{len(cohort_jobs)} cohorts "
+        f"using {workers} workers"
+    )
+
+    with ProcessPoolExecutor(
+        max_workers=workers
+    ) as executor:
+
+        futures = []
+
+        for cohort_id, payload in cohort_jobs.items():
+
+            futures.append(
+
+                executor.submit(
+                    execute_cohort_job,
+                    {
+                        "cohort_id": cohort_id,
+                        "cohort_df": payload["cohort_df"],
+                        "output_dir": payload["output_dir"],
+                        "rows": payload["rows"],
+                        "log_file": log_file
+                    }
+                )
+            )
+
+        for future in as_completed(futures):
+
+            try:
+
+                cohort_rdb = future.result()
+
+                if cohort_rdb:
+                    rdb_records.extend(cohort_rdb)
+
+            except Exception:
+
+                logging.exception(
+                    "[main] Cohort worker failed"
+                )
 
     return rdb_records
 
@@ -326,6 +470,17 @@ def run_visuals(
 # ENTRY POINT
 # =========================
 parser = argparse.ArgumentParser()
+
+parser.add_argument(
+    "--test",
+    type=int,
+    default=None,
+    metavar="N",
+    help=(
+        "Process a random sample of N rows from the "
+        "processing driver for testing"
+    )
+)
 
 parser.add_argument(
     "--combine-parameters",
@@ -368,7 +523,7 @@ args = parser.parse_args()
 
 if args.combine_parameters:
     
-    run_dir, output_dir = initialize_run()
+    run_dir, output_dir, log_file = initialize_run()
 
     output_file = os.path.join(
         run_dir,
@@ -403,7 +558,7 @@ if args.powerpoint:
 
 if __name__ == "__main__":
 
-    run_dir, output_dir = initialize_run()
+    run_dir, output_dir, log_file = initialize_run()
 
     logging.info(f"[main] Run initialized: {run_dir}")
 
@@ -452,6 +607,31 @@ if __name__ == "__main__":
         raise SystemExit(1)
 
     processing_driver_df = load_processing_driver(processing_driver_file)
+
+    if args.test is not None:
+
+        if args.test <= 0:
+            raise ValueError("--test must be greater than 0")
+
+        sample_size = min(
+            args.test,
+            len(processing_driver_df)
+        )
+
+        processing_driver_df = (
+            processing_driver_df
+            .sample(
+                n=sample_size,
+                random_state=42
+            )
+            .reset_index(drop=True)
+        )
+
+        logging.info(
+            f"[main] TEST MODE ENABLED: "
+            f"selected {sample_size} random rows "
+            f"from processing_driver.csv"
+        )
 
     if processing_driver_df.empty:
         logging.error(f"[main] Processing driver file is empty.")
@@ -519,7 +699,8 @@ if __name__ == "__main__":
             domain_driver_df,
             cohorts,
             output_dir,
-            enabled_visuals
+            enabled_visuals,
+            log_file
         )
 
         if rdb:

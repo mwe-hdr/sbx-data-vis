@@ -302,19 +302,34 @@ def initialize_run():
 
     os.makedirs(output_dir, exist_ok=True)
 
+    run_dir = os.path.join(
+        RUNS_DIR,
+        f"run_{timestamp}"
+    )
+
+    run_id = os.path.basename(run_dir)
+
+    output_dir = os.path.join(
+        run_dir,
+        "outputs"
+    )
+
     # setup logging
-    log_file = os.path.join(run_dir, "logfile.txt")
+    log_file = os.path.join(
+        run_dir,
+        f"{run_id}_logfile.txt"
+    )
 
     logging.basicConfig(
         level=logging.INFO,
-        format="%(asctime)s | %(levelname)s | %(message)s",
+        format="%(asctime)s | PID=%(process)d | %(processName)s | %(levelname)s | %(message)s",
         handlers=[
             logging.FileHandler(log_file),
             logging.StreamHandler()
         ]
     )
 
-    return run_dir, output_dir
+    return run_dir, output_dir, log_file
 
 
 def normalize_reporting_window(start_date, end_date):
