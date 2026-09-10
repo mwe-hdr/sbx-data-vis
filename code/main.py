@@ -62,7 +62,7 @@ DOMAINS = {
     },
     
     "adf": {
-        "data_file": "lc_adf_booking_housing_classification.csv",
+        "data_file": "lc_adf_booking_housing_classification_chronic.csv",
         "cohort_dir": "adf",
         "domain": "adf"
     }
