@@ -14,7 +14,7 @@ from utils.io_helpers import (
     load_data,
     load_driver,
     load_params,
-    load_cohort_params
+    load_cohort_params,
 )
 
 from utils.processing_helpers import (
@@ -67,7 +67,7 @@ DOMAINS = {
     },
     
     "adf": {
-        "data_file": "lc_adf_booking_housing_classification_chronic.csv",
+        "data_file": "lc_adf_booking_housing_classification_chronic_detox.csv",
         "cohort_dir": "adf",
         "domain": "adf"
     }
@@ -472,6 +472,12 @@ def run_visuals(
 parser = argparse.ArgumentParser()
 
 parser.add_argument(
+    "--run-id",
+    default=None,
+    help="Externally supplied run identifier"
+)
+
+parser.add_argument(
     "--test",
     type=int,
     default=None,
@@ -523,7 +529,9 @@ args = parser.parse_args()
 
 if args.combine_parameters:
     
-    run_dir, output_dir, log_file = initialize_run()
+    run_dir, output_dir, log_file = initialize_run(
+    args.run_id
+    )
 
     output_file = os.path.join(
         run_dir,
@@ -558,11 +566,19 @@ if args.powerpoint:
 
 if __name__ == "__main__":
 
-    run_dir, output_dir, log_file = initialize_run()
+    run_dir, output_dir, log_file = initialize_run(
+    args.run_id
+    )
 
     logging.info(f"[main] Run initialized: {run_dir}")
 
     run_id = os.path.basename(run_dir)
+
+    terminal_log_file = os.path.join(
+        RUNS_DIR,
+        "terminal_logs",
+        f"terminal_log_{args.run_id}.log"
+    )
 
     driver_df = load_driver(VIS_DRIVER_FILE)
 
@@ -708,12 +724,23 @@ if __name__ == "__main__":
 
     master_rdb_df = pd.DataFrame(all_rdb_records)
 
+    master_rdb_file = os.path.join(
+        output_dir,
+        "rdb_domain_cohort_metrics.csv"
+    )
+
     master_rdb_df.to_csv(
-        os.path.join(
-            output_dir,
-            "rdb_domain_cohort_metrics.csv"
-        ),
+        master_rdb_file,
         index=False
+    )
+
+    logging.info(
+        "[main] RUN COMPLETE | "
+        f"run_id={run_id} | "
+        f"domains_processed={len(DOMAINS)} | "
+        f"rdb_records={len(master_rdb_df)} | "
+        f"output_dir={output_dir} | "
+        f"rdb_file={master_rdb_file}"
     )
 
     raise SystemExit(0)

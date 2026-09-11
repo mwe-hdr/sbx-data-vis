@@ -2,6 +2,7 @@ from datetime import datetime
 import os
 import logging
 import pandas as pd
+import sys
 
 from utils.io_helpers import load_params
 
@@ -293,26 +294,28 @@ def apply_filter(df, filter_str):
 BASE_DIR = os.getcwd()
 RUNS_DIR = os.path.join(BASE_DIR, "data", "runs")
 
-def initialize_run():
+def initialize_run(run_id=None):
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-
-    run_dir = os.path.join(RUNS_DIR, f"run_{timestamp}")
-    output_dir = os.path.join(run_dir, "outputs")
-
-    os.makedirs(output_dir, exist_ok=True)
+    if run_id:
+        timestamp = run_id
+    else:
+        timestamp = datetime.now().strftime(
+            "%Y%m%d_%H%M%S_%f"
+        )
 
     run_dir = os.path.join(
         RUNS_DIR,
         f"run_{timestamp}"
     )
 
-    run_id = os.path.basename(run_dir)
-
     output_dir = os.path.join(
         run_dir,
         "outputs"
     )
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    run_id = os.path.basename(run_dir)
 
     # setup logging
     log_file = os.path.join(
@@ -325,7 +328,7 @@ def initialize_run():
         format="%(asctime)s | PID=%(process)d | %(processName)s | %(levelname)s | %(message)s",
         handlers=[
             logging.FileHandler(log_file),
-            logging.StreamHandler()
+            logging.StreamHandler(sys.stdout)
         ]
     )
 
