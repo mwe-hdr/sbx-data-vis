@@ -27,16 +27,6 @@ all,filter,(BookNumber.notna()),All Detainees,all
 all.55plus,filter,(True) & (age_bracket == 'adult 55+'),All Detainees 55+,all.55plus
 all.ch_high,filter,(True) & (chronic_status == 'HIGH'),All Detainees Highly Severe Chronic Health Condition,all.chronic_high
 all.ch_low_mod_no,filter,"(True) & (chronic_status .isin(['LOW','MODERATE','NO CHRONIC CONDITION']))",All Detainees Low/Moderate/No Chronic Health Condition,all.chronic_low_moderate_no_chronic
-all.f,filter,(True) & (sex == 'F'),All Detainees Female,all.female
-all.f.55plus,filter,((True) & (sex == 'F')) & (age_bracket == 'adult 55+'),All Detainees Female 55+,all.female.55plus
-all.f.ch_high,filter,((True) & (sex == 'F')) & (chronic_status == 'HIGH'),All Detainees Female Highly Severe Chronic Health Condition,all.female.chronic_high
-all.f.ch_low_mod_no,filter,"((True) & (sex == 'F')) & (chronic_status .isin(['LOW','MODERATE','NO CHRONIC CONDITION']))",All Detainees Female Low/Moderate/No Chronic Health Condition,all.female.chronic_low_moderate_no_chronic
-all.f.u55,filter,((True) & (sex == 'F')) & (age_bracket == 'adult under 55'),All Detainees Female Under 55,all.female.u55
-all.m,filter,(True) & (sex == 'M'),All Detainees Male,all.male
-all.m.55plus,filter,((True) & (sex == 'M')) & (age_bracket == 'adult 55+'),All Detainees Male 55+,all.male.55plus
-all.m.ch_high,filter,((True) & (sex == 'M')) & (chronic_status == 'HIGH'),All Detainees Male Highly Severe Chronic Health Condition,all.male.chronic_high
-all.m.ch_low_mod_no,filter,"((True) & (sex == 'M')) & (chronic_status .isin(['LOW','MODERATE','NO CHRONIC CONDITION']))",All Detainees Male Low/Moderate/No Chronic Health Condition,all.male.chronic_low_moderate_no_chronic
-all.m.u55,filter,((True) & (sex == 'M')) & (age_bracket == 'adult under 55'),All Detainees Male Under 55,all.male.u55
 all.u55,filter,(True) & (age_bracket == 'adult under 55'),All Detainees Under 55,all.u55
 as,filter,"((custody_class.str.contains('AS', na=False)) | custody_class.isin(['AS/KS', 'S3 AS/KS', 'S3- AS/KS'])) & (housing != 'S2')",Administrative Segregation,as
 as.55plus,filter,"(((custody_class.str.contains('AS', na=False)) | custody_class.isin(['AS/KS', 'S3 AS/KS', 'S3- AS/KS'])) & (housing != 'S2')) & (age_bracket == 'adult 55+')",Administrative Segregation 55+,as.55plus
@@ -157,17 +147,6 @@ mx_all,filter,"(housing.isin(['INFM','BRE','BRW','BSDC','CTRP','NHI','STE']))",M
 mx_all.55plus,filter,"((housing.isin(['INFM','BRE','BRW','BSDC','CTRP','NHI','STE']))) & (age_bracket == 'adult 55+')",Medical Care All 55+,medical_all.55plus
 mx_all.ch_high,filter,"((housing.isin(['INFM','BRE','BRW','BSDC','CTRP','NHI','STE']))) & (chronic_status == 'HIGH')",Medical Care All Highly Severe Chronic Health Condition,medical_all.chronic_high
 mx_all.ch_low_mod_no,filter,"((housing.isin(['INFM','BRE','BRW','BSDC','CTRP','NHI','STE']))) & (chronic_status .isin(['LOW','MODERATE','NO CHRONIC CONDITION']))",Medical Care All Low/Moderate/No Chronic Health Condition,medical_all.chronic_low_moderate_no_chronic
-mx_all.f,filter,"((housing.isin(['INFM','BRE','BRW','BSDC','CTRP','NHI','STE']))) & (sex == 'F')",Medical Care All Female,medical_all.female
-mx_all.f.55plus,filter,"(((housing.isin(['INFM','BRE','BRW','BSDC','CTRP','NHI','STE']))) & (sex == 'F')) & (age_bracket == 'adult 55+')",Medical Care All Female 55+,medical_all.female.55plus
-mx_all.f.ch_high,filter,"(((housing.isin(['INFM','BRE','BRW','BSDC','CTRP','NHI','STE']))) & (sex == 'F')) & (chronic_status == 'HIGH')",Medical Care All Female Highly Severe Chronic Health Condition,medical_all.female.chronic_high
-mx_all.f.ch_low_mod_no,filter,"(((housing.isin(['INFM','BRE','BRW','BSDC','CTRP','NHI','STE']))) & (sex == 'F')) & (chronic_status .isin(['LOW','MODERATE','NO CHRONIC CONDITION']))",Medical Care All Female Low/Moderate/No Chronic Health Condition,medical_all.female.chronic_low_moderate_no_chronic
-mx_all.f.u55,filter,"(((housing.isin(['INFM','BRE','BRW','BSDC','CTRP','NHI','STE']))) & (sex == 'F')) & (age_bracket == 'adult under 55')",Medical Care All Female Under 55,medical_all.female.u55
-mx_all.m,filter,"((housing.isin(['INFM','BRE','BRW','BSDC','CTRP','NHI','STE']))) & (sex == 'M')",Medical Care All Male,medical_all.male
-mx_all.m.55plus,filter,"(((housing.isin(['INFM','BRE','BRW','BSDC','CTRP','NHI','STE']))) & (sex == 'M')) & (age_bracket == 'adult 55+')",Medical Care All Male 55+,medical_all.male.55plus
-mx_all.m.ch_high,filter,"(((housing.isin(['INFM','BRE','BRW','BSDC','CTRP','NHI','STE']))) & (sex == 'M')) & (chronic_status == 'HIGH')",Medical Care All Male Highly Severe Chronic Health Condition,medical_all.male.chronic_high
-mx_all.m.ch_low_mod_no,filter,"(((housing.isin(['INFM','BRE','BRW','BSDC','CTRP','NHI','STE']))) & (sex == 'M')) & (chronic_status .isin(['LOW','MODERATE','NO CHRONIC CONDITION']))",Medical Care All Male Low/Moderate/No Chronic Health Condition,medical_all.male.chronic_low_moderate_no_chronic
-mx_all.m.u55,filter,"(((housing.isin(['INFM','BRE','BRW','BSDC','CTRP','NHI','STE']))) & (sex == 'M')) & (age_bracket == 'adult under 55')",Medical Care All Male Under 55,medical_all.male.u55
-mx_all.u55,filter,"((housing.isin(['INFM','BRE','BRW','BSDC','CTRP','NHI','STE']))) & (age_bracket == 'adult under 55')",Medical Care All Under 55,medical_all.u55
 mx_off,filter,"(housing.isin(['BRE','BRW','BSDC','CTRP','NHI','STE']))",Medical Care Off Campus,medical_off_campus
 mx_off.55plus,filter,"((housing.isin(['BRE','BRW','BSDC','CTRP','NHI','STE']))) & (age_bracket == 'adult 55+')",Medical Care Off Campus 55+,medical_off_campus.55plus
 mx_off.ch_high,filter,"((housing.isin(['BRE','BRW','BSDC','CTRP','NHI','STE']))) & (chronic_status == 'HIGH')",Medical Care Off Campus Highly Severe Chronic Health Condition,medical_off_campus.chronic_high
@@ -262,3 +241,18 @@ wr_m,filter,((sex == 'M') & (housing == 'A1')),Work Release Male,work_release_ma
 wr_m.55plus,filter,(((sex == 'M') & (housing == 'A1'))) & (age_bracket == 'adult 55+'),Work Release Male 55+,work_release_male.55plus
 wr_m.ch_high,filter,(((sex == 'M') & (housing == 'A1'))) & (chronic_status == 'HIGH'),Work Release Male Highly Severe Chronic Health Condition,work_release_male.chronic_high
 wr_m.u55,filter,(((sex == 'M') & (housing == 'A1'))) & (age_bracket == 'adult under 55'),Work Release Male Under 55,work_release_male.u55
+mmc,filter,"(custody_class.isin(['CLOS', 'CLO','MAX','MED'])) ","Max, Medium, Close Custody",max_med_clos
+mmc.55plus,filter,"(custody_class.isin(['CLOS', 'CLO','MAX','MED'])) & (age_bracket == 'adult 55+')","Max, Medium, Close Custody 55+",max_med_clos.55plus
+mmc.ch_high,filter,"(custody_class.isin(['CLOS', 'CLO','MAX','MED'])) & (chronic_status == 'HIGH')","Max, Medium, Close Custody Highly Severe Chronic Health Condition",max_med_clos.chronic_high
+mmc.ch_low_mod_no,filter,"(custody_class.isin(['CLOS', 'CLO','MAX','MED'])) & (chronic_status .isin(['LOW','MODERATE','NO CHRONIC CONDITION']))","Max, Medium, Close Custody Low/Moderate/No Chronic Health Condition",max_med_clos.chronic_low_moderate_no_chronic
+mmc.f,filter,"((sex == 'F') & (custody_class.isin(['CLOS', 'CLO','MAX','MED'])) ","Max, Medium, Close Custody Female",max_med_clos.female
+mmc.f.55plus,filter,"((sex == 'F') & (custody_class.isin(['CLOS', 'CLO','MAX','MED'])) & (age_bracket == 'adult 55+')","Max, Medium, Close Custody Female 55+",max_med_clos.female.55plus
+mmc.f.ch_high,filter,"((sex == 'F') & (custody_class.isin(['CLOS', 'CLO','MAX','MED'])) & (chronic_status == 'HIGH')","Max, Medium, Close Custody Female Highly Severe Chronic Health Condition",max_med_clos.female.chronic_high
+mmc.f.ch_low_mod_no,filter,"((sex == 'F') & (custody_class.isin(['CLOS', 'CLO','MAX','MED'])) & (chronic_status .isin(['LOW','MODERATE','NO CHRONIC CONDITION']))","Max, Medium, Close Custody Female Low/Moderate/No Chronic Health Condition",max_med_clos.female.chronic_low_moderate_no_chronic
+mmc.f.u55,filter,"((sex == 'F') & (custody_class.isin(['CLOS', 'CLO','MAX','MED'])) & (age_bracket == 'adult under 55')","Max, Medium, Close Custody Female Under 55",max_med_clos.female.u55
+mmc.m,filter,"((sex == 'M') & (custody_class.isin(['CLOS', 'CLO','MAX','MED'])) ","Max, Medium, Close Custody Male",max_med_clos.male
+mmc.m.55plus,filter,"((sex == 'M') & (custody_class.isin(['CLOS', 'CLO','MAX','MED'])) & (age_bracket == 'adult 55+')","Max, Medium, Close Custody Male 55+",max_med_clos.male.55plus
+mmc.m.ch_high,filter,"((sex == 'M') & (custody_class.isin(['CLOS', 'CLO','MAX','MED'])) & (chronic_status == 'HIGH')","Max, Medium, Close Custody Male Highly Severe Chronic Health Condition",max_med_clos.male.chronic_high
+mmc.m.ch_low_mod_no,filter,"((sex == 'M') & (custody_class.isin(['CLOS', 'CLO','MAX','MED'])) & (chronic_status .isin(['LOW','MODERATE','NO CHRONIC CONDITION']))","Max, Medium, Close Custody Male Low/Moderate/No Chronic Health Condition",max_med_clos.male.chronic_low_moderate_no_chronic
+mmc.m.u55,filter,"((sex == 'M') & (custody_class.isin(['CLOS', 'CLO','MAX','MED'])) & (age_bracket == 'adult under 55')","Max, Medium, Close Custody Male Under 55",max_med_clos.male.u55
+mmc.u55,filter,"((sex == 'M') & (custody_class.isin(['CLOS', 'CLO','MAX','MED'])) & (age_bracket == 'adult under 55')","Max, Medium, Close Custody Under 55",max_med_clos.u55

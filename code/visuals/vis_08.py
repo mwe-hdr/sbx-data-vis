@@ -490,8 +490,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             ),
             census_helper_operation=params.get(
                 "census_helper_operation"
-            ),
-            max_census_delta=40
+            )
         )
 
         logger.info(
@@ -1206,6 +1205,13 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         )
         png_path = os.path.join(output_dir, png_filename)
 
+        logger.info(
+            "[census] FINAL census range after clipping: "
+            "min=%s max=%s",
+            ts["census"].min(),
+            ts["census"].max()
+        )
+
         plt.savefig(
             png_path,
             dpi=int(dpi)
@@ -1474,94 +1480,77 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
         plt.close()
 
+        if not projection_table_df.empty:
+            logger.info(
+                f"[{VISUAL_ID}] Projection Table:\n"
+                f"{projection_table_df.to_string(index=False)}"
+            )
+
+        if not peak_projection_table_df.empty:
+            logger.info(
+                f"[{VISUAL_ID}] Peak Projection Table:\n"
+                f"{peak_projection_table_df.to_string(index=False)}"
+            )
+
         write_rdb = int(params.get("write_rdb", 0))
 
         if write_rdb == 1:
-            for _, row in ts.iterrows():
 
-                census_value = row["census"]
+            metric_prefix = forecast_method.lower()
 
-                if pd.isna(census_value):
-                    continue
+            if not projection_table_df.empty:
 
-                rdb_rows.append({
-                    "run_id": params.get("run_id"),
-                    "visual_id": VISUAL_ID,
-                    "client_name": params.get("client_name"),
-
-                    "domain": params.get("domain"),
-                    "cohort_id": params.get("cohort_id"),
-
-                    "domain_cohort":
-                        f"{params.get('domain')}.{params.get('cohort_id')}",
-
-                    "dimension": "interval",
-                    "dimension_value": row["interval"],
-                    "dimension_value_label":
-                        row["interval"].strftime("%Y-%m-%d %H:%M"),
-
-                    "secondary_dimension": None,
-                    "secondary_dimension_value": None,
-
-                    "metric": "ed_census",
-                    "metric_type": "count",
-                    "value": int(census_value),
-
-                    "start_date": start_date,
-                    "end_date": end_date,
-
-                    "report_title": report_title
-                }) 
-
-            if (
-                enable_trend_projection
-                and not projection_df.empty
-            ):
-
-                for _, row in projection_df.iterrows():
+                #
+                # Standard Projection Table
+                #
+                for _, row in projection_table_df.iterrows():
 
                     rdb_rows.append({
 
-                        "run_id": params.get("run_id"),
-                        "visual_id": VISUAL_ID,
+                        "run_id":
+                            params.get("run_id"),
 
-                        "client_name": params.get(
-                            "client_name"
-                        ),
+                        "visual_id":
+                            output_visual_id,
 
-                        "domain": params.get("domain"),
-                        "cohort_id": params.get(
-                            "cohort_id"
-                        ),
+                        "client_name":
+                            params.get("client_name"),
+
+                        "domain":
+                            params.get("domain"),
+
+                        "cohort_id":
+                            params.get("cohort_id"),
 
                         "domain_cohort":
                             f"{params.get('domain')}."
                             f"{params.get('cohort_id')}",
 
-                        "dimension": "interval",
+                        "dimension":
+                            "projection_period",
 
                         "dimension_value":
-                            row["interval"],
+                            row["Period"],
 
                         "dimension_value_label":
-                            row["interval"].strftime(
-                                "%Y-%m-%d"
-                            ),
+                            row["Period"],
 
                         "secondary_dimension":
-                            "record_type",
+                            "projection_type",
 
                         "secondary_dimension_value":
-                            "projection",
+                            metric_prefix,
 
                         "metric":
-                            "ed_census_projection",
+                            "facility_adp_projection",
 
                         "metric_type":
                             "forecast",
 
                         "value":
-                            float(row["census"]),
+                            float(
+                                row["Projected Facility\nADP"]
+                            ),
 
                         "start_date":
                             start_date,
@@ -1572,7 +1561,72 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                         "report_title":
                             report_title
 
-                    })       
+                    })
+
+            if not peak_projection_table_df.empty:
+
+                #
+                # Peak-Anchored Projection Table
+                #
+                for _, row in peak_projection_table_df.iterrows():
+
+                    rdb_rows.append({
+
+                        "run_id":
+                            params.get("run_id"),
+
+                        "visual_id":
+                            output_visual_id,
+
+                        "client_name":
+                            params.get("client_name"),
+
+                        "domain":
+                            params.get("domain"),
+
+                        "cohort_id":
+                            params.get("cohort_id"),
+
+                        "domain_cohort":
+                            f"{params.get('domain')}."
+                            f"{params.get('cohort_id')}",
+
+                        "dimension":
+                            "projection_period",
+
+                        "dimension_value":
+                            row["Period"],
+
+                        "dimension_value_label":
+                            row["Period"],
+
+                        "secondary_dimension":
+                            "projection_type",
+
+                        "secondary_dimension_value":
+                            f"{metric_prefix}_peak",
+
+                        "metric":
+                            "facility_adp_projection",
+
+                        "metric_type":
+                            "forecast_peak",
+
+                        "value":
+                            float(
+                                row["Projected Facility\nADP"]
+                            ),
+
+                        "start_date":
+                            start_date,
+
+                        "end_date":
+                            end_date,
+
+                        "report_title":
+                            report_title
+
+                    })           
 
         logger.info(f"[{VISUAL_ID}] Outputs saved: CSV and PNG")
 

@@ -7,6 +7,7 @@ import os
 import logging
 import datetime
 from utils.date_helpers import df_date_splitter
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -503,8 +504,7 @@ def generate_census(
     ao_duration_minutes=30,
     census_helper_csv=None,
     census_helper_type=None,
-    census_helper_operation=None,
-    max_census_delta=None
+    census_helper_operation=None
 ):
 
     df_all, df_reporting = df_date_splitter(
@@ -785,57 +785,75 @@ def generate_census(
                 f"{helper_operation}"
             )
 
-        if max_census_delta is not None:
+        daily = (
+            ts
+            .set_index("interval")
+            .resample("D")
+            .agg(
+                census_median=("census", "median"),
+                census_min=("census", "min"),
+                census_max=("census", "max")
+            )
+            .reset_index()
+        )
 
-            try:
+        overall_daily_median = daily["census_median"].median()
 
-                max_census_delta = float(max_census_delta)
+        daily_outlier_pct = 0.20
 
-                ts = (
-                    ts.sort_values("interval")
-                    .reset_index(drop=True)
-                )
+        daily["daily_range_pct"] = (
+            (daily["census_max"] - daily["census_min"])
+            / overall_daily_median
+        )
 
-                prev_delta = (
-                    ts["census"] -
-                    ts["census"].shift(1)
-                ).abs()
+        daily["is_outlier"] = (
+            daily["daily_range_pct"]
+            > daily_outlier_pct
+        )
 
-                next_delta = (
-                    ts["census"] -
-                    ts["census"].shift(-1)
-                ).abs()
+        outlier_days = set(
+            daily.loc[
+                daily["is_outlier"],
+                "interval"
+            ].dt.date
+        )
 
-                outlier_mask = (
-                    (prev_delta > max_census_delta) &
-                    (next_delta > max_census_delta)
-                )
+        ts["day"] = ts["interval"].dt.date
 
-                outlier_count = int(outlier_mask.sum())
+        logger.info(
+            "[census] Outlier days identified: %s",
+            len(outlier_days)
+        )
 
-                if outlier_count > 0:
+        if len(outlier_days) > len(daily) * 0.25:
 
-                    logger.info(
-                        f"[census] Clipping "
-                        f"{outlier_count:,} census outliers "
-                        f"using max_delta={max_census_delta}"
-                    )
+            logger.warning(
+                "[census] Excessive outlier days detected. "
+                "Skipping clipping."
+            )
 
-                    ts.loc[outlier_mask, "census"] = pd.NA
+        else:
 
-                    ts["census"] = (
-                        ts["census"]
-                        .interpolate(method="linear")
-                        .ffill()
-                        .bfill()
-                    )
+            ts.loc[
+                ts["day"].isin(outlier_days),
+                "census"
+            ] = np.nan
 
-            except Exception as e:
+        ts["census"] = (
+            ts["census"]
+            .interpolate()
+            .ffill()
+            .bfill()
+        )
 
-                logger.warning(
-                    f"[census] Outlier clipping failed: {e}"
-                )
-                
+        ts["census"] = (
+            ts["census"]
+            .round()
+            .astype("Int64")
+        )
+
+        ts = ts.drop(columns=["day"])
+
         return ts, df
 
     except Exception as e:
