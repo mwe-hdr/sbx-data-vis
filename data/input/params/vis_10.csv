@@ -3,8 +3,9 @@ param,value,description,display,display_format
 ### ===== CORE PARAMETERS =====
 
 variable_10_year_growth,0.00,Growth adjustment factor,0,percent0
+peak_period_mode,auto,Peak period parameter mode,0,
 peak_period_start,6,Start for peak period,0,integer
-peak_period_length,4,Length of peak period,0,integer
+peak_period_length,12,Length of peak period,0,integer
 utilization,0.85,Capacity Utilization Factor,1,percent0
 
 ### ===== FIGURE =====
@@ -32,7 +33,7 @@ legend_ncol,2,Legend columns,0,
 
 ### ===== AXIS FORMATTING =====
 
-tick_fontsize,10,Axis tick label size,0,
+tick_fontsize,8,Axis tick label size,0,
 y_axis_mode,raw,raw count percent formatting mode,0,
 y_axis_decimals,0,Axis decimal places,0,
 y_axis_multiplier,1,Axis multiplier,0,
@@ -57,7 +58,7 @@ esi3_volume_factor,1.00,ESI 3 volume multiplier,0,percent0
 esi4_volume_factor,1.0,ESI 4 volume multiplier,0,percent0
 esi5_volume_factor,1.0,ESI 5 volume multiplier,0,percent0
 
-aggregation_level,month,Aggregation level (hour/day_of_week/month),0
+aggregation_level,week,Aggregation level (hour/day_of_week/month/week),0
 
 ### ===== CENSUS HELPER =====
 census_helper_csv,

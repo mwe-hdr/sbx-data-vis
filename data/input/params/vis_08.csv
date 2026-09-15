@@ -64,10 +64,9 @@ census_helper_operation,subtract
 
 #### ===== TREND PROJECTION =====
 
+enable_trend_projection,False
 forecast_method,ols
 arima_q,1
-
-enable_trend_projection,True
 
 trend_start_month,2021-05-01
 trend_input_months,60
@@ -91,31 +90,39 @@ projection_frequency,D
 export_projection_csv,True
 write_projection_rdb,False
 
+#### ===== ARRIVALS LINE =====
+include_arrivals_line,True
+arrivals_secondary_axis,True
+arrivals_color,#2ca02c
+arrivals_linewidth,1.25
+arrivals_linestyle,--
+arrival_smoothing_days,30
+
 #### ===== POWERPOINT =====
-ppt_template,pptx_template.vis_08.ols.pptx
+ppt_template,pptx_template.vis_08.pptx
 
 ppt_slide_group,group1
 ppt_slide_group_order,1
 
 ppt_visual_order,1
 
-ppt_asset_01_keyword,vis_08_ols_title
-ppt_asset_01_placeholder,vis_08_ols_title
+ppt_asset_01_keyword,vis_08_title
+ppt_asset_01_placeholder,vis_08_title
 
-ppt_asset_02_keyword,vis_08_ols_legend
-ppt_asset_02_placeholder,vis_08_ols_legend
+ppt_asset_02_keyword,vis_08_legend
+ppt_asset_02_placeholder,vis_08_legend
 
-ppt_asset_03_keyword,vis_08_ols_parameters
-ppt_asset_03_placeholder,vis_08_ols_param
+ppt_asset_03_keyword,vis_08_parameters
+ppt_asset_03_placeholder,vis_08_param
 
-ppt_asset_04_keyword,vis_08_ols_peak_projection_table
-ppt_asset_04_placeholder,vis_08_ols_peak_projection_table
+ppt_asset_04_keyword,vis_08_peak_projection_table
+ppt_asset_04_placeholder,vis_08_peak_projection_table
 
-ppt_asset_05_keyword,vis_08_ols__
-ppt_asset_05_placeholder,vis_08_ols_image
+ppt_asset_05_keyword,vis_08__
+ppt_asset_05_placeholder,vis_08_image
 
-ppt_asset_06_keyword,vis_08_ols_projection_table
-ppt_asset_06_placeholder,vis_08_ols_projection_table
+ppt_asset_06_keyword,vis_08_projection_table
+ppt_asset_06_placeholder,vis_08_projection_table
 
-ppt_asset_07_keyword,vis_08_ols_peak_point
-ppt_asset_07_placeholder,vis_08_ols_peak_point
+ppt_asset_07_keyword,vis_08_peak_point
+ppt_asset_07_placeholder,vis_08_peak_point

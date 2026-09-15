@@ -104,6 +104,9 @@ def get_bucket_label(level, value):
             "Sep","Oct","Nov","Dec"
         ][int(value)]
 
+    if level == "week":
+        return f"Wk {int(value)}"
+
 def _safe_param(params, key, default, cast_type=None):
     try:
         val = params.get(key, default)
@@ -123,6 +126,9 @@ def get_aggregation_range(level):
     if level == "month":
         return range(1, 13)
 
+    if level == "week":
+        return range(1, 54)
+
     raise ValueError(
         f"Unsupported aggregation level: {level}"
     )
@@ -138,7 +144,47 @@ def create_aggregation_dimension(ts, aggregation_level):
     elif aggregation_level == "month":
         ts["aggregation_key"] = ts["interval"].dt.month
 
+    elif aggregation_level == "week":
+        ts["aggregation_key"] = (
+            ts["interval"]
+            .dt.isocalendar()
+            .week
+            .astype(int)
+        )
+
     return ts
+
+def find_peak_window(
+    aggregation_df,
+    value_column,
+    peak_length
+):
+
+    values = aggregation_df[value_column].fillna(0).values
+    bucket_count = len(values)
+
+    peak_length = max(
+        1,
+        min(peak_length, bucket_count)
+    )
+
+    best_start = 0
+    best_avg = -np.inf
+
+    for start in range(bucket_count):
+
+        window = [
+            values[(start + i) % bucket_count]
+            for i in range(peak_length)
+        ]
+
+        window_avg = np.mean(window)
+
+        if window_avg > best_avg:
+            best_avg = window_avg
+            best_start = start
+
+    return best_start
 
 def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
@@ -162,6 +208,13 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # =========================
         # PARAMETERS
         # =========================
+        peak_period_mode = _safe_param(
+            params,
+            "peak_period_mode",
+            "manual",
+            str
+        ).lower()
+
         growth = _safe_param(params, "variable_10_year_growth", 0.0, float)
         peak_start = _safe_param(
             params,
@@ -319,8 +372,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             ),
             census_helper_operation=params.get(
                 "census_helper_operation"
-            ),
-            max_census_delta=25
+            )
         )
 
         if ts.empty:
@@ -373,21 +425,46 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # =========================
         bucket_count = len(aggregation_range)
 
-        peak_start = max(
-            0,
-            min(
-                peak_start,
-                bucket_count - 1
-            )
+        default_peak_length = {
+            "hour": 6,
+            "day_of_week": 2,
+            "week": 12,
+            "month": 3
+        }
+
+        peak_len = _safe_param(
+            params,
+            "peak_period_length",
+            default_peak_length.get(
+                aggregation_level,
+                8
+            ),
+            int
         )
 
-        peak_len = max(
-            1,
-            min(
-                peak_len,
-                bucket_count
+        if peak_period_mode == "auto":
+
+            peak_start = find_peak_window(
+                aggregation_df,
+                f"{aggregation_level}_census",
+                peak_len
             )
-        )
+
+            logger.info(
+                f"[{VISUAL_ID}] Auto peak window detected "
+                f"(start={peak_start}, "
+                f"length={peak_len})"
+            )
+
+        else:
+
+            peak_start = max(
+                0,
+                min(
+                    peak_start,
+                    bucket_count - 1
+                )
+            )
 
         def is_peak(bucket_position):
 
@@ -621,7 +698,8 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         axis_labels = {
             "hour": "Hour of Day",
             "day_of_week": "Day of Week",
-            "month": "Month"
+            "month": "Month",
+            "week": "Week of Year"
         }
 
         ax.set_title("")
@@ -759,7 +837,8 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         aggregation_name = {
             "hour": "Hourly",
             "day_of_week": "Day-of-Week",
-            "month": "Monthly"
+            "month": "Monthly",
+            "week": "Weekly"
         }
 
         report_title = (

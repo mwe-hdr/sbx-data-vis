@@ -53,6 +53,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from statsmodels.tsa.arima.model import ARIMA
+from matplotlib.ticker import MaxNLocator
 from utils.vis_helpers import (
     normalize_params,
     format_date_range,
@@ -493,6 +494,151 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             )
         )
 
+        arrivals_ts = pd.DataFrame()
+
+
+        include_arrivals_line = _get_bool(
+            params,
+            "include_arrivals_line",
+            False
+        )
+
+        arrivals_secondary_axis = _get_bool(
+            params,
+            "arrivals_secondary_axis",
+            True
+        )
+
+        arrivals_color = _get_str(
+            params,
+            "arrivals_color",
+            "#2ca02c"
+        )
+
+        arrivals_linewidth = _get_float(
+            params,
+            "arrivals_linewidth",
+            1.0
+        )
+
+        arrivals_linestyle = _get_str(
+            params,
+            "arrivals_linestyle",
+            "--"
+        )
+
+        if include_arrivals_line:
+
+            arrivals_df = census_df.copy()
+
+            arrivals_df = arrivals_df[
+                (arrivals_df["arrival_dtm"] >= start_date)
+                &
+                (arrivals_df["arrival_dtm"] <= end_date)
+            ].copy()
+
+            arrivals_df["arrival_dtm"] = pd.to_datetime(
+                arrivals_df["arrival_dtm"],
+                errors="coerce"
+            )
+
+            arrivals_df = arrivals_df.dropna(
+                subset=["arrival_dtm"]
+            )
+
+            arrivals_ts = (
+                arrivals_df
+                .set_index("arrival_dtm")
+                .resample("D")
+                .size()
+                .reset_index(name="arrivals")
+            )
+
+            overall_arrival_median = (
+                arrivals_ts["arrivals"]
+                .median()
+            )
+
+            arrival_outlier_pct = 0.20
+
+            arrivals_ts["rolling_median"] = (
+                arrivals_ts["arrivals"]
+                .rolling(
+                    7,
+                    center=True,
+                    min_periods=1
+                )
+                .median()
+            )
+
+            arrivals_ts["variance_pct"] = (
+                (
+                    arrivals_ts["arrivals"]
+                    -
+                    arrivals_ts["rolling_median"]
+                ).abs()
+                /
+                overall_arrival_median
+            )
+
+            arrivals_ts["is_outlier"] = (
+                arrivals_ts["variance_pct"]
+                > arrival_outlier_pct
+            )
+
+            arrival_outlier_days = (
+                arrivals_ts["is_outlier"]
+                .sum()
+            )
+
+            arrival_smoothing_days = int(
+                _get_float(
+                    params,
+                    "arrival_smoothing_days",
+                    14
+                ) or 14
+            )
+
+            logger.info(
+                f"[{VISUAL_ID}] Arrival outlier days identified: "
+                f"{arrival_outlier_days}"
+            )
+
+            if arrival_outlier_days > len(arrivals_ts) * 0.25:
+
+                logger.warning(
+                    f"[{VISUAL_ID}] Excessive arrival outliers detected. "
+                    f"Skipping clipping."
+                )
+
+            else:
+
+                arrivals_ts.loc[
+                    arrivals_ts["is_outlier"],
+                    "arrivals"
+                ] = np.nan
+
+                arrivals_ts["arrivals"] = (
+                    arrivals_ts["arrivals"]
+                    .interpolate()
+                    .ffill()
+                    .bfill()
+                )
+
+            arrivals_ts["arrivals"] = (
+                arrivals_ts["arrivals"]
+                .ewm(
+                    span=arrival_smoothing_days,
+                    adjust=False
+                )
+                .mean()
+            )
+
+            arrivals_ts.rename(
+                columns={"arrival_dtm": "interval"},
+                inplace=True
+            )
+
         logger.info(
             f"[{VISUAL_ID}] Building census timeline from "
             f"{len(df):,} encounters."
@@ -512,6 +658,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         avg_line = None
         trend_line = None
         projection_line = None
+        arrivals_line = None
 
         # =========================================================
         # VISUALIZATION
@@ -542,9 +689,17 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             6
         )
 
-        plt.figure(
+        fig, ax = plt.subplots(
             figsize=(figure_width, figure_height)
         )
+
+        arrivals_ax = None
+
+        if (
+            include_arrivals_line
+            and arrivals_secondary_axis
+        ):
+            arrivals_ax = ax.twinx()
 
         title_height = float(
             params.get("title_height", 0.4) or 0.6
@@ -781,7 +936,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # -----------------------------------------------------
         # MAIN LINE 
         # -----------------------------------------------------
-        below_line, = plt.plot(
+        below_line, = ax.plot(
             ts["interval"],
             ts["census"],
             color=below_color,
@@ -792,12 +947,36 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
         above_line = None
 
+        arrivals_line = None
+
+        if (
+            include_arrivals_line
+            and not arrivals_ts.empty
+        ):
+
+            target_ax = (
+                arrivals_ax
+                if arrivals_ax is not None
+                else ax
+            )
+
+            arrivals_line, = target_ax.plot(
+                arrivals_ts["interval"],
+                arrivals_ts["arrivals"],
+                color=arrivals_color,
+                linewidth=arrivals_linewidth,
+                linestyle=arrivals_linestyle,
+                label="Arrivals",
+                alpha=0.8,
+                zorder=4
+            )
+
         # -----------------------------------------------------
         # ABOVE-THRESHOLD OVERLAY
         # -----------------------------------------------------
         if capacity_value is not None:
 
-            above_line, = plt.plot(
+            above_line, = ax.plot(
                 ts["interval"],
                 ts["census"].where(above),
                 color=above_color,
@@ -813,7 +992,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
         if capacity_value is not None:
 
-            capacity_line = plt.axhline(
+            capacity_line = ax.axhline(
                 y=capacity_value,
                 linestyle=capacity_linestyle,
                 linewidth=capacity_linewidth,
@@ -831,7 +1010,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
             avg_census = ts["census"].mean()
 
-            avg_line = plt.axhline(
+            avg_line = ax.axhline(
                 y=avg_census,
                 color=avg_line_color,
                 linestyle=avg_linestyle,
@@ -1042,7 +1221,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             and "trend" in trend_df.columns
         ):
 
-            trend_line, = plt.plot(
+            trend_line, = ax.plot(
                 trend_df["interval"],
                 trend_df["trend"],
                 color=trend_line_color,
@@ -1076,7 +1255,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
         if not plot_projection_df.empty:
 
-            projection_line, = plt.plot(
+            projection_line, = ax.plot(
                 plot_projection_df["interval"],
                 plot_projection_df["census"],
                 color=projection_line_color,
@@ -1155,7 +1334,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             "Time"
         )
 
-        plt.xlabel(
+        ax.set_xlabel(
             x_label,
             fontsize=label_fontsize,
             fontfamily=font_family
@@ -1166,7 +1345,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             "Facility Census"
         )
 
-        plt.ylabel(
+        ax.set_ylabel(
             y_label,
             fontsize=label_fontsize,
             fontfamily=font_family
@@ -1174,8 +1353,6 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
         # Improve x-axis readability
         plt.gcf().autofmt_xdate()
-
-        ax = plt.gca()
 
         apply_yaxis_format(
             ax,
@@ -1192,6 +1369,38 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         for tick in ax.get_yticklabels():
             tick.set_fontfamily(font_family)
             tick.set_fontsize(tick_fontsize)
+
+        if arrivals_ax is not None:
+
+            arrivals_ax.yaxis.set_major_locator(
+                MaxNLocator(integer=True)
+            )
+
+            arrivals_ax.set_ylabel(
+                "Arrivals",
+                fontsize=label_fontsize,
+                fontfamily=font_family,
+                color=arrivals_color
+            )
+
+            arrivals_ax.tick_params(
+                axis="y",
+                colors=arrivals_color
+            )
+
+            arrivals_ax.spines["right"].set_color(
+                arrivals_color
+            )
+
+            for tick in arrivals_ax.get_yticklabels():
+
+                tick.set_fontfamily(
+                    font_family
+                )
+
+                tick.set_fontsize(
+                    tick_fontsize
+                )
 
         plt.tight_layout()
 
@@ -1341,6 +1550,16 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
             legend_labels.append(
                 f"Observed Peak ({peak_observed_census:.1f})"
+            )
+
+        if arrivals_line is not None:
+
+            legend_handles.append(
+                arrivals_line
+            )
+
+            legend_labels.append(
+                arrivals_line.get_label()
             )
 
         legend_output_file = os.path.join(
