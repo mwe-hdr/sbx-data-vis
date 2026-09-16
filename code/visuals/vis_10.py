@@ -105,7 +105,7 @@ def get_bucket_label(level, value):
         ][int(value)]
 
     if level == "week":
-        return f"Wk {int(value)}"
+        return f"{int(value)}"
 
 def _safe_param(params, key, default, cast_type=None):
     try:
@@ -151,6 +151,8 @@ def create_aggregation_dimension(ts, aggregation_level):
             .week
             .astype(int)
         )
+
+        ts = ts[ts["aggregation_key"] <= 52]
 
     return ts
 

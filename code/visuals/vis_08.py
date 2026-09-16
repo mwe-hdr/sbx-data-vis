@@ -54,6 +54,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from statsmodels.tsa.arima.model import ARIMA
 from matplotlib.ticker import MaxNLocator
+from matplotlib.patches import Patch
 from utils.vis_helpers import (
     normalize_params,
     format_date_range,
@@ -527,9 +528,36 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             "--"
         )
 
+        arrival_aggregation_period = _get_str(
+            params,
+            "arrival_aggregation_period",
+            "day"
+        ).strip().lower()
+
+        arrival_outlier_pct = _get_float(
+            params,
+            "arrival_outlier_pct",
+            0.20
+        )
+
+        arrival_freq_map = {
+            "day": "D",
+            "week": "W",
+            "month": "MS",
+            "quarter": "QS"
+        }
+
         if include_arrivals_line:
 
             arrivals_df = census_df.copy()
+
+            arrivals_df = (
+                census_df
+                .groupby("encounter_id", as_index=False)
+                .agg({
+                    "arrival_dtm": "min"
+                })
+            )
 
             arrivals_df = arrivals_df[
                 (arrivals_df["arrival_dtm"] >= start_date)
@@ -546,93 +574,63 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                 subset=["arrival_dtm"]
             )
 
+            arrival_freq = arrival_freq_map.get(
+                arrival_aggregation_period,
+                "D"
+            )
+
             arrivals_ts = (
                 arrivals_df
                 .set_index("arrival_dtm")
-                .resample("D")
+                .resample(arrival_freq)
                 .size()
                 .reset_index(name="arrivals")
+                .rename(columns={"arrival_dtm": "interval"})
             )
 
-            overall_arrival_median = (
-                arrivals_ts["arrivals"]
-                .median()
-            )
+            if not arrivals_ts.empty:
 
-            arrival_outlier_pct = 0.20
+                median_value = arrivals_ts["arrivals"].median()
 
-            arrivals_ts["rolling_median"] = (
-                arrivals_ts["arrivals"]
-                .rolling(
-                    7,
-                    center=True,
-                    min_periods=1
-                )
-                .median()
-            )
+                if (
+                    median_value is not None
+                    and median_value > 0
+                ):
 
-            arrivals_ts["variance_pct"] = (
-                (
-                    arrivals_ts["arrivals"]
-                    -
-                    arrivals_ts["rolling_median"]
-                ).abs()
-                /
-                overall_arrival_median
-            )
+                    arrivals_ts["variance_pct"] = (
+                        (
+                            arrivals_ts["arrivals"]
+                            - median_value
+                        ).abs()
+                        / median_value
+                    )
 
-            arrivals_ts["is_outlier"] = (
-                arrivals_ts["variance_pct"]
-                > arrival_outlier_pct
-            )
+                    arrivals_ts["is_outlier"] = (
+                        arrivals_ts["variance_pct"]
+                        > arrival_outlier_pct
+                    )
 
-            arrival_outlier_days = (
-                arrivals_ts["is_outlier"]
-                .sum()
-            )
+                    outlier_count = (
+                        arrivals_ts["is_outlier"]
+                        .sum()
+                    )
 
-            arrival_smoothing_days = int(
-                _get_float(
-                    params,
-                    "arrival_smoothing_days",
-                    14
-                ) or 14
-            )
+                    logger.info(
+                        f"[{VISUAL_ID}] Arrival outliers identified: "
+                        f"{outlier_count}"
+                    )
 
-            logger.info(
-                f"[{VISUAL_ID}] Arrival outlier days identified: "
-                f"{arrival_outlier_days}"
-            )
+                    arrivals_ts.loc[
+                        arrivals_ts["is_outlier"],
+                        "arrivals"
+                    ] = np.nan
 
-            if arrival_outlier_days > len(arrivals_ts) * 0.25:
-
-                logger.warning(
-                    f"[{VISUAL_ID}] Excessive arrival outliers detected. "
-                    f"Skipping clipping."
-                )
-
-            else:
-
-                arrivals_ts.loc[
-                    arrivals_ts["is_outlier"],
-                    "arrivals"
-                ] = np.nan
-
-                arrivals_ts["arrivals"] = (
-                    arrivals_ts["arrivals"]
-                    .interpolate()
-                    .ffill()
-                    .bfill()
-                )
-
-            arrivals_ts["arrivals"] = (
-                arrivals_ts["arrivals"]
-                .ewm(
-                    span=arrival_smoothing_days,
-                    adjust=False
-                )
-                .mean()
-            )
+                    arrivals_ts["arrivals"] = (
+                        arrivals_ts["arrivals"]
+                        .interpolate()
+                        .ffill()
+                        .bfill()
+                    )
 
             arrivals_ts.rename(
                 columns={"arrival_dtm": "interval"},
@@ -658,7 +656,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         avg_line = None
         trend_line = None
         projection_line = None
-        arrivals_line = None
+        arrivals_bar = None
 
         # =========================================================
         # VISUALIZATION
@@ -960,16 +958,43 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                 else ax
             )
 
-            arrivals_line, = target_ax.plot(
+            # arrivals_line, = target_ax.plot(
+            #     arrivals_ts["interval"],
+            #     arrivals_ts["arrivals"],
+            #     color=arrivals_color,
+            #     linewidth=arrivals_linewidth,
+            #     linestyle=arrivals_linestyle,
+            #     label=(
+            #         "Raw Arrivals"
+            #         if arrival_aggregation_period == "none"
+            #         else f"Distinct Arrivals ({arrival_aggregation_period.title()})"
+            #     ),
+            #     alpha=0.8,
+            #     zorder=4
+            # )
+
+            bar_width_map = {
+                "day": 0.95,
+                "week": 6.5,
+                "month": 28,
+                "quarter": 85
+            }
+
+            bar_width = bar_width_map.get(
+                arrival_aggregation_period,
+                28
+            )
+
+            arrivals_bar = target_ax.bar(
                 arrivals_ts["interval"],
                 arrivals_ts["arrivals"],
+                width=bar_width,
                 color=arrivals_color,
-                linewidth=arrivals_linewidth,
-                linestyle=arrivals_linestyle,
-                label="Arrivals",
-                alpha=0.8,
-                zorder=4
-            )
+                alpha=0.20,
+                edgecolor="none",
+                zorder=1,
+                label=f"Arrivals ({arrival_aggregation_period.title()})"
+            )     
 
         # -----------------------------------------------------
         # ABOVE-THRESHOLD OVERLAY
@@ -1377,7 +1402,11 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             )
 
             arrivals_ax.set_ylabel(
-                "Arrivals",
+                (
+                    "Arrivals"
+                    if arrival_aggregation_period == "none"
+                    else f"Arrivals per {arrival_aggregation_period.title()}"
+                ),
                 fontsize=label_fontsize,
                 fontfamily=font_family,
                 color=arrivals_color
@@ -1552,14 +1581,18 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                 f"Observed Peak ({peak_observed_census:.1f})"
             )
 
-        if arrivals_line is not None:
+        if arrivals_bar is not None:
 
-            legend_handles.append(
-                arrivals_line
+            arrivals_patch = Patch(
+                facecolor=arrivals_color,
+                alpha=0.20,
+                label=f"Arrivals per {arrival_aggregation_period.title()}"
             )
 
+            legend_handles.append(arrivals_patch)
+
             legend_labels.append(
-                arrivals_line.get_label()
+                arrivals_patch.get_label()
             )
 
         legend_output_file = os.path.join(

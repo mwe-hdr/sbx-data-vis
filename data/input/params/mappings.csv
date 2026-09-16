@@ -2,3 +2,4 @@ domain,mapping_type,source_field,source_format,source_value,target_field,target_
 adf,field,WindowStartDate,str,,arrival_dtm,datetime,,Y
 adf,field,WindowStartDateCpy,str,,tmt_start_dtm,datetime,,Y
 adf,field,WindowEndDate,str,,tmt_stop_dtm,datetime,,Y
+adf,field,BookNumber,str,,encounter_id,str,,Y

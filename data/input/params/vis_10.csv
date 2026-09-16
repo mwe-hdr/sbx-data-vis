@@ -65,6 +65,14 @@ census_helper_csv,
 census_helper_type,
 census_helper_operation,
 
+#### ===== ARRIVALS LINE =====
+include_arrivals_line,True
+arrivals_secondary_axis,True
+arrivals_color,#2ca02c
+arrivals_linewidth,1.25
+arrivals_linestyle,--
+arrival_smoothing_days,30
+
 #### ===== POWERPOINT =====
 ppt_template,pptx_template.vis_10.test.pptx
 

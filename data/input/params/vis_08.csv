@@ -93,10 +93,11 @@ write_projection_rdb,False
 #### ===== ARRIVALS LINE =====
 include_arrivals_line,True
 arrivals_secondary_axis,True
-arrivals_color,#2ca02c
+arrivals_color,#1f77b4
 arrivals_linewidth,1.25
 arrivals_linestyle,--
-arrival_smoothing_days,30
+arrival_aggregation_period,month
+arrival_outlier_pct,0.20
 
 #### ===== POWERPOINT =====
 ppt_template,pptx_template.vis_08.pptx
