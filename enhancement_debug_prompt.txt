@@ -196,12 +196,17 @@ import shutil
 import pandas as pd
 import importlib
 import argparse
+import time
+from concurrent.futures import (
+    ProcessPoolExecutor,
+    as_completed
+)
 
 from utils.io_helpers import (
     load_data,
     load_driver,
     load_params,
-    load_cohort_params
+    load_cohort_params,
 )
 
 from utils.processing_helpers import (
@@ -211,7 +216,8 @@ from utils.processing_helpers import (
     build_processing_driver,
     load_processing_driver,
     row_to_params,
-    normalize_reporting_window
+    normalize_reporting_window,
+    combine_processing_drivers
 )
 
 from utils.mapping_helpers import (
@@ -253,7 +259,7 @@ DOMAINS = {
     },
     
     "adf": {
-        "data_file": "lc_adf_booking_housing_classification.csv",
+        "data_file": "lc_adf_booking_housing_classification_chronic_detox.csv",
         "cohort_dir": "adf",
         "domain": "adf"
     }
@@ -268,6 +274,11 @@ COHORT_LOCATIONS_FILE = os.path.join(
     "cohort_locations.csv"
 )
 PARAM_DIR = os.path.join(INPUT_DIR, "params")
+RUNS_DIR = os.path.join(
+    BASE_DIR,
+    "data",
+    "runs"
+)
 VIS_DRIVER_FILE = os.path.join(PARAM_DIR, "vis_driver.csv")
 PROCESSING_MODE = os.getenv("PROCESSING_MODE", "full_reports").strip().lower()
 if PROCESSING_MODE in {"full_processing", "full_reports"}:
@@ -292,8 +303,100 @@ def get_visual_function(visual_id):
         logging.error(f"[main] Failed to load {visual_id}: {str(e)}")
         return None
 
+# =========================
+# WORKER FUNCTION
+# =========================
+def execute_cohort_job(job):
+
+    log_file = job["log_file"]
+
+    logger = logging.getLogger()
+
+    if not logger.handlers:
+
+        logger.setLevel(logging.INFO)
+
+        formatter = logging.Formatter(
+            "%(asctime)s | PID=%(process)d | %(processName)s | %(levelname)s | %(message)s"
+        )
+
+        file_handler = logging.FileHandler(
+            log_file,
+            mode="a"
+        )
+
+        file_handler.setFormatter(formatter)
+
+        logger.addHandler(file_handler)
+
+    cohort_id = job["cohort_id"]
+
+    cohort_df = job["cohort_df"]
+
+    output_dir = job["output_dir"]
+
+    rows = job["rows"]
+
+    rdb_records = []
+
+    logging.info(
+        f"[worker] Started cohort {cohort_id}"
+    )
+
+    for row_dict in rows:
+
+        visual_id = row_dict["visual_id"]
+
+        params = row_dict["params"]
+
+        start_date = row_dict["start_date"]
+
+        end_date = row_dict["end_date"]
+
+        visual_name = row_dict["visual_name"]
+
+        vis_func = get_visual_function(visual_id)
+
+        if vis_func is None:
+            continue
+
+        start = time.perf_counter()
+
+        result = vis_func(
+            cohort_df,
+            params,
+            start_date,
+            end_date,
+            output_dir,
+            generate_output_name
+        )
+
+        elapsed = time.perf_counter() - start
+
+        logging.info(
+            f"[worker] {visual_id} "
+            f"{cohort_id} "
+            f"completed in {elapsed:.2f}s"
+        )
+
+        if result and "rdb" in result:
+
+            for rec in result["rdb"]:
+
+                rec["visual_id"] = visual_id
+                rec["visual_name"] = visual_name
+
+            rdb_records.extend(result["rdb"])
+
+    logging.info(
+        f"[worker] Finished cohort {cohort_id}"
+    )
+
+    return rdb_records
 
 def mirror_processing_driver_to_params(run_dir):
+
+    run_id = os.path.basename(run_dir)
 
     source_file = os.path.join(
         run_dir,
@@ -372,11 +475,13 @@ def run_visuals(
     driver_df,
     cohorts,
     output_dir,
-    enabled_visuals
+    enabled_visuals,
+    log_file
 ):
 
     rdb_records = []
     cohort_cache = {}
+    cohort_jobs = {}
 
     logging.info("[main] Loaded cohort keys:")
     for k in cohorts.keys():
@@ -397,13 +502,13 @@ def run_visuals(
         if str(row.get("type", "")).lower() != "cohort":
             continue
 
-        report_id = row.get("visual_id") or row.get("report_id")
-        if not report_id:
+        visual_id = row.get("visual_id") 
+        if not visual_id:
             logging.warning("[main] Skipping driver row without report identifier")
             continue
-        if report_id not in enabled_visuals:
+        if visual_id not in enabled_visuals:
             logging.info(
-                f"[main] Skipping disabled visual: {report_id}"
+                f"[main] Skipping disabled visual: {visual_id}"
             )
             continue
 
@@ -413,18 +518,6 @@ def run_visuals(
             continue
 
         cohort_meta = cohorts.get(cohort_id)
-
-        driver_filter = row.get("filter_str")
-        current_filter = cohort_meta.get("filter")
-
-        if str(driver_filter).strip() != str(current_filter).strip():
-
-            logging.warning(
-                "[main] Cohort filter mismatch "
-                f"cohort={cohort_id} "
-                f"driver_filter={driver_filter} "
-                f"runtime_filter={current_filter}"
-            )
 
         if not cohort_meta:
 
@@ -439,6 +532,18 @@ def run_visuals(
             )
 
             continue
+
+        driver_filter = row.get("filter_str")
+        current_filter = cohort_meta.get("filter")
+
+        if str(driver_filter).strip() != str(current_filter).strip():
+
+            logging.warning(
+                "[main] Cohort filter mismatch "
+                f"cohort={cohort_id} "
+                f"driver_filter={driver_filter} "
+                f"runtime_filter={current_filter}"
+            )
 
         if cohort_id not in cohort_cache:
             cohort_cache[cohort_id] = apply_filter(df, cohort_meta.get("filter"))
@@ -462,6 +567,9 @@ def run_visuals(
         params = row_to_params(row)
         params.update({
             "cohort_id": cohort_id,
+            "cohort_name": cohort_meta.get("cohort_name"),
+            "cohort_group": cohort_meta.get("cohort_group"),
+            "cohort_tier": cohort_meta.get("cohort_tier"),
             "filter_str": cohort_meta.get("filter"),
             "cohort_desc": cohort_meta.get("description"),
             "visual_name": row.get("name"),
@@ -473,36 +581,82 @@ def run_visuals(
             "write_rdb": row.get("write_rdb"),
             "start_date": start_date,
             "end_date": end_date,
-            "visual_id": report_id,
-            "report_id": report_id
+            "visual_id": visual_id
         })
 
-        vis_func = get_visual_function(report_id)
-        if vis_func is None:
-            continue
-
         logging.info(
-            "[main] Executing "
-            f"visual={report_id} "
+            "[main] Queued "
+            f"visual={visual_id} "
             f"cohort={cohort_id} "
             f"cohort_file={cohort_meta.get('cohort_file')} "
             f"cohort_desc={cohort_meta.get('description')}"
         )
 
-        result = vis_func(
-            cohort_df,
-            params,
-            start_date,
-            end_date,
-            cohort_output_dir,
-            generate_output_name
+        if cohort_id not in cohort_jobs:
+
+            cohort_jobs[cohort_id] = {
+                "cohort_df": cohort_df,
+                "output_dir": cohort_output_dir,
+                "rows": []
+            }
+
+        cohort_jobs[cohort_id]["rows"].append(
+            {
+                "visual_id": visual_id,
+                "params": params,
+                "start_date": start_date,
+                "end_date": end_date,
+                "visual_name": row.get("name")
+            }
         )
 
-        if result and "rdb" in result:
-            for rec in result["rdb"]:
-                rec["visual_id"] = report_id
-                rec["visual_name"] = row.get("name")
-            rdb_records.extend(result["rdb"])
+    workers = min(
+        12,
+        len(cohort_jobs)
+    )
+
+    logging.info(
+        f"[main] Executing "
+        f"{len(cohort_jobs)} cohorts "
+        f"using {workers} workers"
+    )
+
+    with ProcessPoolExecutor(
+        max_workers=workers
+    ) as executor:
+
+        futures = []
+
+        for cohort_id, payload in cohort_jobs.items():
+
+            futures.append(
+
+                executor.submit(
+                    execute_cohort_job,
+                    {
+                        "cohort_id": cohort_id,
+                        "cohort_df": payload["cohort_df"],
+                        "output_dir": payload["output_dir"],
+                        "rows": payload["rows"],
+                        "log_file": log_file
+                    }
+                )
+            )
+
+        for future in as_completed(futures):
+
+            try:
+
+                cohort_rdb = future.result()
+
+                if cohort_rdb:
+                    rdb_records.extend(cohort_rdb)
+
+            except Exception:
+
+                logging.exception(
+                    "[main] Cohort worker failed"
+                )
 
     return rdb_records
 
@@ -510,6 +664,33 @@ def run_visuals(
 # ENTRY POINT
 # =========================
 parser = argparse.ArgumentParser()
+
+parser.add_argument(
+    "--run-id",
+    default=None,
+    help="Externally supplied run identifier"
+)
+
+parser.add_argument(
+    "--test",
+    type=int,
+    default=None,
+    metavar="N",
+    help=(
+        "Process a random sample of N rows from the "
+        "processing driver for testing"
+    )
+)
+
+parser.add_argument(
+    "--combine-parameters",
+    nargs="+",
+    metavar="RUN_ID",
+    help=(
+        "Combine processing_driver.csv files from one or more "
+        "parameter-generation runs"
+    )
+)
 
 parser.add_argument(
     "--update-processing-driver",
@@ -540,6 +721,30 @@ parser.add_argument(
 
 args = parser.parse_args()
 
+if args.combine_parameters:
+    
+    run_dir, output_dir, log_file = initialize_run(
+    args.run_id
+    )
+
+    output_file = os.path.join(
+        run_dir,
+        "processing_driver.csv"
+    )
+
+    combine_processing_drivers(
+        run_ids=args.combine_parameters,
+        runs_dir=RUNS_DIR,
+        output_file=output_file
+    )
+
+    if args.update_processing_driver:
+        mirror_processing_driver_to_params(
+            run_dir
+        )
+
+    raise SystemExit(0)
+
 if args.powerpoint:
 
     if not args.ppt_run_id:
@@ -555,11 +760,19 @@ if args.powerpoint:
 
 if __name__ == "__main__":
 
-    run_dir, output_dir = initialize_run()
+    run_dir, output_dir, log_file = initialize_run(
+    args.run_id
+    )
 
     logging.info(f"[main] Run initialized: {run_dir}")
 
     run_id = os.path.basename(run_dir)
+
+    terminal_log_file = os.path.join(
+        RUNS_DIR,
+        "terminal_logs",
+        f"terminal_log_{args.run_id}.log"
+    )
 
     driver_df = load_driver(VIS_DRIVER_FILE)
 
@@ -604,6 +817,31 @@ if __name__ == "__main__":
         raise SystemExit(1)
 
     processing_driver_df = load_processing_driver(processing_driver_file)
+
+    if args.test is not None:
+
+        if args.test <= 0:
+            raise ValueError("--test must be greater than 0")
+
+        sample_size = min(
+            args.test,
+            len(processing_driver_df)
+        )
+
+        processing_driver_df = (
+            processing_driver_df
+            .sample(
+                n=sample_size,
+                random_state=42
+            )
+            .reset_index(drop=True)
+        )
+
+        logging.info(
+            f"[main] TEST MODE ENABLED: "
+            f"selected {sample_size} random rows "
+            f"from processing_driver.csv"
+        )
 
     if processing_driver_df.empty:
         logging.error(f"[main] Processing driver file is empty.")
@@ -671,7 +909,8 @@ if __name__ == "__main__":
             domain_driver_df,
             cohorts,
             output_dir,
-            enabled_visuals
+            enabled_visuals,
+            log_file
         )
 
         if rdb:
@@ -679,325 +918,1797 @@ if __name__ == "__main__":
 
     master_rdb_df = pd.DataFrame(all_rdb_records)
 
+    master_rdb_file = os.path.join(
+        output_dir,
+        "rdb_domain_cohort_metrics.csv"
+    )
+
     master_rdb_df.to_csv(
-        os.path.join(
-            output_dir,
-            "rdb_domain_cohort_metrics.csv"
-        ),
-        index=False
-    )
-
-    raise SystemExit(0)
-
-processing_helpers:
-from datetime import datetime
-import os
-import logging
-import pandas as pd
-
-from utils.io_helpers import load_params
-
-def build_processing_driver(
-    cohorts,
-    visual_driver_df,
-    param_dir,
-    output_file
-):
-    """
-    Build processing driver file.
-
-    Creates one row per cohort x report combination using each report
-    parameter file as the default parameter set.
-    """
-
-    logging.info("Building processing driver")
-
-    driver_rows = []
-
-    enabled_reports = visual_driver_df.copy()
-
-    if "enabled" in enabled_reports.columns:
-        enabled_reports = enabled_reports[
-            enabled_reports["enabled"]
-            .astype(str)
-            .str.upper()
-            .isin(["Y", "YES", "TRUE", "1"])
-        ]
-
-    for _, report_row in enabled_reports.iterrows():
-
-        report_id = report_row.get("visual_id") or report_row.get("report_id")
-
-        if not report_id:
-            logging.warning("[build_processing_driver] Skipping row without report identifier")
-            continue
-
-        try:
-            params_df = load_params(param_dir, report_id)
-        except Exception as e:
-
-            logging.error(
-                f"[build_processing_driver] Unable to load params for {report_id}: {e}"
-            )
-
-            continue
-
-        report_domain = str(report_row.get("domain", "")).strip().lower()
-
-        for cohort_id, cohort_meta in cohorts.items():
-
-            cohort_meta = cohort_meta or {}
-
-            cohort_domain = str(
-                cohort_meta.get("domain") or cohort_meta.get("group") or ""
-            ).strip().lower()
-
-            if cohort_domain and report_domain and cohort_domain != report_domain:
-                continue
-
-            row = {
-                "active_flag": "Y",
-                "report_id": report_id,
-                "visual_id": report_id,
-                "domain": cohort_meta.get("domain"),
-                "cohort_id": cohort_id,
-                "cohort_file": cohort_meta.get("cohort_file"),
-                "cohort_desc": cohort_meta.get("description"),
-                "filter_str": cohort_meta.get("filter"),
-                "group": cohort_meta.get("group"),
-                "name": cohort_meta.get("name")
-            }
-
-            # include vis_driver metadata
-            for col in visual_driver_df.columns:
-                if col not in row:
-                    row[col] = report_row[col]
-
-            # flatten report parameters
-            if not params_df.empty:
-
-                for _, param_row in params_df.iterrows():
-
-                    param_name = str(param_row["param"]).strip()
-
-                    row[param_name] = param_row.get("value")
-
-                    row[f"{param_name}_desc"] = (
-                        param_row.get("description")
-                    )
-
-                    row[f"{param_name}_display"] = (
-                        param_row.get("display")
-                    )
-
-                    row[f"{param_name}_format"] = (
-                        param_row.get("display_format")
-                    )
-
-            driver_rows.append(row)
-
-    driver_df = pd.DataFrame(driver_rows)
-
-    if driver_df.empty:
-        logging.warning("[build_processing_driver] No processing driver rows generated")
-        return driver_df
-
-    system_cols = [
-        "active_flag",
-        "report_id",
-        "visual_id",
-        "domain",
-        "cohort_id",
-        "cohort_file",
-        "cohort_desc",
-        "filter_str",
-        "group",
-        "name"
-    ]
-
-    other_cols = [
-        c for c in driver_df.columns
-        if c not in system_cols
-    ]
-
-    driver_df = driver_df[
-        system_cols + sorted(other_cols, key=str)
-    ]
-
-    os.makedirs(
-        os.path.dirname(output_file),
-        exist_ok=True
-    )
-
-    driver_df.to_csv(
-        output_file,
+        master_rdb_file,
         index=False
     )
 
     logging.info(
-        f"[build_processing_driver] Generated processing driver with {len(driver_df):,} rows"
+        "[main] RUN COMPLETE | "
+        f"run_id={run_id} | "
+        f"domains_processed={len(DOMAINS)} | "
+        f"rdb_records={len(master_rdb_df)} | "
+        f"output_dir={output_dir} | "
+        f"rdb_file={master_rdb_file}"
     )
-    logging.info(f"[build_processing_driver] Saved processing driver: {output_file}")
 
-    return driver_df
+    raise SystemExit(0)
 
+vis_10:
 
-def load_processing_driver(file_path):
+# =============================================================================
+# Report Name : Facility Census with Peak Period and Capacity Benchmarks
+#
+# Description :
+# Calculates Emergency Department census levels from patient arrival and
+# departure timestamps and summarizes average census by the desired aggregation level. The
+# report applies optional growth assumptions to projected census volumes,
+# identifies user-defined peak operating periods, and evaluates capacity
+# requirements based on target utilization thresholds.
+#
+# Census profiles are generated from a minute-level census model
+# and aggregated into average occupancy values. The visualization
+# highlights peak and off-peak periods and overlays percentile benchmarks
+# to demonstrate expected census variation throughout the day.
+#
+# Key planning metrics include:
+#   - Average census
+#   - Peak-period census
+#   - 70th, 80th, and 90th percentile census levels
+#   - Projected room requirements based on target utilization
+#   - Growth-adjusted demand forecasts
+#
+# This report supports:
+#   - Facility capacity planning
+#   - Space and room requirement analysis
+#   - Throughput and occupancy monitoring
+#   - Growth forecasting
+#   - Peak demand assessment
+#   - Strategic operational planning
+#
+# Inputs :
+#   - tmt_start_dtm            : Facility arrival/start datetime
+#   - tmt_stop_dtm             : Facility departure/stop datetime
+#   - start_date              : Reporting period start date/time
+#   - end_date                : Reporting period end date/time
+#   - variable_10_year_growth : Projected growth adjustment factor
+#   - utilization             : Target operational utilization rate
+#   - peak_period_start       : Beginning of peak period
+#   - peak_period_length: Duration of peak period
+#
+# Outputs :
+#   - PNG chart displaying:
+#       * Average aggregation-level census
+#       * Peak and off-peak periods
+#       * P70, P80, and P90 census benchmarks
+#       * Peak census benchmark
+#       * Estimated room need benchmark
+#   - RDB records containing:
+#       * Average aggregation-level census values
+#       * aggregation-level percentile benchmarks
+#       * Peak census capacity benchmarks
+#       * Estimated room need calculations
+#
+# Key Metrics :
+#   - Average census by aggregation-level
+#   - Peak census
+#   - P70 census
+#   - P80 census
+#   - P90 census
+#   - Peak-period occupancy
+#   - Estimated room requirement
+#   - Capacity utilization benchmark
+# =============================================================================
 
-    if not os.path.exists(file_path):
-        raise FileNotFoundError(
-            f"[build_processing_driver] Missing processing driver: {file_path}"
+import os
+import logging
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from utils.vis_helpers import (
+    normalize_params,
+    format_date_range,
+    apply_axis_range,
+    apply_yaxis_format,
+    save_legend_png,
+    format_display_value,
+    get_display_parameters,
+    save_parameter_table_png,
+    save_title_png,
+    generate_census
+)
+from utils.date_helpers import df_date_splitter
+
+logger = logging.getLogger(__name__)
+
+VISUAL_ID = "vis_10"
+
+def get_bucket_label(level, value):
+
+    if level == "hour":
+        return f"{int(value):02d}:00"
+
+    if level == "day_of_week":
+        return [
+            "Mon","Tue","Wed",
+            "Thu","Fri","Sat","Sun"
+        ][int(value)]
+
+    if level == "month":
+        return [
+            None,
+            "Jan","Feb","Mar","Apr",
+            "May","Jun","Jul","Aug",
+            "Sep","Oct","Nov","Dec"
+        ][int(value)]
+
+    if level == "week":
+        return f"{int(value)}"
+
+def _safe_param(params, key, default, cast_type=None):
+    try:
+        val = params.get(key, default)
+        return cast_type(val) if cast_type else val
+    except Exception:
+        logger.warning(f"[{VISUAL_ID}] Invalid param for {key}; using default {default}")
+        return default
+
+def get_aggregation_range(level):
+
+    if level == "hour":
+        return range(24)
+
+    if level == "day_of_week":
+        return range(7)
+
+    if level == "month":
+        return range(1, 13)
+
+    if level == "week":
+        return range(1, 54)
+
+    raise ValueError(
+        f"Unsupported aggregation level: {level}"
+    )
+
+def create_aggregation_dimension(ts, aggregation_level):
+
+    if aggregation_level == "hour":
+        ts["aggregation_key"] = ts["interval"].dt.hour
+
+    elif aggregation_level == "day_of_week":
+        ts["aggregation_key"] = ts["interval"].dt.dayofweek
+
+    elif aggregation_level == "month":
+        ts["aggregation_key"] = ts["interval"].dt.month
+
+    elif aggregation_level == "week":
+        ts["aggregation_key"] = (
+            ts["interval"]
+            .dt.isocalendar()
+            .week
+            .astype(int)
         )
 
-    return pd.read_csv(file_path)
+        ts = ts[ts["aggregation_key"] <= 52]
 
+    return ts
 
-def row_to_params(row):
+def find_peak_window(
+    aggregation_df,
+    value_column,
+    peak_length
+):
 
-    system_fields = {
-        "execution_id",
-        "active_flag",
-        "report_id",
-        "visual_id",
-        "domain",
-        "cohort_id",
-        "cohort_file",
-        "cohort_desc",
-        "filter_str",
-        "group",
-        "name",
-        "client_name",
-        "year_type",
-        "write_rdb",
-        "start_date",
-        "end_date",
-        "enabled",
-        "type"
-    }
+    values = aggregation_df[value_column].fillna(0).values
+    bucket_count = len(values)
 
-    return {
-        k: v
-        for k, v in row.items()
-        if k not in system_fields
-    }
+    peak_length = max(
+        1,
+        min(peak_length, bucket_count)
+    )
 
-def apply_filter(df, filter_str):
-    if df is None or df.empty:
-        logging.warning("[apply_filter] input dataframe is empty")
-        return df
+    best_start = 0
+    best_avg = -np.inf
 
-    if not filter_str or pd.isna(filter_str):
-        logging.info("[apply_filter] no filter provided; returning original dataframe")
-        return df
+    for start in range(bucket_count):
+
+        window = [
+            values[(start + i) % bucket_count]
+            for i in range(peak_length)
+        ]
+
+        window_avg = np.mean(window)
+
+        if window_avg > best_avg:
+            best_avg = window_avg
+            best_start = start
+
+    return best_start
+
+def run(df, params, start_date, end_date, output_dir, generate_output_name):
+
+    cohort_desc = params.get("cohort_desc", "")
+
+    aggregation_level = _safe_param(
+        params,
+        "aggregation_level",
+        "hour",
+        str
+    ).lower()
+    
+    logger.info(f"[{VISUAL_ID}] Starting Facility {aggregation_level} Census with Peak Period and Capacity Benchmarks visualization")
+    params = normalize_params(params)
 
     try:
-        before_count = len(df)
+        if df is None or df.empty:
+            logger.warning(f"[{VISUAL_ID}] Input dataframe is empty")
+            return
 
-        # Minimal normalization (safe + cheap)
-        df_copy = df.copy()
-        logging.info(df_copy.columns.tolist())
-        for col in df_copy.columns:
-            if pd.api.types.is_string_dtype(df_copy[col]):
-                df_copy[col] = df_copy[col].str.strip()
+        # =========================
+        # PARAMETERS
+        # =========================
+        peak_period_mode = _safe_param(
+            params,
+            "peak_period_mode",
+            "manual",
+            str
+        ).lower()
 
-        logging.info(f"[apply_filter] Filter: {filter_str}")
-
-        filtered_df = df_copy.query(filter_str, engine="python")
-
-        after_count = len(filtered_df)
-
-        logging.info(
-            f"[apply_filter] rows {before_count:,} -> {after_count:,} | filter: {filter_str}"
+        growth = _safe_param(params, "variable_10_year_growth", 0.0, float)
+        peak_start = _safe_param(
+            params,
+            "peak_period_start",
+            0,
+            int
         )
 
-        return filtered_df
+        peak_len = _safe_param(
+            params,
+            "peak_period_length",
+            8,
+            int
+        )
+        utilization = _safe_param(params, "utilization", 0.85, float)
+
+        fig_width = _safe_param(params, "fig_width", 14, float)
+        fig_height = _safe_param(params, "fig_height", 7, float)
+        dpi = _safe_param(params, "dpi", 100, int)
+        font_family = _safe_param(
+            params,
+            "font_family",
+            "Segoe UI",
+            str
+        )
+        # ==================================
+        # TITLE IMAGE PARAMETERS
+        # ==================================
+
+        title_width = _safe_param(
+            params,
+            "title_width",
+            6.40,
+            float
+        )
+
+        title_height = _safe_param(
+            params,
+            "title_height",
+            0.25,
+            float
+        )
+
+        title_fontsize = _safe_param(
+            params,
+            "title_fontsize",
+            10,
+            int
+        )
+
+        subtitle_fontsize = _safe_param(
+            params,
+            "subtitle_fontsize",
+            8,
+            int
+        )
+
+        title_background_color = params.get(
+            "title_background_color",
+            "#d9d9d9"
+        )
+
+        title_weight = params.get(
+            "title_weight",
+            "bold"
+        )
+
+        # ==================================
+        # LEGEND PARAMETERS
+        # ==================================
+
+        legend_width = _safe_param(
+            params,
+            "legend_width",
+            6,
+            float
+        )
+
+        legend_height = _safe_param(
+            params,
+            "legend_height",
+            1,
+            float
+        )
+
+        legend_fontsize = _safe_param(
+            params,
+            "legend_fontsize",
+            8,
+            int
+        )
+
+        legend_ncol = _safe_param(
+            params,
+            "legend_ncol",
+            4,
+            int
+        )
+
+        # ==================================
+        # TICK FORMATTING
+        # ==================================
+
+        tick_fontsize = _safe_param(
+            params,
+            "tick_fontsize",
+            8,
+            int
+        )
+
+        colors = {
+            "peak": params.get("peak_bar_color", "teal"),
+            "offpeak": params.get("offpeak_bar_color", "gray"),
+            "p70": params.get("p70_color", "green"),
+            "p80": params.get("p80_color", "yellow"),
+            "p90": params.get("p90_color", "orange"),
+            "peak_line": params.get("peak_line_color", "darkblue"),
+            "room_need": params.get("room_need_color", "magenta"),
+        }
+
+        # =========================
+        # STEP 1: Census 
+        # =========================
+
+        # --------------------------------------------------
+        # TEMP DEBUG - CENSUS HELPER PARAMETERS
+        # --------------------------------------------------
+        logger.info(
+            f"[{VISUAL_ID}] census_helper_csv="
+            f"{params.get('census_helper_csv')}"
+        )
+
+        logger.info(
+            f"[{VISUAL_ID}] census_helper_type="
+            f"{params.get('census_helper_type')}"
+        )
+
+        logger.info(
+            f"[{VISUAL_ID}] census_helper_operation="
+            f"{params.get('census_helper_operation')}"
+        )
+
+        # --------------------------------------------------
+        # HELP MY DATAFRAME
+        # --------------------------------------------------
+        ts, census_df = generate_census(
+            df,
+            start_date,
+            end_date,
+            census_helper_csv=params.get(
+                "census_helper_csv"
+            ),
+            census_helper_type=params.get(
+                "census_helper_type"
+            ),
+            census_helper_operation=params.get(
+                "census_helper_operation"
+            )
+        )
+
+        if ts.empty:
+            logger.warning(f"[{VISUAL_ID}] Census dataset empty after generation")
+            return
+
+        # =========================
+        # STEP 2: ADS Construction
+        # =========================
+        ts["interval"] = pd.to_datetime(ts["interval"], errors="coerce")
+        ts = ts.dropna(subset=["interval", "census"])
+        ts = ts[ts["census"] >= 0]
+
+        start_date = pd.to_datetime(start_date)
+        end_date = pd.to_datetime(end_date)
+
+        ts = ts[(ts["interval"] >= start_date) & (ts["interval"] <= end_date)]
+
+        if ts.empty:
+            logger.warning(f"[{VISUAL_ID}] Dataset empty after date filtering")
+            return
+
+        # Growth adjustment
+        ts["adj_census"] = ts["census"] * (1 + growth)
+
+        # aggregation-level extraction
+        ts = create_aggregation_dimension(
+            ts,
+            aggregation_level
+        )
+
+        aggregation_range = get_aggregation_range(
+            aggregation_level
+        )
+
+        # aggregation
+        aggregation_df = (
+            ts.groupby("aggregation_key")["adj_census"]
+            .mean()
+            .reindex(aggregation_range, fill_value=0)
+            .reset_index()
+        )
+
+        aggregation_df.columns = ["aggregation_key", f"{aggregation_level}_census"]
+
+        aggregation_df["bucket_position"] = range(len(aggregation_df))
+
+        # =========================
+        # Peak classification
+        # =========================
+        bucket_count = len(aggregation_range)
+
+        default_peak_length = {
+            "hour": 6,
+            "day_of_week": 2,
+            "week": 12,
+            "month": 3
+        }
+
+        peak_len = _safe_param(
+            params,
+            "peak_period_length",
+            default_peak_length.get(
+                aggregation_level,
+                8
+            ),
+            int
+        )
+
+        if peak_period_mode == "auto":
+
+            peak_start = find_peak_window(
+                aggregation_df,
+                f"{aggregation_level}_census",
+                peak_len
+            )
+
+            logger.info(
+                f"[{VISUAL_ID}] Auto peak window detected "
+                f"(start={peak_start}, "
+                f"length={peak_len})"
+            )
+
+        else:
+
+            peak_start = max(
+                0,
+                min(
+                    peak_start,
+                    bucket_count - 1
+                )
+            )
+
+        def is_peak(bucket_position):
+
+            end = peak_start + peak_len
+
+            if end <= bucket_count:
+                return peak_start <= bucket_position < end
+
+            return (
+                bucket_position >= peak_start
+                or
+                bucket_position < (end - bucket_count)
+            )
+
+        aggregation_df["peak_flag"] = (
+            aggregation_df["bucket_position"]
+            .apply(
+                lambda x:
+                "Peak" if is_peak(x)
+                else "Off-Peak"
+            )
+        )
+
+        graph_start = _safe_param(
+            params,
+            "graph_start",
+            params.get("graph_start", 0),
+            int
+        )
+
+        graph_start = min(
+            max(graph_start, 0),
+            len(aggregation_range) - 1
+        )
+
+        # =========================
+        # Percentiles
+        # =========================
+        percentiles = (
+            ts.groupby("aggregation_key")["adj_census"]
+            .agg(
+                p70=lambda x: np.percentile(x, 70),
+                p80=lambda x: np.percentile(x, 80),
+                p90=lambda x: np.percentile(x, 90),
+            )
+            .reindex(aggregation_range)
+            .reset_index()
+        )
+
+        aggregation_df = aggregation_df.merge(percentiles, on="aggregation_key", how="left")
+
+        bucket_values = list(aggregation_range)
+
+        display_buckets = (
+            bucket_values[graph_start:]
+            +
+            bucket_values[:graph_start]
+        )
+
+        aggregation_df["display_order"] = pd.Categorical(
+            aggregation_df["aggregation_key"],
+            categories=display_buckets,
+            ordered=True
+        )
+
+        aggregation_df = (
+            aggregation_df.sort_values("display_order")
+            .reset_index(drop=True)
+        )
+
+        aggregation_df["plot_position"] = range(len(aggregation_df))
+
+        # =========================
+        # Capacity metrics
+        # =========================
+        peak_values = aggregation_df.loc[aggregation_df["peak_flag"] == "Peak", f"{aggregation_level}_census"]
+        peak_census = peak_values.max()
+
+        room_need = peak_census / utilization if utilization > 0 else peak_census
+
+        logger.info(
+            f"[{VISUAL_ID}] Projected Facility Bed Need = "
+            f"{room_need:.2f} beds "
+            f"(Peak Census={peak_census:.2f}, "
+            f"Utilization={utilization:.1%})"
+        )
+
+        if utilization < 1:
+            room_need = max(room_need, peak_census)
+
+        logger.info(
+            f"[{VISUAL_ID}] Capacity Metrics | "
+            f"Peak Census: {round(peak_census, 2)} | "
+            f"Bed Need: {round(room_need, 2)} | "
+            f"Utilization: {utilization}"
+        )
+
+        # =========================================================
+        # INSPECTION FILES
+        # =========================================================
+
+        census_input_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=f"{VISUAL_ID}_census_input",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="csv"
+            )
+        )
+
+        df.to_csv(
+            census_input_file,
+            index=False
+        )
+
+        logger.info(
+            f"[{VISUAL_ID}] Census Input File exported: "
+            f"{census_input_file} ({len(df):,} rows)"
+        )
+
+        census_df_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=f"{VISUAL_ID}_census_df",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="csv"
+            )
+        )
+
+        census_df.to_csv(
+            census_df_file,
+            index=False
+        )
+
+        logger.info(
+            f"[{VISUAL_ID}] Census DF exported: "
+            f"{census_df_file} ({len(census_df):,} rows)"
+        )
+
+        ts_df_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=f"{VISUAL_ID}_ts_df",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="csv"
+            )
+        )
+
+        ts.to_csv(
+            ts_df_file,
+            index=False
+        )
+
+        logger.info(
+            f"[{VISUAL_ID}] TS DF exported: "
+            f"{ts_df_file} ({len(ts):,} rows)"
+        )
+
+        # =========================
+        # Plot
+        # =========================
+        plt.rcParams["font.family"] = font_family
+
+        fig, ax = plt.subplots(
+            figsize=(fig_width, fig_height),
+            dpi=dpi
+        )
+
+        # Bars
+        peak_mask = aggregation_df["peak_flag"] == "Peak"
+
+        ax.bar(
+            aggregation_df.loc[~peak_mask, "plot_position"],
+            aggregation_df.loc[~peak_mask, f"{aggregation_level}_census"],
+            color=colors["offpeak"],
+            label="Off-Peak",
+        )
+
+        ax.bar(
+            aggregation_df.loc[peak_mask, "plot_position"],
+            aggregation_df.loc[peak_mask, f"{aggregation_level}_census"],
+            color=colors["peak"],
+            label="Peak",
+        )
+
+        # Percentiles
+        ax.plot(aggregation_df["plot_position"], aggregation_df["p70"], linestyle="--", color=colors["p70"], label="P70")
+        ax.plot(aggregation_df["plot_position"], aggregation_df["p80"], linestyle="--", color=colors["p80"], label="P80")
+        ax.plot(aggregation_df["plot_position"], aggregation_df["p90"], linestyle="--", color=colors["p90"], label="P90")
+
+        # Capacity lines
+        aggregation_df["peak_line"] = np.nan
+        aggregation_df["room_line"] = np.nan
+
+        aggregation_df.loc[
+            aggregation_df["peak_flag"] == "Peak",
+            "peak_line"
+        ] = peak_census
+
+        aggregation_df.loc[
+            aggregation_df["peak_flag"] == "Peak",
+            "room_line"
+        ] = room_need
+
+        ax.plot(
+            aggregation_df["plot_position"],
+            aggregation_df["peak_line"],
+            color=colors["peak_line"],
+            linewidth=2,
+            label="Peak Census",
+        )
+
+        ax.plot(
+            aggregation_df["plot_position"],
+            aggregation_df["room_line"],
+            color=colors["room_need"],
+            linestyle="-.",
+            linewidth=2,
+            label="Bed Need",
+        )
+
+        # Labels
+        date_range_str = format_date_range(start_date, end_date)
+
+        axis_labels = {
+            "hour": "Hour of Day",
+            "day_of_week": "Day of Week",
+            "month": "Month",
+            "week": "Week of Year"
+        }
+
+        ax.set_title("")
+        ax.set_xlabel(
+            axis_labels.get(
+                aggregation_level,
+                "Bucket"
+            )
+        )
+        ax.set_ylabel(
+            "Facility Census",
+            fontfamily=font_family
+        )
+
+        aggregation_df["dimension_label"] = (
+            aggregation_df["aggregation_key"]
+            .apply(
+                lambda x:
+                get_bucket_label(
+                    aggregation_level,
+                    x
+                )
+            )
+        )
+
+        ax.set_xticks(aggregation_df["plot_position"])
+        ax.set_xticklabels(
+            aggregation_df["dimension_label"]
+        )
+        handles, labels = ax.get_legend_handles_labels()
+
+        plt.tight_layout()
+        for tick in ax.get_xticklabels():
+            tick.set_fontfamily(font_family)
+            tick.set_fontsize(tick_fontsize)
+
+        for tick in ax.get_yticklabels():
+            tick.set_fontfamily(font_family)
+            tick.set_fontsize(tick_fontsize)
+
+        y_axis_mode = params.get(
+            "y_axis_mode",
+            "raw"
+        )
+
+        y_axis_decimals = _safe_param(
+            params,
+            "y_axis_decimals",
+            0,
+            int
+        )
+
+        y_axis_multiplier = _safe_param(
+            params,
+            "y_axis_multiplier",
+            1,
+            float
+        )
+
+        y_axis_suffix = params.get(
+            "y_axis_suffix",
+            ""
+        )
+        apply_yaxis_format(
+            ax,
+            mode=y_axis_mode,
+            decimals=y_axis_decimals,
+            multiplier=y_axis_multiplier,
+            suffix=y_axis_suffix
+        )
+
+
+        # =========================
+        # Save output
+        # =========================
+        output_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=VISUAL_ID,
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
+        )
+
+        logger.info(
+            f"Peak Census={peak_census}, "
+            f"Bed Need={room_need}, "
+            f"Y Max={ax.get_ylim()[1]}"
+        )
+
+        plt.savefig(output_file)
+        plt.close()
+
+        logger.info(f"[{VISUAL_ID}] Output saved to {output_file}")
+
+        legend_output_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=f"{VISUAL_ID}_legend",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
+        )
+
+        save_legend_png(
+            handles=handles,
+            labels=labels,
+            output_file=legend_output_file,
+            ncol=legend_ncol,
+            font_family=font_family,
+            font_size=legend_fontsize,
+            width=legend_width,
+            height=legend_height
+        )
+
+        # ==================================
+        # TITLE IMAGE
+        # ==================================
+
+        title_output_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=f"{VISUAL_ID}_title",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
+        )
+
+        aggregation_name = {
+            "hour": "Hourly",
+            "day_of_week": "Day-of-Week",
+            "month": "Monthly",
+            "week": "Weekly"
+        }
+
+        report_title = (
+            f"{cohort_desc} | "
+            f"Facility {aggregation_name[aggregation_level]} "
+            f"Census with Peak Period and Projected Bed Need"
+        )
+
+        save_title_png(
+            title=report_title,
+            subtitle=date_range_str,
+            output_file=title_output_file,
+            width=title_width,
+            height=title_height,
+            dpi=dpi,
+            font_family=font_family,
+            title_fontsize=title_fontsize,
+            subtitle_fontsize=subtitle_fontsize,
+            background_color=title_background_color,
+            title_weight=title_weight
+        )
+
+        logger.info(
+            f"[{VISUAL_ID}] Title image saved to "
+            f"{title_output_file}"
+        )
+
+        parameter_output_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=f"{VISUAL_ID}_parameters",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
+        )
+
+        save_parameter_table_png(
+            params=params,
+            output_file=parameter_output_file,
+            font_family=font_family
+        )
+
+        logger.info(
+            f"[{VISUAL_ID}] Parameter table saved to "
+            f"{parameter_output_file}"
+        )
+
+        # =========================
+        # ROOM NEED TABLE
+        # =========================
+
+        room_need_png = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=f"{VISUAL_ID}_room_need",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="png"
+            )
+        )
+
+        fig, ax = plt.subplots(
+            figsize=(2.75, 0.9),
+            dpi=dpi
+        )
+
+        ax.axis("off")
+
+        tbl = ax.table(
+            cellText=[[f"{room_need:,.1f}"]],
+            colLabels=["Projected Facility Bed Need"],
+            cellLoc="center",
+            colLoc="center",
+            loc="center"
+        )
+
+        tbl.auto_set_font_size(False)
+        tbl.scale(1.0, 1.35)
+
+        # HEADER CELL
+        header = tbl[(0, 0)]
+        header.set_facecolor("#d9d9d9")
+        header.set_edgecolor("black")
+        header.set_linewidth(1.0)
+        header.set_text_props(
+            fontsize=9,
+            fontweight="bold",
+            fontfamily=font_family
+        )
+
+        # VALUE CELL
+        value = tbl[(1, 0)]
+        value.set_facecolor("white")
+        value.set_edgecolor("black")
+        value.set_linewidth(1.0)
+        value.set_text_props(
+            fontsize=10,
+            fontfamily=font_family
+        )
+
+        plt.tight_layout()
+
+        plt.savefig(
+            room_need_png,
+            bbox_inches="tight",
+            dpi=dpi,
+            pad_inches=0.03
+        )
+
+        plt.close()
+
+        logger.info(
+            f"[{VISUAL_ID}] Bed Need table saved to "
+            f"{room_need_png}"
+        )
+
+        # =========================
+        # RDB OUTPUT
+        # =========================
+        write_rdb = int(params.get("write_rdb", 0))
+        rdb_rows = []
+
+        if write_rdb == 1:
+
+            # ----------------------------------
+            # Census values
+            # ----------------------------------
+            for _, row in aggregation_df.iterrows():
+
+                rdb_rows.append({
+                    "run_id": params.get("run_id"),
+                    "visual_id": VISUAL_ID,
+                    "client_name": params.get("client_name"),
+
+                    "domain": params.get("domain"),
+                    "cohort_id": params.get("cohort_id"),
+                    "cohort_name": params.get("cohort_name"),
+                    "cohort_group": params.get("cohort_group"),
+                    "cohort_tier": params.get("cohort_tier"),
+                    
+                    "domain_cohort":
+                        f"{params.get('domain')}.{params.get('cohort_id')}",
+
+                    "dimension": aggregation_level,
+                    "dimension_value": int(row["aggregation_key"]),
+                    "dimension_value_label": row["dimension_label"],
+
+                    "secondary_dimension": "period_type",
+                    "secondary_dimension_value": row["peak_flag"],
+
+                    "metric": "average_census",
+                    "metric_type": "average",
+                    "value": float(row[f"{aggregation_level}_census"]),
+
+                    "start_date": start_date,
+                    "end_date": end_date,
+
+                    "report_title": report_title
+                })
+
+            # ----------------------------------
+            # Percentiles
+            # ----------------------------------
+            for _, row in aggregation_df.iterrows():
+
+                for metric_name in ["p70", "p80", "p90"]:
+
+                    metric_value = row[metric_name]
+
+                    if pd.isna(metric_value):
+                        continue
+
+                    rdb_rows.append({
+                        "run_id": params.get("run_id"),
+                        "visual_id": VISUAL_ID,
+                        "client_name": params.get("client_name"),
+
+                        "domain": params.get("domain"),
+                        "cohort_id": params.get("cohort_id"),
+                        "cohort_name": params.get("cohort_name"),
+                        "cohort_group": params.get("cohort_group"),
+                        "cohort_tier": params.get("cohort_tier"),
+
+                        "domain_cohort":
+                            f"{params.get('domain')}.{params.get('cohort_id')}",
+
+                        "dimension": aggregation_level,
+                        "dimension_value": int(row["aggregation_key"]),
+                        "dimension_value_label": row["dimension_label"],
+
+                        "secondary_dimension": "percentile",
+                        "secondary_dimension_value": metric_name.upper(),
+
+                        "metric": "average_census",
+                        "metric_type": metric_name,
+                        "value": float(metric_value),
+
+                        "start_date": start_date,
+                        "end_date": end_date,
+
+                        "report_title": report_title
+                    })
+
+            # ----------------------------------
+            # Peak Census Benchmark
+            # ----------------------------------
+            for _, row in aggregation_df.iterrows():
+
+                if row["peak_flag"] != "Peak":
+                    continue
+
+                rdb_rows.append({
+                    "run_id": params.get("run_id"),
+                    "visual_id": VISUAL_ID,
+                    "client_name": params.get("client_name"),
+
+                    "domain": params.get("domain"),
+                    "cohort_id": params.get("cohort_id"),
+                    "cohort_name": params.get("cohort_name"),
+                    "cohort_group": params.get("cohort_group"),
+                    "cohort_tier": params.get("cohort_tier"),
+
+                    "domain_cohort":
+                        f"{params.get('domain')}.{params.get('cohort_id')}",
+
+                    "dimension": aggregation_level,
+                    "dimension_value": int(row["aggregation_key"]),
+                    "dimension_value_label": row["dimension_label"],
+
+                    "secondary_dimension": "benchmark",
+                    "secondary_dimension_value": "Peak Census",
+
+                    "metric": "capacity",
+                    "metric_type": "peak_census",
+                    "value": float(peak_census),
+
+                    "start_date": start_date,
+                    "end_date": end_date,
+
+                    "report_title": report_title
+                })
+
+            # ----------------------------------
+            # Room Need Benchmark
+            # ----------------------------------
+            for _, row in aggregation_df.iterrows():
+
+                rdb_rows.append({
+                    "run_id": params.get("run_id"),
+                    "visual_id": VISUAL_ID,
+                    "client_name": params.get("client_name"),
+
+                    "domain": params.get("domain"),
+                    "cohort_id": params.get("cohort_id"),
+                    "cohort_name": params.get("cohort_name"),
+                    "cohort_group": params.get("cohort_group"),
+                    "cohort_tier": params.get("cohort_tier"),
+
+                    "domain_cohort":
+                        f"{params.get('domain')}.{params.get('cohort_id')}",
+
+                    "dimension": aggregation_level,
+                    "dimension_value": int(row["aggregation_key"]),
+                    "dimension_value_label": row["dimension_label"],
+
+                    "secondary_dimension": "benchmark",
+                    "secondary_dimension_value": "Bed Need",
+
+                    "metric": "capacity",
+                    "metric_type": "room_need",
+                    "value": float(room_need),
+
+                    "start_date": start_date,
+                    "end_date": end_date,
+
+                    "report_title": report_title
+                })            
+
+        return {
+            "output_path": output_file,
+            "rdb": rdb_rows
+        }
 
     except Exception as e:
-        logging.info(f"[apply_filter] Filter: {filter_str}")
-        logging.error(f"[apply_filter] failed: {str(e)}")
-        return df.iloc[0:0]
-    
-BASE_DIR = os.getcwd()
-RUNS_DIR = os.path.join(BASE_DIR, "data", "runs")
+        logger.error(f"[{VISUAL_ID}] Execution failed: {e}")
 
-def initialize_run():
+pptx_helpers:
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+import os
+import pandas as pd
+import logging
+from copy import deepcopy
+from datetime import datetime
+import shutil
+from pptx import Presentation
+from pptx.enum.shapes import MSO_SHAPE_TYPE
 
-    run_dir = os.path.join(RUNS_DIR, f"run_{timestamp}")
-    output_dir = os.path.join(run_dir, "outputs")
+def clone_slide(prs, slide):
+    """
+    Duplicate a slide.
+    """
 
-    os.makedirs(output_dir, exist_ok=True)
+    blank_layout = prs.slide_layouts[6]
 
-    # setup logging
-    log_file = os.path.join(run_dir, "logfile.txt")
+    new_slide = prs.slides.add_slide(
+        blank_layout
+    )
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s | %(levelname)s | %(message)s",
-        handlers=[
-            logging.FileHandler(log_file),
-            logging.StreamHandler()
-        ]
+    for shape in slide.shapes:
+        el = deepcopy(shape.element)
+        new_slide.shapes._spTree.insert_element_before(
+            el,
+            "p:extLst"
+        )
+
+    return new_slide
+
+def initialize_ppt_run():
+    """
+    Create dedicated PPT run folder.
+    """
+
+    base_dir = os.getcwd()
+
+    timestamp = datetime.now().strftime(
+        "%Y%m%d_%H%M%S_%f"
+    )
+
+    run_dir = os.path.join(
+        base_dir,
+        "data",
+        "runs",
+        f"ppt_run_{timestamp}"
+    )
+
+    output_dir = os.path.join(
+        run_dir,
+        "outputs"
+    )
+
+    os.makedirs(
+        output_dir,
+        exist_ok=True
     )
 
     return run_dir, output_dir
 
-
-def normalize_reporting_window(start_date, end_date):
-
-    start_date = pd.to_datetime(start_date)
-    end_date = pd.to_datetime(end_date)
-
-    if (
-        end_date.hour == 0
-        and end_date.minute == 0
-        and end_date.second == 0
-    ):
-        end_date = (
-            end_date
-            + pd.Timedelta(days=1)
-            - pd.Timedelta(microseconds=1)
-        )
-
-    return start_date, end_date
-
-def generate_output_name(
-    *,
-    visual_id,
-    start_date,
-    end_date,
-    cohort_id=None,
-    ext="csv"
+def update_cohort_text(
+    slide,
+    cohort_id
 ):
-    def clean(val):
-        if val is None:
-            return ""
 
-        return (
-            str(val)
-            .replace("/", "-")
-            .replace("\\", "-")
-            .replace(" ", "_")
-            .replace(".", "_")
-            .replace(":", "-")
+    for shape in slide.shapes:
+
+        if (
+            hasattr(shape, "name")
+            and shape.name.lower()
+            == "txt_cohort_id"
+        ):
+
+            if not shape.has_text_frame:
+                return
+
+            tf = shape.text_frame
+
+            if (
+                tf.paragraphs
+                and tf.paragraphs[0].runs
+            ):
+
+                tf.paragraphs[0].runs[0].text = (
+                    cohort_id
+                )
+
+            else:
+
+                tf.text = cohort_id
+
+            return
+
+def load_ppt_rows(
+    run_id
+):
+
+    processing_driver_file = os.path.join(
+        os.getcwd(),
+        "data",
+        "input",
+        "params",
+        "processing_driver.csv"
+    )
+
+    df = pd.read_csv(
+        processing_driver_file
+    )
+    
+    return df[
+        pd.to_numeric(
+            df["enabled"],
+            errors="coerce"
+        ).fillna(0).astype(int) == 1
+    ]
+
+def add_template_slide(
+    master_prs,
+    template_slide
+):
+
+    blank_layout = master_prs.slide_layouts[6]
+
+    slide = master_prs.slides.add_slide(
+        blank_layout
+    )
+
+    for shape in template_slide.shapes:
+
+        el = deepcopy(shape.element)
+
+        slide.shapes._spTree.insert_element_before(
+            el,
+            "p:extLst"
         )
 
-    parts = [clean(visual_id)]
+    return slide
 
-    if cohort_id:
-        parts.append(clean(cohort_id))
+def build_powerpoint(
+    run_id,
+    output_file=None
+):
+    rows = load_ppt_rows(
+        run_id
+    )
 
-    if start_date and end_date:
-        parts.append(f"{clean(start_date)}_to_{clean(end_date)}")
+    logging.info(
+        f"[ppt] Loaded {len(rows)} enabled rows"
+    )
 
-    filename = "__".join(parts) + f".{ext}"
+    logging.info(
+        f"[ppt] Cohorts found: "
+        f"{rows['cohort_id'].nunique()}"
+    )
 
-    return filename
+    ppt_run_dir, ppt_output_dir = (
+        initialize_ppt_run()
+    )
+
+    logging.info(
+        f"[ppt] PPT run initialized: "
+        f"{ppt_run_dir}"
+    )
+
+    master_prs = None
+
+    for cohort_id, cohort_rows in rows.groupby(
+        "cohort_id"
+    ):
+
+        #
+        # backward compatibility
+        #
+        if "ppt_slide_group" not in cohort_rows.columns:
+
+            cohort_rows["ppt_slide_group"] = (
+                cohort_rows["visual_id"]
+            )
+
+        if "ppt_slide_group_order" not in cohort_rows.columns:
+
+            cohort_rows["ppt_slide_group_order"] = (
+                cohort_rows["ppt_visual_order"]
+            )
+
+        #
+        # sort slide groups
+        #
+        cohort_rows = cohort_rows.sort_values(
+            [
+                "ppt_slide_group_order",
+                "ppt_visual_order"
+            ]
+        )
+
+        #
+        # one slide per group
+        #
+        for slide_group, slide_rows in (
+            cohort_rows.groupby(
+                "ppt_slide_group"
+            )
+        ):
+
+            slide_rows = slide_rows.sort_values(
+                "ppt_visual_order"
+            )
+
+            first_row = slide_rows.iloc[0]
+
+            template_file = os.path.join(
+                os.getcwd(),
+                "data",
+                "input",
+                "templates",
+                first_row["ppt_template"]
+            )
+
+            #
+            # validate templates
+            #
+            template_values = (
+                slide_rows["ppt_template"]
+                .dropna()
+                .astype(str)
+                .unique()
+            )
+
+            if len(template_values) != 1:
+
+                logging.error(
+                    "[ppt] Slide group "
+                    f"{slide_group} "
+                    "contains multiple templates"
+                )
+
+                continue
+
+            if master_prs is None:
+
+                master_prs = Presentation(
+                    template_file
+                )
+
+            template_prs = Presentation(
+                template_file
+            )
+
+            template_slide = (
+                template_prs.slides[0]
+            )
+
+            base_dir = os.getcwd()
+
+            outputs_dir = os.path.join(
+                base_dir,
+                "data",
+                "runs",
+                run_id,
+                "outputs"
+            )
+
+            if not os.path.exists(outputs_dir):
+
+                raise FileNotFoundError(
+                    outputs_dir
+                )
+
+            cohort_dir = os.path.join(
+                outputs_dir,
+                cohort_id
+            )
+
+            if not os.path.exists(cohort_dir):
+
+                logging.warning(
+                    f"[ppt] Skipping cohort {cohort_id}. "
+                    f"Output folder not found: {cohort_dir}"
+                )
+
+                continue
+
+            #
+            # CREATE SINGLE SLIDE
+            #
+            slide = add_template_slide(
+                master_prs,
+                template_slide
+            )
+
+            update_cohort_text(
+                slide,
+                cohort_id
+            )
+
+            #
+            # APPLY ALL VISUALS
+            #
+            for _, row in (
+                slide_rows.iterrows()
+            ):
+
+                visual_id = row[
+                    "visual_id"
+                ]
+
+                params = row.to_dict()
+
+                populate_slide(
+                    slide,
+                    cohort_dir,
+                    params
+                )
+
+                logging.info(
+                    "[ppt] Applied "
+                    f"{visual_id} "
+                    f"to group "
+                    f"{slide_group}"
+                )
+
+            remove_unwanted_placeholders(
+                slide
+            )
+
+            logging.info(
+                "[ppt] Added slide "
+                f"group={slide_group} "
+                f"cohort={cohort_id}"
+            )
+
+    if master_prs is None:
+
+        raise RuntimeError(
+            "[ppt] No slides were generated. "
+            "Verify processing_driver.csv, "
+            "templates, and cohort output folders."
+        )
+
+    if len(master_prs.slides) > 1:
+
+        r_id = master_prs.slides._sldIdLst[0].rId
+
+        master_prs.part.drop_rel(
+            r_id
+        )
+
+        del master_prs.slides._sldIdLst[0]
+
+    if output_file is None:
+
+        output_file = os.path.join(
+            ppt_output_dir,
+            "powerpoint_poc.pptx"
+        )
+
+    master_prs.save(
+        output_file
+    )
+
+    logging.info(
+        f"[ppt] Generated "
+        f"{len(master_prs.slides)} slides"
+    )
+
+    logging.info(
+        f"[ppt] Saved: {output_file}"
+    )
+
+def get_shape_by_name(
+    slide,
+    shape_name
+):
+
+    for shape in slide.shapes:
+
+        if (
+            hasattr(shape, "name")
+            and shape.name.lower()
+            == shape_name.lower()
+        ):
+            return shape
+
+    return None
+
+def get_assets(
+    cohort_dir,
+    params
+):
+
+    assets = {}
+
+    asset_numbers = set()
+
+    for key in params.keys():
+
+        if (
+            str(key).startswith("ppt_asset_")
+            and str(key).endswith("_keyword")
+        ):
+
+            parts = key.split("_")
+
+            if len(parts) >= 3:
+                asset_numbers.add(parts[2])
+
+    for num in sorted(asset_numbers):
+
+        keyword = params.get(
+            f"ppt_asset_{num}_keyword"
+        )
+
+        placeholder = params.get(
+            f"ppt_asset_{num}_placeholder"
+        )
+
+        if pd.isna(keyword) or pd.isna(placeholder):
+            continue
+
+        for filename in os.listdir(cohort_dir):
+
+            lower = filename.lower()
+
+            if not lower.endswith(".png"):
+                continue
+
+            keyword = str(keyword).strip().lower()
+
+            if keyword in lower:
+
+                assets[placeholder] = os.path.join(
+                    cohort_dir,
+                    filename
+                )
+
+                break
+
+    return assets
+
+
+# def replace_picture(
+#     slide,
+#     shape_name,
+#     image_path
+# ):
+
+#     if not image_path:
+#         logging.warning(
+#             f"[ppt] Missing image for "
+#             f"{shape_name}"
+#         )
+#         return
+
+#     shape = get_shape_by_name(
+#         slide,
+#         shape_name
+#     )
+
+#     if shape is None:
+
+#         logging.warning(
+#             f"[ppt] Placeholder not found: "
+#             f"{shape_name}"
+#         )
+
+#         return
+
+#     left = shape.left
+#     top = shape.top
+#     width = shape.width
+#     height = shape.height
+
+#     element = shape._element
+#     element.getparent().remove(
+#         element
+#     )
+
+#     new_pic = slide.shapes.add_picture(
+#         image_path,
+#         left,
+#         top,
+#         width=width,
+#         height=height
+#     )
+
+#     new_pic.name = shape_name
+
+def replace_picture(
+    slide,
+    shape_name,
+    image_path
+):
+    if not image_path:
+        logging.warning(
+            f"[ppt] Missing image for "
+            f"{shape_name}"
+        )
+        return
+
+    shape = get_shape_by_name(
+        slide,
+        shape_name
+    )
+
+    if shape is None:
+        logging.warning(
+            f"[ppt] Placeholder not found: "
+            f"{shape_name}"
+        )
+        return
+
+    left = shape.left
+    top = shape.top
+    width = shape.width
+    height = shape.height
+
+    # Capture original position in shape tree
+    spTree = shape._element.getparent()
+    insert_idx = list(spTree).index(
+        shape._element
+    )
+
+    # Create temporary picture
+    temp_pic = slide.shapes.add_picture(
+        image_path,
+        left,
+        top,
+        width=width,
+        height=height
+    )
+
+    temp_pic.name = shape_name
+
+    # Copy picture XML
+    pic_xml = deepcopy(
+        temp_pic._element
+    )
+
+    # Remove temporary picture
+    spTree.remove(
+        temp_pic._element
+    )
+
+    # Remove original placeholder
+    spTree.remove(
+        shape._element
+    )
+
+    # Insert new picture in exact same layer position
+    spTree.insert(
+        insert_idx,
+        pic_xml
+    )
+
+    logging.info(
+        f"[ppt] Replaced {shape_name} "
+        f"while preserving z-order"
+    )
+
+def populate_slide(
+    slide,
+    cohort_dir,
+    params
+):
+
+    assets = get_assets(
+        cohort_dir,
+        params
+    )
+
+    for placeholder_name, image_path in assets.items():
+
+        replace_picture(
+            slide,
+            placeholder_name,
+            image_path
+        )
+
+def remove_unwanted_placeholders(slide):
+
+    remove_prefixes = [
+        "title",
+        "text placeholder"
+    ]
+
+    remove_names = [
+        "picture 58",
+        "picture 48"
+    ]
+
+    shapes_to_remove = []
+
+    for shape in slide.shapes:
+
+        name = str(
+            getattr(shape, "name", "")
+        ).lower()
+
+        if (
+            any(name.startswith(p) for p in remove_prefixes)
+            or name in remove_names
+        ):
+            shapes_to_remove.append(
+                shape
+            )
+
+    for shape in shapes_to_remove:
+
+        element = shape._element
+
+        element.getparent().remove(
+            element
+        )
+
+        logging.info(
+            f"[ppt] Removed "
+            f"{shape.name}"
+        )
+
+
+
 
 
 Please analyze the implementation in the context of the attached framework and assist me in implementing the following enhancement or debugging the following issue:
 
-I desire to enhance main.py so that we can add a mode "combine parameters" where we pass into the command line 1-n run_id's and main.py finds the processing_driver.csv file within those run_id folders that were created via the "parameters_only" command and combines them into one parameter file output into a fresh run_id, and, ofc, if we pass along the optional --update-parameters it will overwrite the current main parameter file as it currently does, make sense?
+I desire to add a processing mode, "summary_report", which will accept a run_id similar to how the "powerpoint" processing mode operates. 
+
+When in this mode, similar to our other modes, we'll use vis_driver and processing_driver to obtain a list of unique in-scope cohorts based on the enabled flag in vis_driver and active_flag in processing_driver.
+
+Then, we'll use a new driver file we'll define as "summary_report_driver.csv", as well as the inclusion of a new folder "summary_reports" which operate in the same manner as vis_driver and the "visuals" folder.  The "summary_report" folder will contain files like "rpt_01.py, rpt_02.py, etc" The unique cohorts from vis_driver and processing_driver will be brought into that processing mode and fed into a new udf "run_summary_reports" that is similar to run_visuals. 
+
+"run_summary_reports" will pull up all summary reports using summary_report_driver.csv and run them like run_visuals does with vis_driver.csv, except that run_summary_reports will be looking to load it's data from the rdb_domain_cohort_metrics.csv file contained in the [target run folder]/outputs directory, which we'll feed into the summary_reports mode via the "run_id" parameter, and, for it's in-scope cohorts (using cohort_id), it will run those reports sourcing it's data from rdb_domain_cohort_metrics.csv
+
+The fields contained in rdb_domain_cohort_metrics.csv are known to you based on the attached, and also based on how it was written within the example program, vis_10, above.  
+
+We'll work on building out our rpt_* files later, for now I desire only to get main.py and our helper udf's built out so that they're prepared to accept the new drivers/folders so we can build our rpt_* files.
 
 Then provide production-ready recommendations consistent with the framework conventions demonstrated in the attached files.

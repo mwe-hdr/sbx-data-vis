@@ -1475,23 +1475,41 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             int(params.get("enable_trend_projection", 0))
         )
 
+        title_features = []
+
+        if capacity_value is not None:
+            title_features.append("Capacity Line")
+
+        if include_arrivals_line:
+            title_features.append(
+                "Raw Arrivals"
+                if arrival_aggregation_period == "none"
+                else f"Arrivals per {arrival_aggregation_period.title()}"
+            )
+
         if enable_trend_projection:
 
-            projection_label = (
+            title_features.append(
                 "ARIMA Projection"
                 if forecast_method == "arima"
                 else "Linear Projection"
             )
 
-            title_suffix = (
-                f"Census with Capacity Line and {projection_label}"
-            )
+        if title_features:
+
+            if len(title_features) == 1:
+                title_suffix = f"Census with {title_features[0]}"
+
+            else:
+                title_suffix = (
+                    "Census with "
+                    + ", ".join(title_features[:-1])
+                    + f" and {title_features[-1]}"
+                )
 
         else:
 
-            title_suffix = (
-                "Census with Capacity Line"
-            )
+            title_suffix = "Census"
 
         report_title = (
             f"{cohort_desc} | "

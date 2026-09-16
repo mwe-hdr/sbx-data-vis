@@ -88,11 +88,34 @@ RUNS_DIR = os.path.join(
     "runs"
 )
 VIS_DRIVER_FILE = os.path.join(PARAM_DIR, "vis_driver.csv")
-PROCESSING_MODE = os.getenv("PROCESSING_MODE", "full_reports").strip().lower()
-if PROCESSING_MODE in {"full_processing", "full_reports"}:
+SUMMARY_REPORT_DRIVER_FILE = os.path.join(
+    PARAM_DIR,
+    "summary_report_driver.csv"
+)
+
+VALID_MODES = {
+    "parameters_only",
+    "full_reports",
+    "summary_report"
+}
+
+PROCESSING_MODE = os.getenv(
+    "PROCESSING_MODE",
+    "full_reports"
+).strip().lower()
+
+if PROCESSING_MODE in {
+    "full_processing",
+    "full_reports"
+}:
     PROCESSING_MODE = "full_reports"
-elif PROCESSING_MODE != "parameters_only":
-    raise ValueError(f"[main] Unsupported PROCESSING_MODE: {PROCESSING_MODE}")
+
+elif PROCESSING_MODE not in VALID_MODES:
+    raise ValueError(
+        f"[main] Unsupported PROCESSING_MODE: "
+        f"{PROCESSING_MODE}"
+    )
+
 MAPPINGS_FILE = os.path.join(
     PARAM_DIR,
     "mappings.csv"
@@ -110,6 +133,189 @@ def get_visual_function(visual_id):
     except Exception as e:
         logging.error(f"[main] Failed to load {visual_id}: {str(e)}")
         return None
+
+def get_summary_report_function(report_id):
+
+    try:
+
+        module = importlib.import_module(
+            f"summary_reports.{report_id}"
+        )
+
+        return module.run
+
+    except Exception as e:
+
+        logging.error(
+            f"[main] Failed to load summary report "
+            f"{report_id}: {e}"
+        )
+
+        return None
+
+def get_enabled_cohorts():
+
+    vis_df = load_driver(
+        VIS_DRIVER_FILE
+    )
+
+    processing_driver_df = (
+        load_processing_driver(
+            os.path.join(
+                PARAM_DIR,
+                "processing_driver.csv"
+            )
+        )
+    )
+
+    enabled_visuals = set(
+
+        vis_df[
+            pd.to_numeric(
+                vis_df["enabled"],
+                errors="coerce"
+            )
+            .fillna(0)
+            .astype(int)
+            == 1
+        ]["visual_id"]
+
+    )
+
+    cohorts = set()
+
+    for _, row in processing_driver_df.iterrows():
+
+        if (
+            str(
+                row.get(
+                    "active_flag",
+                    "Y"
+                )
+            ).upper()
+            not in {
+                "Y",
+                "YES",
+                "TRUE",
+                "1"
+            }
+        ):
+            continue
+
+        if row["visual_id"] not in enabled_visuals:
+            continue
+
+        cohorts.add(
+            row["cohort_id"]
+        )
+
+    return sorted(cohorts)
+
+def load_summary_rdb(run_id):
+
+    rdb_file = os.path.join(
+        RUNS_DIR,
+        run_id,
+        "outputs",
+        "rdb_domain_cohort_metrics.csv"
+    )
+
+    if not os.path.exists(rdb_file):
+
+        raise FileNotFoundError(
+            rdb_file
+        )
+
+    logging.info(
+        f"[summary_report] Loading {rdb_file}"
+    )
+
+    return pd.read_csv(
+        rdb_file
+    )
+
+def run_summary_reports(
+    rdb_df,
+    driver_df,
+    cohort_ids,
+    output_dir,
+    run_id
+):
+
+    for cohort_id in cohort_ids:
+
+        cohort_rdb = rdb_df[
+            rdb_df["cohort_id"]
+            ==
+            cohort_id
+        ].copy()
+
+        if cohort_rdb.empty:
+
+            logging.warning(
+                f"[summary_report] "
+                f"No RDB records for "
+                f"{cohort_id}"
+            )
+
+            continue
+
+        cohort_output_dir = os.path.join(
+            output_dir,
+            cohort_id
+        )
+
+        os.makedirs(
+            cohort_output_dir,
+            exist_ok=True
+        )
+
+        for _, row in driver_df.iterrows():
+
+            if (
+                int(
+                    row.get(
+                        "enabled",
+                        0
+                    )
+                ) != 1
+            ):
+                continue
+
+            report_id = row["report_id"]
+
+            report_func = (
+                get_summary_report_function(
+                    report_id
+                )
+            )
+
+            if report_func is None:
+                continue
+
+            params = row_to_params(
+                row
+            )
+
+            params.update({
+
+                "run_id": run_id,
+
+                "cohort_id": cohort_id
+
+            })
+
+            report_func(
+
+                cohort_rdb,
+
+                params,
+
+                cohort_output_dir,
+
+                generate_output_name
+
+            )
 
 # =========================
 # WORKER FUNCTION
@@ -153,7 +359,7 @@ def execute_cohort_job(job):
 
     for row_dict in rows:
 
-        report_id = row_dict["report_id"]
+        visual_id = row_dict["visual_id"]
 
         params = row_dict["params"]
 
@@ -163,7 +369,7 @@ def execute_cohort_job(job):
 
         visual_name = row_dict["visual_name"]
 
-        vis_func = get_visual_function(report_id)
+        vis_func = get_visual_function(visual_id)
 
         if vis_func is None:
             continue
@@ -182,7 +388,7 @@ def execute_cohort_job(job):
         elapsed = time.perf_counter() - start
 
         logging.info(
-            f"[worker] {report_id} "
+            f"[worker] {visual_id} "
             f"{cohort_id} "
             f"completed in {elapsed:.2f}s"
         )
@@ -191,7 +397,7 @@ def execute_cohort_job(job):
 
             for rec in result["rdb"]:
 
-                rec["visual_id"] = report_id
+                rec["visual_id"] = visual_id
                 rec["visual_name"] = visual_name
 
             rdb_records.extend(result["rdb"])
@@ -310,13 +516,13 @@ def run_visuals(
         if str(row.get("type", "")).lower() != "cohort":
             continue
 
-        report_id = row.get("visual_id") or row.get("report_id")
-        if not report_id:
+        visual_id = row.get("visual_id") 
+        if not visual_id:
             logging.warning("[main] Skipping driver row without report identifier")
             continue
-        if report_id not in enabled_visuals:
+        if visual_id not in enabled_visuals:
             logging.info(
-                f"[main] Skipping disabled visual: {report_id}"
+                f"[main] Skipping disabled visual: {visual_id}"
             )
             continue
 
@@ -375,6 +581,13 @@ def run_visuals(
         params = row_to_params(row)
         params.update({
             "cohort_id": cohort_id,
+            "cohort_name": cohort_meta.get("cohort_name"),
+            "cohort_group": cohort_meta.get("cohort_group"),
+            "cohort_tier": cohort_meta.get("cohort_tier"),
+            "cohort_type_1": cohort_meta.get("cohort_type_1"),
+            "cohort_type_2": cohort_meta.get("cohort_type_2"),
+            "cohort_type_3": cohort_meta.get("cohort_type_3"),
+            "cohort_type_4": cohort_meta.get("cohort_type_4"),
             "filter_str": cohort_meta.get("filter"),
             "cohort_desc": cohort_meta.get("description"),
             "visual_name": row.get("name"),
@@ -386,13 +599,12 @@ def run_visuals(
             "write_rdb": row.get("write_rdb"),
             "start_date": start_date,
             "end_date": end_date,
-            "visual_id": report_id,
-            "report_id": report_id
+            "visual_id": visual_id
         })
 
         logging.info(
             "[main] Queued "
-            f"visual={report_id} "
+            f"visual={visual_id} "
             f"cohort={cohort_id} "
             f"cohort_file={cohort_meta.get('cohort_file')} "
             f"cohort_desc={cohort_meta.get('description')}"
@@ -408,7 +620,7 @@ def run_visuals(
 
         cohort_jobs[cohort_id]["rows"].append(
             {
-                "report_id": report_id,
+                "visual_id": visual_id,
                 "params": params,
                 "start_date": start_date,
                 "end_date": end_date,
@@ -475,6 +687,12 @@ parser.add_argument(
     "--run-id",
     default=None,
     help="Externally supplied run identifier"
+)
+
+parser.add_argument(
+    "--summary-run-id",
+    default=None,
+    help="Run ID containing RDB outputs"
 )
 
 parser.add_argument(
@@ -590,6 +808,41 @@ if __name__ == "__main__":
             ).fillna(0).astype(int) == 1
         ]["visual_id"]
     )
+
+    if PROCESSING_MODE == "summary_report":
+
+        if not args.summary_run_id:
+
+            raise ValueError(
+                "--summary-run-id required"
+            )
+
+        rdb_df = load_summary_rdb(
+            args.summary_run_id
+        )
+
+        summary_driver_df = pd.read_csv(
+            SUMMARY_REPORT_DRIVER_FILE
+        )
+
+        cohort_ids = (
+            get_enabled_cohorts()
+        )
+
+        run_summary_reports(
+
+            rdb_df=rdb_df,
+
+            driver_df=summary_driver_df,
+
+            cohort_ids=cohort_ids,
+
+            output_dir=output_dir,
+
+            run_id=args.summary_run_id
+        )
+
+        raise SystemExit(0)
 
     processing_driver_file = os.path.join(run_dir, "processing_driver.csv")
 

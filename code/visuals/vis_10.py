@@ -980,6 +980,14 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
                     "domain": params.get("domain"),
                     "cohort_id": params.get("cohort_id"),
+                    "cohort_name": params.get("cohort_name"),
+                    "cohort_group": params.get("cohort_group"),
+                    "cohort_tier": params.get("cohort_tier"),
+                    "cohort_desc": params.get("cohort_desc"),
+                    "cohort_type_1": params.get("cohort_type_1"),
+                    "cohort_type_2": params.get("cohort_type_2"),
+                    "cohort_type_3": params.get("cohort_type_3"),
+                    "cohort_type_4": params.get("cohort_type_4"),
 
                     "domain_cohort":
                         f"{params.get('domain')}.{params.get('cohort_id')}",
@@ -1020,6 +1028,14 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
                         "domain": params.get("domain"),
                         "cohort_id": params.get("cohort_id"),
+                        "cohort_name": params.get("cohort_name"),
+                        "cohort_group": params.get("cohort_group"),
+                        "cohort_tier": params.get("cohort_tier"),
+                        "cohort_desc": params.get("cohort_desc"),
+                        "cohort_type_1": params.get("cohort_type_1"),
+                        "cohort_type_2": params.get("cohort_type_2"),
+                        "cohort_type_3": params.get("cohort_type_3"),
+                        "cohort_type_4": params.get("cohort_type_4"),
 
                         "domain_cohort":
                             f"{params.get('domain')}.{params.get('cohort_id')}",
@@ -1056,6 +1072,14 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
                     "domain": params.get("domain"),
                     "cohort_id": params.get("cohort_id"),
+                    "cohort_name": params.get("cohort_name"),
+                    "cohort_group": params.get("cohort_group"),
+                    "cohort_tier": params.get("cohort_tier"),
+                    "cohort_desc": params.get("cohort_desc"),
+                    "cohort_type_1": params.get("cohort_type_1"),
+                    "cohort_type_2": params.get("cohort_type_2"),
+                    "cohort_type_3": params.get("cohort_type_3"),
+                    "cohort_type_4": params.get("cohort_type_4"),
 
                     "domain_cohort":
                         f"{params.get('domain')}.{params.get('cohort_id')}",
@@ -1089,6 +1113,14 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
                     "domain": params.get("domain"),
                     "cohort_id": params.get("cohort_id"),
+                    "cohort_name": params.get("cohort_name"),
+                    "cohort_group": params.get("cohort_group"),
+                    "cohort_tier": params.get("cohort_tier"),
+                    "cohort_desc": params.get("cohort_desc"),
+                    "cohort_type_1": params.get("cohort_type_1"),
+                    "cohort_type_2": params.get("cohort_type_2"),
+                    "cohort_type_3": params.get("cohort_type_3"),
+                    "cohort_type_4": params.get("cohort_type_4"),
 
                     "domain_cohort":
                         f"{params.get('domain')}.{params.get('cohort_id')}",

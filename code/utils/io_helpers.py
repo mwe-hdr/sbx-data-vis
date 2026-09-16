@@ -36,13 +36,6 @@ def load_params(param_dir, visual_id):
         return pd.DataFrame()
     
 def load_cohort_params(cohort_root_dir):
-    """
-    Recursively load all cohort CSVs.
-    Supports existing structure:
-        cohorts/<domain>/<file>.csv
-
-    Each row = subcohort
-    """
 
     cohorts = {}
 
@@ -102,9 +95,39 @@ def load_cohort_params(cohort_root_dir):
                         else None
                     )
 
+                    cohort_tier = (
+                        row.get("cohort_tier")
+                        if "cohort_tier" in df.columns
+                        else None
+                    )
+
+                    cohort_type_1 = (
+                        row.get("cohort_type_1")
+                        if "cohort_type_1" in df.columns
+                        else None
+                    )
+
+                    cohort_type_2 = (
+                        row.get("cohort_type_2")
+                        if "cohort_type_2" in df.columns
+                        else None
+                    )
+
+                    cohort_type_3 = (
+                        row.get("cohort_type_3")
+                        if "cohort_type_3" in df.columns
+                        else None
+                    )
+
+                    cohort_type_4 = (
+                        row.get("cohort_type_4")
+                        if "cohort_type_4" in df.columns
+                        else None
+                    )
+
                     cohorts[cohort_id] = {
-                        "group": cohort_group,
-                        "name": sub_name,
+                        "cohort_group": cohort_group,
+                        "cohort_name": sub_name,
                         "description":
                             str(desc).strip()
                             if pd.notna(desc)
@@ -116,6 +139,26 @@ def load_cohort_params(cohort_root_dir):
                         "cohort_file":
                             str(cohort_file).strip()
                             if pd.notna(cohort_file)
+                            else None,
+                        "cohort_tier":
+                            str(cohort_tier).strip()
+                            if pd.notna(cohort_tier)
+                            else None,
+                        "cohort_type_1":
+                            str(cohort_type_1).strip()
+                            if pd.notna(cohort_type_1)
+                            else None,
+                        "cohort_type_2":
+                            str(cohort_type_2).strip()
+                            if pd.notna(cohort_type_2)
+                            else None,
+                        "cohort_type_3":
+                            str(cohort_type_3).strip()
+                            if pd.notna(cohort_type_3)
+                            else None,
+                        "cohort_type_4":
+                            str(cohort_type_4).strip()
+                            if pd.notna(cohort_type_4)
                             else None
                     }
 

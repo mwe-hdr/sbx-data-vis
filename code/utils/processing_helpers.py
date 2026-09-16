@@ -77,12 +77,6 @@ def build_processing_driver(
     param_dir,
     output_file
 ):
-    """
-    Build processing driver file.
-
-    Creates one row per cohort x report combination using each report
-    parameter file as the default parameter set.
-    """
 
     logging.info("Building processing driver")
 
@@ -100,23 +94,22 @@ def build_processing_driver(
 
     for _, report_row in enabled_reports.iterrows():
 
-        report_id = report_row.get("visual_id") or report_row.get("report_id")
+        report_domain = str(report_row.get("domain", "")).strip().lower()
 
-        if not report_id:
-            logging.warning("[build_processing_driver] Skipping row without report identifier")
-            continue
+        visual_id = report_row.get("visual_id")
 
         try:
-            params_df = load_params(param_dir, report_id)
+            params_df = load_params(
+                param_dir,
+                visual_id
+            )
         except Exception as e:
 
             logging.error(
-                f"[build_processing_driver] Unable to load params for {report_id}: {e}"
+                f"[build_processing_driver] Unable to load params for {visual_id}: {e}"
             )
 
-            continue
-
-        report_domain = str(report_row.get("domain", "")).strip().lower()
+            continue        
 
         for cohort_id, cohort_meta in cohorts.items():
 
@@ -131,15 +124,19 @@ def build_processing_driver(
 
             row = {
                 "active_flag": "Y",
-                "report_id": report_id,
-                "visual_id": report_id,
+                "visual_id": visual_id,
                 "domain": cohort_meta.get("domain"),
                 "cohort_id": cohort_id,
+                "cohort_name": cohort_meta.get("cohort_name"),
+                "cohort_group": cohort_meta.get("cohort_group"),
+                "cohort_tier": cohort_meta.get("cohort_tier"),
+                "cohort_type_1": cohort_meta.get("cohort_type_1"),
+                "cohort_type_2": cohort_meta.get("cohort_type_2"),
+                "cohort_type_3": cohort_meta.get("cohort_type_3"),
+                "cohort_type_4": cohort_meta.get("cohort_type_4"),
                 "cohort_file": cohort_meta.get("cohort_file"),
                 "cohort_desc": cohort_meta.get("description"),
-                "filter_str": cohort_meta.get("filter"),
-                "group": cohort_meta.get("group"),
-                "name": cohort_meta.get("name")
+                "filter_str": cohort_meta.get("filter")
             }
 
             # include vis_driver metadata
@@ -178,15 +175,19 @@ def build_processing_driver(
 
     system_cols = [
         "active_flag",
-        "report_id",
         "visual_id",
         "domain",
         "cohort_id",
         "cohort_file",
         "cohort_desc",
         "filter_str",
-        "group",
-        "name"
+        "cohort_group",
+        "cohort_name",
+        "cohort_tier",
+        "cohort_type_1",
+        "cohort_type_2",
+        "cohort_type_3",
+        "cohort_type_4"
     ]
 
     other_cols = [
@@ -231,12 +232,15 @@ def row_to_params(row):
     system_fields = {
         "execution_id",
         "active_flag",
-        "report_id",
         "visual_id",
         "domain",
         "cohort_id",
         "cohort_file",
         "cohort_desc",
+        "cohort_type_1",
+        "cohort_type_2",
+        "cohort_type_3",
+        "cohort_type_4",
         "filter_str",
         "group",
         "name",
