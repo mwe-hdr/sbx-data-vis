@@ -64,7 +64,7 @@ census_helper_operation,subtract
 
 #### ===== TREND PROJECTION =====
 
-enable_trend_projection,False
+enable_trend_projection,True
 forecast_method,ols
 arima_q,1
 
@@ -88,30 +88,36 @@ projection_linestyle,--
 projection_frequency,D
 
 export_projection_csv,True
-write_projection_rdb,False
+write_projection_rdb,True
 
 #### ===== ARRIVALS LINE =====
-include_arrivals_line,True
+include_arrivals_plot,True
+arrival_plot_type,line
 arrivals_secondary_axis,True
 arrivals_color,#1f77b4
-arrivals_linewidth,1.25
+arrivals_linewidth,2.25
 arrivals_linestyle,--
 arrival_aggregation_period,month
 arrival_outlier_pct,0.20
 
+#### ===== TREND TABLE =====
+show_annualized_trend_table,True
+trend_table_width,2.4
+trend_table_height,0.8
+
 #### ===== POWERPOINT =====
-ppt_template,pptx_template.vis_08.pptx
+ppt_template,pptx_template.vis_08.ols.noprojtbls.nopeak.arrivals.line.pptx
 
-ppt_slide_group,group1
-ppt_slide_group_order,1
+ppt_slide_group,group2
+ppt_slide_group_order,2
 
-ppt_visual_order,1
+ppt_visual_order,2
 
-ppt_asset_01_keyword,vis_08_title
-ppt_asset_01_placeholder,vis_08_title
+ppt_asset_01_keyword,vis_08_ols_arrivals_line_title
+ppt_asset_01_placeholder,vis_08_ols_arrivals_line_title
 
-ppt_asset_02_keyword,vis_08_legend
-ppt_asset_02_placeholder,vis_08_legend
+ppt_asset_02_keyword,vis_08_ols_arrivals_line_legend
+ppt_asset_02_placeholder,vis_08_ols_arrivals_line_legend
 
 ppt_asset_03_keyword,vis_08_parameters
 ppt_asset_03_placeholder,vis_08_param
@@ -119,11 +125,14 @@ ppt_asset_03_placeholder,vis_08_param
 ppt_asset_04_keyword,vis_08_peak_projection_table
 ppt_asset_04_placeholder,vis_08_peak_projection_table
 
-ppt_asset_05_keyword,vis_08__
-ppt_asset_05_placeholder,vis_08_image
+ppt_asset_05_keyword,vis_08_ols_arrivals_line_image
+ppt_asset_05_placeholder,vis_08_ols_arrivals_line_image
 
 ppt_asset_06_keyword,vis_08_projection_table
 ppt_asset_06_placeholder,vis_08_projection_table
 
 ppt_asset_07_keyword,vis_08_peak_point
 ppt_asset_07_placeholder,vis_08_peak_point
+
+ppt_asset_08_keyword,vis_08_ols_arrivals_line_trend
+ppt_asset_08_placeholder,vis_08_ols_arrivals_line_trend

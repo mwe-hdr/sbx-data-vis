@@ -134,6 +134,8 @@ def build_processing_driver(
                 "cohort_type_2": cohort_meta.get("cohort_type_2"),
                 "cohort_type_3": cohort_meta.get("cohort_type_3"),
                 "cohort_type_4": cohort_meta.get("cohort_type_4"),
+                "cohort_type_5": cohort_meta.get("cohort_type_5"),
+                "cohort_order_number": cohort_meta.get("cohort_order_number"),
                 "cohort_file": cohort_meta.get("cohort_file"),
                 "cohort_desc": cohort_meta.get("description"),
                 "filter_str": cohort_meta.get("filter")
@@ -187,7 +189,9 @@ def build_processing_driver(
         "cohort_type_1",
         "cohort_type_2",
         "cohort_type_3",
-        "cohort_type_4"
+        "cohort_type_4",
+        "cohort_type_5",
+        "cohort_order_number"
     ]
 
     other_cols = [
@@ -241,6 +245,8 @@ def row_to_params(row):
         "cohort_type_2",
         "cohort_type_3",
         "cohort_type_4",
+        "cohort_type_5",
+        "cohort_order_number",
         "filter_str",
         "group",
         "name",

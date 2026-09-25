@@ -125,6 +125,18 @@ def load_cohort_params(cohort_root_dir):
                         else None
                     )
 
+                    cohort_type_5 = (
+                        row.get("cohort_type_5")
+                        if "cohort_type_5" in df.columns
+                        else None
+                    )
+
+                    cohort_order_number = (
+                        row.get("cohort_order_number")
+                        if "cohort_order_number" in df.columns
+                        else None
+                    )
+
                     cohorts[cohort_id] = {
                         "cohort_group": cohort_group,
                         "cohort_name": sub_name,
@@ -159,6 +171,14 @@ def load_cohort_params(cohort_root_dir):
                         "cohort_type_4":
                             str(cohort_type_4).strip()
                             if pd.notna(cohort_type_4)
+                            else None,
+                        "cohort_type_5":
+                            str(cohort_type_5).strip()
+                            if pd.notna(cohort_type_5)
+                            else None,
+                        "cohort_order_number":
+                            int(cohort_order_number)
+                            if pd.notna(cohort_order_number)
                             else None
                     }
 

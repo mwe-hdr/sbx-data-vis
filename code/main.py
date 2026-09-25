@@ -67,7 +67,7 @@ DOMAINS = {
     },
     
     "adf": {
-        "data_file": "lc_adf_booking_housing_classification_chronic_detox.csv",
+        "data_file": "lc_adf_booking_housing_classification_chronic_detox_bh_acute.csv",
         "cohort_dir": "adf",
         "domain": "adf"
     }
@@ -588,6 +588,8 @@ def run_visuals(
             "cohort_type_2": cohort_meta.get("cohort_type_2"),
             "cohort_type_3": cohort_meta.get("cohort_type_3"),
             "cohort_type_4": cohort_meta.get("cohort_type_4"),
+            "cohort_type_5": cohort_meta.get("cohort_type_5"),
+            "cohort_order_number": cohort_meta.get("cohort_order_number"),
             "filter_str": cohort_meta.get("filter"),
             "cohort_desc": cohort_meta.get("description"),
             "visual_name": row.get("name"),

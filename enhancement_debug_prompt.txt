@@ -280,11 +280,34 @@ RUNS_DIR = os.path.join(
     "runs"
 )
 VIS_DRIVER_FILE = os.path.join(PARAM_DIR, "vis_driver.csv")
-PROCESSING_MODE = os.getenv("PROCESSING_MODE", "full_reports").strip().lower()
-if PROCESSING_MODE in {"full_processing", "full_reports"}:
+SUMMARY_REPORT_DRIVER_FILE = os.path.join(
+    PARAM_DIR,
+    "summary_report_driver.csv"
+)
+
+VALID_MODES = {
+    "parameters_only",
+    "full_reports",
+    "summary_report"
+}
+
+PROCESSING_MODE = os.getenv(
+    "PROCESSING_MODE",
+    "full_reports"
+).strip().lower()
+
+if PROCESSING_MODE in {
+    "full_processing",
+    "full_reports"
+}:
     PROCESSING_MODE = "full_reports"
-elif PROCESSING_MODE != "parameters_only":
-    raise ValueError(f"[main] Unsupported PROCESSING_MODE: {PROCESSING_MODE}")
+
+elif PROCESSING_MODE not in VALID_MODES:
+    raise ValueError(
+        f"[main] Unsupported PROCESSING_MODE: "
+        f"{PROCESSING_MODE}"
+    )
+
 MAPPINGS_FILE = os.path.join(
     PARAM_DIR,
     "mappings.csv"
@@ -302,6 +325,189 @@ def get_visual_function(visual_id):
     except Exception as e:
         logging.error(f"[main] Failed to load {visual_id}: {str(e)}")
         return None
+
+def get_summary_report_function(report_id):
+
+    try:
+
+        module = importlib.import_module(
+            f"summary_reports.{report_id}"
+        )
+
+        return module.run
+
+    except Exception as e:
+
+        logging.error(
+            f"[main] Failed to load summary report "
+            f"{report_id}: {e}"
+        )
+
+        return None
+
+def get_enabled_cohorts():
+
+    vis_df = load_driver(
+        VIS_DRIVER_FILE
+    )
+
+    processing_driver_df = (
+        load_processing_driver(
+            os.path.join(
+                PARAM_DIR,
+                "processing_driver.csv"
+            )
+        )
+    )
+
+    enabled_visuals = set(
+
+        vis_df[
+            pd.to_numeric(
+                vis_df["enabled"],
+                errors="coerce"
+            )
+            .fillna(0)
+            .astype(int)
+            == 1
+        ]["visual_id"]
+
+    )
+
+    cohorts = set()
+
+    for _, row in processing_driver_df.iterrows():
+
+        if (
+            str(
+                row.get(
+                    "active_flag",
+                    "Y"
+                )
+            ).upper()
+            not in {
+                "Y",
+                "YES",
+                "TRUE",
+                "1"
+            }
+        ):
+            continue
+
+        if row["visual_id"] not in enabled_visuals:
+            continue
+
+        cohorts.add(
+            row["cohort_id"]
+        )
+
+    return sorted(cohorts)
+
+def load_summary_rdb(run_id):
+
+    rdb_file = os.path.join(
+        RUNS_DIR,
+        run_id,
+        "outputs",
+        "rdb_domain_cohort_metrics.csv"
+    )
+
+    if not os.path.exists(rdb_file):
+
+        raise FileNotFoundError(
+            rdb_file
+        )
+
+    logging.info(
+        f"[summary_report] Loading {rdb_file}"
+    )
+
+    return pd.read_csv(
+        rdb_file
+    )
+
+def run_summary_reports(
+    rdb_df,
+    driver_df,
+    cohort_ids,
+    output_dir,
+    run_id
+):
+
+    for cohort_id in cohort_ids:
+
+        cohort_rdb = rdb_df[
+            rdb_df["cohort_id"]
+            ==
+            cohort_id
+        ].copy()
+
+        if cohort_rdb.empty:
+
+            logging.warning(
+                f"[summary_report] "
+                f"No RDB records for "
+                f"{cohort_id}"
+            )
+
+            continue
+
+        cohort_output_dir = os.path.join(
+            output_dir,
+            cohort_id
+        )
+
+        os.makedirs(
+            cohort_output_dir,
+            exist_ok=True
+        )
+
+        for _, row in driver_df.iterrows():
+
+            if (
+                int(
+                    row.get(
+                        "enabled",
+                        0
+                    )
+                ) != 1
+            ):
+                continue
+
+            report_id = row["report_id"]
+
+            report_func = (
+                get_summary_report_function(
+                    report_id
+                )
+            )
+
+            if report_func is None:
+                continue
+
+            params = row_to_params(
+                row
+            )
+
+            params.update({
+
+                "run_id": run_id,
+
+                "cohort_id": cohort_id
+
+            })
+
+            report_func(
+
+                cohort_rdb,
+
+                params,
+
+                cohort_output_dir,
+
+                generate_output_name
+
+            )
 
 # =========================
 # WORKER FUNCTION
@@ -570,6 +776,11 @@ def run_visuals(
             "cohort_name": cohort_meta.get("cohort_name"),
             "cohort_group": cohort_meta.get("cohort_group"),
             "cohort_tier": cohort_meta.get("cohort_tier"),
+            "cohort_type_1": cohort_meta.get("cohort_type_1"),
+            "cohort_type_2": cohort_meta.get("cohort_type_2"),
+            "cohort_type_3": cohort_meta.get("cohort_type_3"),
+            "cohort_type_4": cohort_meta.get("cohort_type_4"),
+            "cohort_order_number": cohort_meta.get("cohort_order_number"),
             "filter_str": cohort_meta.get("filter"),
             "cohort_desc": cohort_meta.get("description"),
             "visual_name": row.get("name"),
@@ -669,6 +880,12 @@ parser.add_argument(
     "--run-id",
     default=None,
     help="Externally supplied run identifier"
+)
+
+parser.add_argument(
+    "--summary-run-id",
+    default=None,
+    help="Run ID containing RDB outputs"
 )
 
 parser.add_argument(
@@ -784,6 +1001,41 @@ if __name__ == "__main__":
             ).fillna(0).astype(int) == 1
         ]["visual_id"]
     )
+
+    if PROCESSING_MODE == "summary_report":
+
+        if not args.summary_run_id:
+
+            raise ValueError(
+                "--summary-run-id required"
+            )
+
+        rdb_df = load_summary_rdb(
+            args.summary_run_id
+        )
+
+        summary_driver_df = pd.read_csv(
+            SUMMARY_REPORT_DRIVER_FILE
+        )
+
+        cohort_ids = (
+            get_enabled_cohorts()
+        )
+
+        run_summary_reports(
+
+            rdb_df=rdb_df,
+
+            driver_df=summary_driver_df,
+
+            cohort_ids=cohort_ids,
+
+            output_dir=output_dir,
+
+            run_id=args.summary_run_id
+        )
+
+        raise SystemExit(0)
 
     processing_driver_file = os.path.join(run_dir, "processing_driver.csv")
 
@@ -939,8 +1191,403 @@ if __name__ == "__main__":
 
     raise SystemExit(0)
 
-vis_10:
+processing_helpers:
+from datetime import datetime
+import os
+import logging
+import pandas as pd
+import sys
 
+from utils.io_helpers import load_params
+
+def combine_processing_drivers(
+    run_ids,
+    runs_dir,
+    output_file
+):
+    """
+    Combine processing_driver.csv files from prior runs.
+    """
+
+    dfs = []
+
+    for run_id in run_ids:
+
+        file_path = os.path.join(
+            runs_dir,
+            run_id,
+            "processing_driver.csv"
+        )
+
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(
+                f"Missing processing driver: {file_path}"
+            )
+
+        logging.info(
+            f"[combine_processing_drivers] Loading {file_path}"
+        )
+
+        dfs.append(
+            load_processing_driver(file_path)
+        )
+
+    if not dfs:
+        raise ValueError(
+            "No processing drivers supplied"
+        )
+
+    combined_df = pd.concat(
+        dfs,
+        ignore_index=True
+    )
+
+    before = len(combined_df)
+
+    combined_df = combined_df.drop_duplicates()
+
+    after = len(combined_df)
+
+    logging.info(
+        "[combine_processing_drivers] "
+        f"rows={before:,} "
+        f"after_dedup={after:,}"
+    )
+
+    combined_df.to_csv(
+        output_file,
+        index=False
+    )
+
+    logging.info(
+        f"[combine_processing_drivers] Saved: {output_file}"
+    )
+
+    return combined_df
+
+def build_processing_driver(
+    cohorts,
+    visual_driver_df,
+    param_dir,
+    output_file
+):
+
+    logging.info("Building processing driver")
+
+    driver_rows = []
+
+    enabled_reports = visual_driver_df.copy()
+
+    if "enabled" in enabled_reports.columns:
+        enabled_reports = enabled_reports[
+            enabled_reports["enabled"]
+            .astype(str)
+            .str.upper()
+            .isin(["Y", "YES", "TRUE", "1"])
+        ]
+
+    for _, report_row in enabled_reports.iterrows():
+
+        report_domain = str(report_row.get("domain", "")).strip().lower()
+
+        visual_id = report_row.get("visual_id")
+
+        try:
+            params_df = load_params(
+                param_dir,
+                visual_id
+            )
+        except Exception as e:
+
+            logging.error(
+                f"[build_processing_driver] Unable to load params for {visual_id}: {e}"
+            )
+
+            continue        
+
+        for cohort_id, cohort_meta in cohorts.items():
+
+            cohort_meta = cohort_meta or {}
+
+            cohort_domain = str(
+                cohort_meta.get("domain") or cohort_meta.get("group") or ""
+            ).strip().lower()
+
+            if cohort_domain and report_domain and cohort_domain != report_domain:
+                continue
+
+            row = {
+                "active_flag": "Y",
+                "visual_id": visual_id,
+                "domain": cohort_meta.get("domain"),
+                "cohort_id": cohort_id,
+                "cohort_name": cohort_meta.get("cohort_name"),
+                "cohort_group": cohort_meta.get("cohort_group"),
+                "cohort_tier": cohort_meta.get("cohort_tier"),
+                "cohort_type_1": cohort_meta.get("cohort_type_1"),
+                "cohort_type_2": cohort_meta.get("cohort_type_2"),
+                "cohort_type_3": cohort_meta.get("cohort_type_3"),
+                "cohort_type_4": cohort_meta.get("cohort_type_4"),
+                "cohort_order_number": cohort_meta.get("cohort_order_number"),
+                "cohort_file": cohort_meta.get("cohort_file"),
+                "cohort_desc": cohort_meta.get("description"),
+                "filter_str": cohort_meta.get("filter")
+            }
+
+            # include vis_driver metadata
+            for col in visual_driver_df.columns:
+                if col not in row:
+                    row[col] = report_row[col]
+
+            # flatten report parameters
+            if not params_df.empty:
+
+                for _, param_row in params_df.iterrows():
+
+                    param_name = str(param_row["param"]).strip()
+
+                    row[param_name] = param_row.get("value")
+
+                    row[f"{param_name}_desc"] = (
+                        param_row.get("description")
+                    )
+
+                    row[f"{param_name}_display"] = (
+                        param_row.get("display")
+                    )
+
+                    row[f"{param_name}_format"] = (
+                        param_row.get("display_format")
+                    )
+
+            driver_rows.append(row)
+
+    driver_df = pd.DataFrame(driver_rows)
+
+    if driver_df.empty:
+        logging.warning("[build_processing_driver] No processing driver rows generated")
+        return driver_df
+
+    system_cols = [
+        "active_flag",
+        "visual_id",
+        "domain",
+        "cohort_id",
+        "cohort_file",
+        "cohort_desc",
+        "filter_str",
+        "cohort_group",
+        "cohort_name",
+        "cohort_tier",
+        "cohort_type_1",
+        "cohort_type_2",
+        "cohort_type_3",
+        "cohort_type_4",
+        "cohort_order_number"
+    ]
+
+    other_cols = [
+        c for c in driver_df.columns
+        if c not in system_cols
+    ]
+
+    driver_df = driver_df[
+        system_cols + sorted(other_cols, key=str)
+    ]
+
+    os.makedirs(
+        os.path.dirname(output_file),
+        exist_ok=True
+    )
+
+    driver_df.to_csv(
+        output_file,
+        index=False
+    )
+
+    logging.info(
+        f"[build_processing_driver] Generated processing driver with {len(driver_df):,} rows"
+    )
+    logging.info(f"[build_processing_driver] Saved processing driver: {output_file}")
+
+    return driver_df
+
+
+def load_processing_driver(file_path):
+
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(
+            f"[build_processing_driver] Missing processing driver: {file_path}"
+        )
+
+    return pd.read_csv(file_path)
+
+
+def row_to_params(row):
+
+    system_fields = {
+        "execution_id",
+        "active_flag",
+        "visual_id",
+        "domain",
+        "cohort_id",
+        "cohort_file",
+        "cohort_desc",
+        "cohort_type_1",
+        "cohort_type_2",
+        "cohort_type_3",
+        "cohort_type_4",
+        "cohort_order_number",
+        "filter_str",
+        "group",
+        "name",
+        "client_name",
+        "year_type",
+        "write_rdb",
+        "start_date",
+        "end_date",
+        "enabled",
+        "type"
+    }
+
+    return {
+        k: v
+        for k, v in row.items()
+        if k not in system_fields
+    }
+
+def apply_filter(df, filter_str):
+    if df is None or df.empty:
+        logging.warning("[apply_filter] input dataframe is empty")
+        return df
+
+    if not filter_str or pd.isna(filter_str):
+        logging.info("[apply_filter] no filter provided; returning original dataframe")
+        return df
+
+    try:
+        before_count = len(df)
+
+        # Minimal normalization (safe + cheap)
+        df_copy = df.copy()
+        logging.info(df_copy.columns.tolist())
+        for col in df_copy.columns:
+            if pd.api.types.is_string_dtype(df_copy[col]):
+                df_copy[col] = df_copy[col].str.strip()
+
+        logging.info(f"[apply_filter] Filter: {filter_str}")
+
+        filtered_df = df_copy.query(filter_str, engine="python")
+
+        after_count = len(filtered_df)
+
+        logging.info(
+            f"[apply_filter] rows {before_count:,} -> {after_count:,} | filter: {filter_str}"
+        )
+
+        return filtered_df
+
+    except Exception as e:
+        logging.info(f"[apply_filter] Filter: {filter_str}")
+        logging.error(f"[apply_filter] failed: {str(e)}")
+        return df.iloc[0:0]
+    
+BASE_DIR = os.getcwd()
+RUNS_DIR = os.path.join(BASE_DIR, "data", "runs")
+
+def initialize_run(run_id=None):
+
+    if run_id:
+        timestamp = run_id
+    else:
+        timestamp = datetime.now().strftime(
+            "%Y%m%d_%H%M%S_%f"
+        )
+
+    run_dir = os.path.join(
+        RUNS_DIR,
+        f"run_{timestamp}"
+    )
+
+    output_dir = os.path.join(
+        run_dir,
+        "outputs"
+    )
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    run_id = os.path.basename(run_dir)
+
+    # setup logging
+    log_file = os.path.join(
+        run_dir,
+        f"{run_id}_logfile.txt"
+    )
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s | PID=%(process)d | %(processName)s | %(levelname)s | %(message)s",
+        handlers=[
+            logging.FileHandler(log_file),
+            logging.StreamHandler(sys.stdout)
+        ]
+    )
+
+    return run_dir, output_dir, log_file
+
+
+def normalize_reporting_window(start_date, end_date):
+
+    start_date = pd.to_datetime(start_date)
+    end_date = pd.to_datetime(end_date)
+
+    if (
+        end_date.hour == 0
+        and end_date.minute == 0
+        and end_date.second == 0
+    ):
+        end_date = (
+            end_date
+            + pd.Timedelta(days=1)
+            - pd.Timedelta(microseconds=1)
+        )
+
+    return start_date, end_date
+
+def generate_output_name(
+    *,
+    visual_id,
+    start_date,
+    end_date,
+    cohort_id=None,
+    ext="csv"
+):
+    def clean(val):
+        if val is None:
+            return ""
+
+        return (
+            str(val)
+            .replace("/", "-")
+            .replace("\\", "-")
+            .replace(" ", "_")
+            .replace(".", "_")
+            .replace(":", "-")
+        )
+
+    parts = [clean(visual_id)]
+
+    if cohort_id:
+        parts.append(clean(cohort_id))
+
+    if start_date and end_date:
+        parts.append(f"{clean(start_date)}_to_{clean(end_date)}")
+
+    filename = "__".join(parts) + f".{ext}"
+
+    return filename
+
+vis_10:
 # =============================================================================
 # Report Name : Facility Census with Peak Period and Capacity Benchmarks
 #
@@ -1926,7 +2573,13 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                     "cohort_name": params.get("cohort_name"),
                     "cohort_group": params.get("cohort_group"),
                     "cohort_tier": params.get("cohort_tier"),
-                    
+                    "cohort_desc": params.get("cohort_desc"),
+                    "cohort_type_1": params.get("cohort_type_1"),
+                    "cohort_type_2": params.get("cohort_type_2"),
+                    "cohort_type_3": params.get("cohort_type_3"),
+                    "cohort_type_4": params.get("cohort_type_4"),
+                    "cohort_order_number": params.get("cohort_order_number"),
+
                     "domain_cohort":
                         f"{params.get('domain')}.{params.get('cohort_id')}",
 
@@ -1969,6 +2622,12 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                         "cohort_name": params.get("cohort_name"),
                         "cohort_group": params.get("cohort_group"),
                         "cohort_tier": params.get("cohort_tier"),
+                        "cohort_desc": params.get("cohort_desc"),
+                        "cohort_type_1": params.get("cohort_type_1"),
+                        "cohort_type_2": params.get("cohort_type_2"),
+                        "cohort_type_3": params.get("cohort_type_3"),
+                        "cohort_type_4": params.get("cohort_type_4"),
+                        "cohort_order_number": params.get("cohort_order_number"),
 
                         "domain_cohort":
                             f"{params.get('domain')}.{params.get('cohort_id')}",
@@ -2008,7 +2667,12 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                     "cohort_name": params.get("cohort_name"),
                     "cohort_group": params.get("cohort_group"),
                     "cohort_tier": params.get("cohort_tier"),
-
+                    "cohort_desc": params.get("cohort_desc"),
+                    "cohort_type_1": params.get("cohort_type_1"),
+                    "cohort_type_2": params.get("cohort_type_2"),
+                    "cohort_type_3": params.get("cohort_type_3"),
+                    "cohort_type_4": params.get("cohort_type_4"),
+                    "cohort_order_number": params.get("cohort_order_number"),
                     "domain_cohort":
                         f"{params.get('domain')}.{params.get('cohort_id')}",
 
@@ -2044,6 +2708,12 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                     "cohort_name": params.get("cohort_name"),
                     "cohort_group": params.get("cohort_group"),
                     "cohort_tier": params.get("cohort_tier"),
+                    "cohort_desc": params.get("cohort_desc"),
+                    "cohort_type_1": params.get("cohort_type_1"),
+                    "cohort_type_2": params.get("cohort_type_2"),
+                    "cohort_type_3": params.get("cohort_type_3"),
+                    "cohort_type_4": params.get("cohort_type_4"),
+                    "cohort_order_number": params.get("cohort_order_number"),
 
                     "domain_cohort":
                         f"{params.get('domain')}.{params.get('cohort_id')}",
@@ -2073,642 +2743,195 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
     except Exception as e:
         logger.error(f"[{VISUAL_ID}] Execution failed: {e}")
 
-pptx_helpers:
-
+io_helpers:
 import os
 import pandas as pd
 import logging
-from copy import deepcopy
-from datetime import datetime
-import shutil
-from pptx import Presentation
-from pptx.enum.shapes import MSO_SHAPE_TYPE
 
-def clone_slide(prs, slide):
-    """
-    Duplicate a slide.
-    """
+def load_data(file_path):
+    logging.info("[load_data] Loading data")
+    df = pd.read_csv(file_path, low_memory=False)
 
-    blank_layout = prs.slide_layouts[6]
+    # defensive datetime parsing
+    if "visit_dtm" in df.columns:
+        df["visit_dtm"] = pd.to_datetime(df["visit_dtm"], errors="coerce")
 
-    new_slide = prs.slides.add_slide(
-        blank_layout
-    )
+    return df
 
-    for shape in slide.shapes:
-        el = deepcopy(shape.element)
-        new_slide.shapes._spTree.insert_element_before(
-            el,
-            "p:extLst"
+
+def load_driver(file_path):
+    logging.info("[load_driver] Loading visual driver")
+    return pd.read_csv(file_path)
+
+
+def load_params(param_dir, visual_id):
+
+    param_file = os.path.join(param_dir, f"{visual_id}.csv")
+
+    if not os.path.exists(param_file):
+        logging.warning(f"[load_params] No params found for {visual_id}")
+        return pd.DataFrame()
+
+    try:
+        return pd.read_csv(param_file)
+
+    except Exception as e:
+        logging.error(
+            f"[load_params] Failed to load params for {visual_id}: {str(e)}"
         )
-
-    return new_slide
-
-def initialize_ppt_run():
-    """
-    Create dedicated PPT run folder.
-    """
-
-    base_dir = os.getcwd()
-
-    timestamp = datetime.now().strftime(
-        "%Y%m%d_%H%M%S_%f"
-    )
-
-    run_dir = os.path.join(
-        base_dir,
-        "data",
-        "runs",
-        f"ppt_run_{timestamp}"
-    )
-
-    output_dir = os.path.join(
-        run_dir,
-        "outputs"
-    )
-
-    os.makedirs(
-        output_dir,
-        exist_ok=True
-    )
-
-    return run_dir, output_dir
-
-def update_cohort_text(
-    slide,
-    cohort_id
-):
-
-    for shape in slide.shapes:
-
-        if (
-            hasattr(shape, "name")
-            and shape.name.lower()
-            == "txt_cohort_id"
-        ):
-
-            if not shape.has_text_frame:
-                return
-
-            tf = shape.text_frame
-
-            if (
-                tf.paragraphs
-                and tf.paragraphs[0].runs
-            ):
-
-                tf.paragraphs[0].runs[0].text = (
-                    cohort_id
-                )
-
-            else:
-
-                tf.text = cohort_id
-
-            return
-
-def load_ppt_rows(
-    run_id
-):
-
-    processing_driver_file = os.path.join(
-        os.getcwd(),
-        "data",
-        "input",
-        "params",
-        "processing_driver.csv"
-    )
-
-    df = pd.read_csv(
-        processing_driver_file
-    )
+        return pd.DataFrame()
     
-    return df[
-        pd.to_numeric(
-            df["enabled"],
-            errors="coerce"
-        ).fillna(0).astype(int) == 1
-    ]
+def load_cohort_params(cohort_root_dir):
 
-def add_template_slide(
-    master_prs,
-    template_slide
-):
+    cohorts = {}
 
-    blank_layout = master_prs.slide_layouts[6]
-
-    slide = master_prs.slides.add_slide(
-        blank_layout
-    )
-
-    for shape in template_slide.shapes:
-
-        el = deepcopy(shape.element)
-
-        slide.shapes._spTree.insert_element_before(
-            el,
-            "p:extLst"
-        )
-
-    return slide
-
-def build_powerpoint(
-    run_id,
-    output_file=None
-):
-    rows = load_ppt_rows(
-        run_id
-    )
-
-    logging.info(
-        f"[ppt] Loaded {len(rows)} enabled rows"
-    )
-
-    logging.info(
-        f"[ppt] Cohorts found: "
-        f"{rows['cohort_id'].nunique()}"
-    )
-
-    ppt_run_dir, ppt_output_dir = (
-        initialize_ppt_run()
-    )
-
-    logging.info(
-        f"[ppt] PPT run initialized: "
-        f"{ppt_run_dir}"
-    )
-
-    master_prs = None
-
-    for cohort_id, cohort_rows in rows.groupby(
-        "cohort_id"
-    ):
-
-        #
-        # backward compatibility
-        #
-        if "ppt_slide_group" not in cohort_rows.columns:
-
-            cohort_rows["ppt_slide_group"] = (
-                cohort_rows["visual_id"]
-            )
-
-        if "ppt_slide_group_order" not in cohort_rows.columns:
-
-            cohort_rows["ppt_slide_group_order"] = (
-                cohort_rows["ppt_visual_order"]
-            )
-
-        #
-        # sort slide groups
-        #
-        cohort_rows = cohort_rows.sort_values(
-            [
-                "ppt_slide_group_order",
-                "ppt_visual_order"
-            ]
-        )
-
-        #
-        # one slide per group
-        #
-        for slide_group, slide_rows in (
-            cohort_rows.groupby(
-                "ppt_slide_group"
-            )
-        ):
-
-            slide_rows = slide_rows.sort_values(
-                "ppt_visual_order"
-            )
-
-            first_row = slide_rows.iloc[0]
-
-            template_file = os.path.join(
-                os.getcwd(),
-                "data",
-                "input",
-                "templates",
-                first_row["ppt_template"]
-            )
-
-            #
-            # validate templates
-            #
-            template_values = (
-                slide_rows["ppt_template"]
-                .dropna()
-                .astype(str)
-                .unique()
-            )
-
-            if len(template_values) != 1:
-
-                logging.error(
-                    "[ppt] Slide group "
-                    f"{slide_group} "
-                    "contains multiple templates"
-                )
-
-                continue
-
-            if master_prs is None:
-
-                master_prs = Presentation(
-                    template_file
-                )
-
-            template_prs = Presentation(
-                template_file
-            )
-
-            template_slide = (
-                template_prs.slides[0]
-            )
-
-            base_dir = os.getcwd()
-
-            outputs_dir = os.path.join(
-                base_dir,
-                "data",
-                "runs",
-                run_id,
-                "outputs"
-            )
-
-            if not os.path.exists(outputs_dir):
-
-                raise FileNotFoundError(
-                    outputs_dir
-                )
-
-            cohort_dir = os.path.join(
-                outputs_dir,
-                cohort_id
-            )
-
-            if not os.path.exists(cohort_dir):
-
-                logging.warning(
-                    f"[ppt] Skipping cohort {cohort_id}. "
-                    f"Output folder not found: {cohort_dir}"
-                )
-
-                continue
-
-            #
-            # CREATE SINGLE SLIDE
-            #
-            slide = add_template_slide(
-                master_prs,
-                template_slide
-            )
-
-            update_cohort_text(
-                slide,
-                cohort_id
-            )
-
-            #
-            # APPLY ALL VISUALS
-            #
-            for _, row in (
-                slide_rows.iterrows()
-            ):
-
-                visual_id = row[
-                    "visual_id"
-                ]
-
-                params = row.to_dict()
-
-                populate_slide(
-                    slide,
-                    cohort_dir,
-                    params
-                )
-
-                logging.info(
-                    "[ppt] Applied "
-                    f"{visual_id} "
-                    f"to group "
-                    f"{slide_group}"
-                )
-
-            remove_unwanted_placeholders(
-                slide
-            )
-
-            logging.info(
-                "[ppt] Added slide "
-                f"group={slide_group} "
-                f"cohort={cohort_id}"
-            )
-
-    if master_prs is None:
-
-        raise RuntimeError(
-            "[ppt] No slides were generated. "
-            "Verify processing_driver.csv, "
-            "templates, and cohort output folders."
-        )
-
-    if len(master_prs.slides) > 1:
-
-        r_id = master_prs.slides._sldIdLst[0].rId
-
-        master_prs.part.drop_rel(
-            r_id
-        )
-
-        del master_prs.slides._sldIdLst[0]
-
-    if output_file is None:
-
-        output_file = os.path.join(
-            ppt_output_dir,
-            "powerpoint_poc.pptx"
-        )
-
-    master_prs.save(
-        output_file
-    )
-
-    logging.info(
-        f"[ppt] Generated "
-        f"{len(master_prs.slides)} slides"
-    )
-
-    logging.info(
-        f"[ppt] Saved: {output_file}"
-    )
-
-def get_shape_by_name(
-    slide,
-    shape_name
-):
-
-    for shape in slide.shapes:
-
-        if (
-            hasattr(shape, "name")
-            and shape.name.lower()
-            == shape_name.lower()
-        ):
-            return shape
-
-    return None
-
-def get_assets(
-    cohort_dir,
-    params
-):
-
-    assets = {}
-
-    asset_numbers = set()
-
-    for key in params.keys():
-
-        if (
-            str(key).startswith("ppt_asset_")
-            and str(key).endswith("_keyword")
-        ):
-
-            parts = key.split("_")
-
-            if len(parts) >= 3:
-                asset_numbers.add(parts[2])
-
-    for num in sorted(asset_numbers):
-
-        keyword = params.get(
-            f"ppt_asset_{num}_keyword"
-        )
-
-        placeholder = params.get(
-            f"ppt_asset_{num}_placeholder"
-        )
-
-        if pd.isna(keyword) or pd.isna(placeholder):
-            continue
-
-        for filename in os.listdir(cohort_dir):
-
-            lower = filename.lower()
-
-            if not lower.endswith(".png"):
-                continue
-
-            keyword = str(keyword).strip().lower()
-
-            if keyword in lower:
-
-                assets[placeholder] = os.path.join(
-                    cohort_dir,
-                    filename
-                )
-
-                break
-
-    return assets
-
-
-# def replace_picture(
-#     slide,
-#     shape_name,
-#     image_path
-# ):
-
-#     if not image_path:
-#         logging.warning(
-#             f"[ppt] Missing image for "
-#             f"{shape_name}"
-#         )
-#         return
-
-#     shape = get_shape_by_name(
-#         slide,
-#         shape_name
-#     )
-
-#     if shape is None:
-
-#         logging.warning(
-#             f"[ppt] Placeholder not found: "
-#             f"{shape_name}"
-#         )
-
-#         return
-
-#     left = shape.left
-#     top = shape.top
-#     width = shape.width
-#     height = shape.height
-
-#     element = shape._element
-#     element.getparent().remove(
-#         element
-#     )
-
-#     new_pic = slide.shapes.add_picture(
-#         image_path,
-#         left,
-#         top,
-#         width=width,
-#         height=height
-#     )
-
-#     new_pic.name = shape_name
-
-def replace_picture(
-    slide,
-    shape_name,
-    image_path
-):
-    if not image_path:
-        logging.warning(
-            f"[ppt] Missing image for "
-            f"{shape_name}"
-        )
-        return
-
-    shape = get_shape_by_name(
-        slide,
-        shape_name
-    )
-
-    if shape is None:
-        logging.warning(
-            f"[ppt] Placeholder not found: "
-            f"{shape_name}"
-        )
-        return
-
-    left = shape.left
-    top = shape.top
-    width = shape.width
-    height = shape.height
-
-    # Capture original position in shape tree
-    spTree = shape._element.getparent()
-    insert_idx = list(spTree).index(
-        shape._element
-    )
-
-    # Create temporary picture
-    temp_pic = slide.shapes.add_picture(
-        image_path,
-        left,
-        top,
-        width=width,
-        height=height
-    )
-
-    temp_pic.name = shape_name
-
-    # Copy picture XML
-    pic_xml = deepcopy(
-        temp_pic._element
-    )
-
-    # Remove temporary picture
-    spTree.remove(
-        temp_pic._element
-    )
-
-    # Remove original placeholder
-    spTree.remove(
-        shape._element
-    )
-
-    # Insert new picture in exact same layer position
-    spTree.insert(
-        insert_idx,
-        pic_xml
-    )
-
-    logging.info(
-        f"[ppt] Replaced {shape_name} "
-        f"while preserving z-order"
-    )
-
-def populate_slide(
-    slide,
-    cohort_dir,
-    params
-):
-
-    assets = get_assets(
-        cohort_dir,
-        params
-    )
-
-    for placeholder_name, image_path in assets.items():
-
-        replace_picture(
-            slide,
-            placeholder_name,
-            image_path
-        )
-
-def remove_unwanted_placeholders(slide):
-
-    remove_prefixes = [
-        "title",
-        "text placeholder"
-    ]
-
-    remove_names = [
-        "picture 58",
-        "picture 48"
-    ]
-
-    shapes_to_remove = []
-
-    for shape in slide.shapes:
-
-        name = str(
-            getattr(shape, "name", "")
-        ).lower()
-
-        if (
-            any(name.startswith(p) for p in remove_prefixes)
-            or name in remove_names
-        ):
-            shapes_to_remove.append(
-                shape
-            )
-
-    for shape in shapes_to_remove:
-
-        element = shape._element
-
-        element.getparent().remove(
-            element
-        )
+    for root, _, files in os.walk(cohort_root_dir):
 
         logging.info(
-            f"[ppt] Removed "
-            f"{shape.name}"
+            f"[load_cohort_params] Searching: "
+            f"{cohort_root_dir}"
         )
 
+        for file in files:
+            if not file.endswith(".csv"):
+                continue
 
+            file_path = os.path.join(root, file)
+
+            logging.info(
+                f"[load_cohort_params] Reading: "
+                f"{file_path}"
+            )
+
+            try:
+                df = pd.read_csv(file_path)
+            except Exception as e:
+                logging.error(f"[load_cohort_params] Failed to read {file_path}: {e}")
+                continue
+
+            required_cols = {"name", "param", "value"}
+            if not required_cols.issubset(df.columns):
+                logging.warning(f"[load_cohort_params] Skipping {file_path} (invalid columns)")
+                continue
+
+            # derive namespace from folder + filename
+            relative_path = os.path.relpath(file_path, cohort_root_dir)
+            parts = relative_path.replace(".csv", "").split(os.sep)
+
+            # e.g. emergency/beaufort → emergency.beaufort
+            cohort_group = ".".join(parts)
+
+            for _, row in df.iterrows():
+
+                sub_name = str(row["name"]).strip()
+
+                cohort_id = f"{cohort_group}.{sub_name}"
+
+                if cohort_id not in cohorts:
+
+                    desc = row.get("description")
+                    domain = row.get("domain")
+
+                    if pd.isna(domain) or str(domain).strip() == "":
+                        domain = parts[0] if parts else None
+
+                    cohort_file = (
+                        row.get("cohort_file")
+                        if "cohort_file" in df.columns
+                        else None
+                    )
+
+                    cohort_tier = (
+                        row.get("cohort_tier")
+                        if "cohort_tier" in df.columns
+                        else None
+                    )
+
+                    cohort_type_1 = (
+                        row.get("cohort_type_1")
+                        if "cohort_type_1" in df.columns
+                        else None
+                    )
+
+                    cohort_type_2 = (
+                        row.get("cohort_type_2")
+                        if "cohort_type_2" in df.columns
+                        else None
+                    )
+
+                    cohort_type_3 = (
+                        row.get("cohort_type_3")
+                        if "cohort_type_3" in df.columns
+                        else None
+                    )
+
+                    cohort_type_4 = (
+                        row.get("cohort_type_4")
+                        if "cohort_type_4" in df.columns
+                        else None
+                    )
+
+                    cohort_order_number = (
+                        row.get("cohort_order_number")
+                        if "cohort_order_number" in df.columns
+                        else None
+                    )
+
+                    cohorts[cohort_id] = {
+                        "cohort_group": cohort_group,
+                        "cohort_name": sub_name,
+                        "description":
+                            str(desc).strip()
+                            if pd.notna(desc)
+                            else None,
+                        "domain":
+                            str(domain).strip()
+                            if pd.notna(domain)
+                            else None,
+                        "cohort_file":
+                            str(cohort_file).strip()
+                            if pd.notna(cohort_file)
+                            else None,
+                        "cohort_tier":
+                            str(cohort_tier).strip()
+                            if pd.notna(cohort_tier)
+                            else None,
+                        "cohort_type_1":
+                            str(cohort_type_1).strip()
+                            if pd.notna(cohort_type_1)
+                            else None,
+                        "cohort_type_2":
+                            str(cohort_type_2).strip()
+                            if pd.notna(cohort_type_2)
+                            else None,
+                        "cohort_type_3":
+                            str(cohort_type_3).strip()
+                            if pd.notna(cohort_type_3)
+                            else None,
+                        "cohort_type_4":
+                            str(cohort_type_4).strip()
+                            if pd.notna(cohort_type_4)
+                            else None,
+                        "cohort_order_number":
+                            int(cohort_order_number)
+                            if pd.notna(cohort_order_number)
+                            else None
+                    }
+
+                param = str(row["param"]).strip()
+
+                cohorts[cohort_id][param] = row["value"]
+
+                if param == "filter":
+                    cohorts[cohort_id]["filter"] = row["value"]
+
+    logging.info(f"[load_cohort_params] Loaded {len(cohorts)} cohorts")
+    return cohorts
 
 
 
 Please analyze the implementation in the context of the attached framework and assist me in implementing the following enhancement or debugging the following issue:
 
-I desire to add a processing mode, "summary_report", which will accept a run_id similar to how the "powerpoint" processing mode operates. 
-
-When in this mode, similar to our other modes, we'll use vis_driver and processing_driver to obtain a list of unique in-scope cohorts based on the enabled flag in vis_driver and active_flag in processing_driver.
-
-Then, we'll use a new driver file we'll define as "summary_report_driver.csv", as well as the inclusion of a new folder "summary_reports" which operate in the same manner as vis_driver and the "visuals" folder.  The "summary_report" folder will contain files like "rpt_01.py, rpt_02.py, etc" The unique cohorts from vis_driver and processing_driver will be brought into that processing mode and fed into a new udf "run_summary_reports" that is similar to run_visuals. 
-
-"run_summary_reports" will pull up all summary reports using summary_report_driver.csv and run them like run_visuals does with vis_driver.csv, except that run_summary_reports will be looking to load it's data from the rdb_domain_cohort_metrics.csv file contained in the [target run folder]/outputs directory, which we'll feed into the summary_reports mode via the "run_id" parameter, and, for it's in-scope cohorts (using cohort_id), it will run those reports sourcing it's data from rdb_domain_cohort_metrics.csv
-
-The fields contained in rdb_domain_cohort_metrics.csv are known to you based on the attached, and also based on how it was written within the example program, vis_10, above.  
-
-We'll work on building out our rpt_* files later, for now I desire only to get main.py and our helper udf's built out so that they're prepared to accept the new drivers/folders so we can build our rpt_* files.
+I've attempted to add cohort_order_number as a desired field to read in from my cohort definitions file and carry through to my rdb outputs, however it has yet to show up in the rdb outputs in my test runs.  I believe I've missed a spot to add it.
 
 Then provide production-ready recommendations consistent with the framework conventions demonstrated in the attached files.

@@ -392,6 +392,8 @@ def run(
                     "cohort_type_2": params.get("cohort_type_2"),
                     "cohort_type_3": params.get("cohort_type_3"),
                     "cohort_type_4": params.get("cohort_type_4"),
+                    "cohort_type_5": params.get("cohort_type_5"),
+                    "cohort_order_number": params.get("cohort_order_number"),
 
                     "domain_cohort":
                         f"{params.get('domain')}.{params.get('cohort_id')}",
@@ -428,6 +430,8 @@ def run(
                 "cohort_type_2": params.get("cohort_type_2"),
                 "cohort_type_3": params.get("cohort_type_3"),
                 "cohort_type_4": params.get("cohort_type_4"),
+                "cohort_type_5": params.get("cohort_type_5"),
+                "cohort_order_number": params.get("cohort_order_number"),
 
                 "domain_cohort":
                     f"{params.get('domain')}.{params.get('cohort_id')}",

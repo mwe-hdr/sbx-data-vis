@@ -38,8 +38,8 @@ marker_style,o,Marker style
 #### ===== POWERPOINT =====
 ppt_template,pptx_template.vis_14.test.pptx
 
-ppt_slide_group,group3
-ppt_slide_group_order,3
+ppt_slide_group,group4
+ppt_slide_group_order,4
 
 ppt_visual_order,3
 

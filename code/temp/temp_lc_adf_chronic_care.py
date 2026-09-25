@@ -221,46 +221,46 @@ SEVERITY_CROSSWALK = {
 
     "239.9": "MODERATE",
 
-    # =========================================================================
-    # NEUROLOGIC / SENSORY
-    # =========================================================================
+    ## =========================================================================
+    ## NEUROLOGIC / SENSORY
+    ## =========================================================================
 
-    "237.70": "MODERATE",
+    "237.70": "MODERATE",  ## Neurofibromatosis, unspecified
 
-    "338.21": "MODERATE",
-    "338.28": "MODERATE",
-    "338.29": "MODERATE",
+    "338.21": "MODERATE",  ## Chronic pain due to trauma
+    "338.28": "MODERATE",  ## Chronic pain due to other specified conditions
+    "338.29": "MODERATE",  ## Other chronic pain
 
-    "340": "HIGH",
+    "340": "HIGH",         ## Multiple sclerosis
 
-    "343.9": "HIGH",
+    "343.9": "HIGH",       ## Cerebral palsy, unspecified
 
-    "345.9": "HIGH",
+    "345.9": "HIGH",       ## Epilepsy, unspecified
 
-    "346": "LOW",
-    "346.0": "LOW",
-    "346.1": "LOW",
-    "346.2": "LOW",
-    "346.9": "LOW",
+    "346": "LOW",          ## Migraine
+    "346.0": "LOW",        ## Classical migraine (with aura)
+    "346.1": "LOW",        ## Common migraine (without aura)
+    "346.2": "LOW",        ## Variants of migraine
+    "346.9": "LOW",        ## Migraine, unspecified
 
-    "349.9": "MODERATE",
+    "349.9": "MODERATE",   ## Unspecified disorder of nervous system
 
-    "365.9": "MODERATE",
+    "365.9": "MODERATE",   ## Glaucoma, unspecified
 
-    "369": "HIGH",
-    "369.3": "HIGH",
+    "369": "HIGH",         ## Blindness and low vision
+    "369.3": "HIGH",       ## Blindness, both eyes
 
-    "389.9": "LOW",
+    "389.9": "LOW",        ## Hearing loss, unspecified
 
-    "434.9": "HIGH",
-    "438.9": "HIGH",
+    "434.9": "HIGH",       ## Cerebral artery occlusion, unspecified, with cerebral infarction (stroke)
+    "438.9": "HIGH",       ## Late effects of cerebrovascular disease, unspecified
 
-    "780.39": "MODERATE",
-    "780.51": "MODERATE",
-    "780.97": "HIGH",
+    "780.39": "MODERATE",  ## Other convulsions
+    "780.51": "MODERATE",  ## Insomnia with sleep apnea
+    "780.97": "HIGH",      ## Altered mental status
 
-    "784.0": "LOW",
-    "784.5": "MODERATE",
+    "784.0": "LOW",        ## Headache
+    "784.5": "MODERATE",    ## Speech disturbance
 
     # =========================================================================
     # MUSCULOSKELETAL

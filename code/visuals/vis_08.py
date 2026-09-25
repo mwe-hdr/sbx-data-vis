@@ -334,7 +334,9 @@ def build_ols_projection(
         "peak_projection_df": peak_projection_df,
         "peak_projection_table_df": peak_projection_table_df,
         "peak_observed_census": peak_observed_census,
-        "peak_anchor_date": peak_anchor_date
+        "peak_anchor_date": peak_anchor_date,
+        "ols_slope": slope,
+        "ols_intercept": intercept
     }
 
 def build_arima_projection(
@@ -463,7 +465,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         # HELP MY DATAFRAME
         # --------------------------------------------------
         # --------------------------------------------------
-        # TEMP DEBUG - CENSUS HELPER PARAMETERS
+        # CENSUS HELPER PARAMETERS
         # --------------------------------------------------
         logger.info(
             f"[{VISUAL_ID}] census_helper_csv="
@@ -495,12 +497,79 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             )
         )
 
+        # =========================================================
+        # INSPECTION FILES
+        # =========================================================
+
+        census_input_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=f"{output_visual_id}_census_input",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="csv"
+            )
+        )
+
+        df.to_csv(
+            census_input_file,
+            index=False
+        )
+
+        logger.info(
+            f"[{VISUAL_ID}] Census Input File exported: "
+            f"{census_input_file} ({len(df):,} rows)"
+        )
+
+        census_df_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=f"{output_visual_id}_census_df",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="csv"
+            )
+        )
+
+        census_df.to_csv(
+            census_df_file,
+            index=False
+        )
+
+        logger.info(
+            f"[{VISUAL_ID}] Census DF exported: "
+            f"{census_df_file} ({len(census_df):,} rows)"
+        )
+
+        ts_df_file = os.path.join(
+            output_dir,
+            generate_output_name(
+                visual_id=f"{output_visual_id}_ts_df",
+                start_date=start_date,
+                end_date=end_date,
+                cohort_id=params.get("cohort_id"),
+                ext="csv"
+            )
+        )
+
+        ts.to_csv(
+            ts_df_file,
+            index=False
+        )
+
+        logger.info(
+            f"[{VISUAL_ID}] TS DF exported: "
+            f"{ts_df_file} ({len(ts):,} rows)"
+        )
+
         arrivals_ts = pd.DataFrame()
 
 
-        include_arrivals_line = _get_bool(
+        include_arrivals_plot = _get_bool(
             params,
-            "include_arrivals_line",
+            "include_arrivals_plot",
             False
         )
 
@@ -515,6 +584,12 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             "arrivals_color",
             "#2ca02c"
         )
+
+        arrival_plot_type = _get_str(
+            params,
+            "arrival_plot_type",
+            "bar"
+        ).strip().lower()
 
         arrivals_linewidth = _get_float(
             params,
@@ -540,6 +615,24 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             0.20
         )
 
+        show_annualized_trend_table = _get_bool(
+            params,
+            "show_annualized_trend_table",
+            True
+        )
+
+        trend_table_width = _get_float(
+            params,
+            "trend_table_width",
+            2.4
+        )
+
+        trend_table_height = _get_float(
+            params,
+            "trend_table_height",
+            0.8
+        )
+
         arrival_freq_map = {
             "day": "D",
             "week": "W",
@@ -547,7 +640,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             "quarter": "QS"
         }
 
-        if include_arrivals_line:
+        if include_arrivals_plot:
 
             arrivals_df = census_df.copy()
 
@@ -648,7 +741,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             f"Census df: {len(census_df):,}"
         )
 
-        enable_rdb = int(params.get("rdb_write", 0))
+        write_projection_rdb = int(params.get("rdb_write", 0))
         rdb_rows = []
 
         above_line = None
@@ -657,6 +750,29 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         trend_line = None
         projection_line = None
         arrivals_bar = None
+
+        if include_arrivals_plot and not arrivals_ts.empty:
+
+            arrivals_ts_file = os.path.join(
+                output_dir,
+                generate_output_name(
+                    visual_id=f"{output_visual_id}_arrivals_ts",
+                    start_date=start_date,
+                    end_date=end_date,
+                    cohort_id=params.get("cohort_id"),
+                    ext="csv"
+                )
+            )
+
+            arrivals_ts.to_csv(
+                arrivals_ts_file,
+                index=False
+            )
+
+            logger.info(
+                f"[{VISUAL_ID}] Arrivals TS exported: "
+                f"{arrivals_ts_file} ({len(arrivals_ts):,} rows)"
+            )
 
         # =========================================================
         # VISUALIZATION
@@ -694,10 +810,34 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         arrivals_ax = None
 
         if (
-            include_arrivals_line
+            include_arrivals_plot
             and arrivals_secondary_axis
         ):
             arrivals_ax = ax.twinx()
+
+        if arrivals_ax is not None:
+
+            arrivals_max = pd.to_numeric(
+                arrivals_ts["arrivals"],
+                errors="coerce"
+            ).max()
+
+            if (
+                arrivals_max is not None
+                and np.isfinite(arrivals_max)
+                and arrivals_max > 0
+            ):
+                arrivals_ax.set_ylim(
+                    0,
+                    arrivals_max * 1.10
+                )
+            else:
+                logger.warning(
+                    f"[{VISUAL_ID}] Invalid arrivals_max={arrivals_max}. "
+                    "Using fallback axis range."
+                )
+
+                arrivals_ax.set_ylim(0, 1)
 
         title_height = float(
             params.get("title_height", 0.4) or 0.6
@@ -832,9 +972,29 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             "ols"
         ).strip().lower()
 
+        annual_trend = np.nan
+        trend_display = None
+        trend_units = "census"
+        ols_slope = np.nan
+        ols_intercept = np.nan
+
+        output_tags = []
+
         if enable_trend_projection:
+            output_tags.append(
+                forecast_method.lower()
+            )
+
+        if include_arrivals_plot:
+            output_tags.append(
+                f"arrivals_{arrival_plot_type.lower()}"
+            )
+
+        if output_tags:
+
             output_visual_id = (
-                f"{VISUAL_ID}_{forecast_method}"
+                f"{VISUAL_ID}_"
+                + "_".join(output_tags)
             )
 
         arima_p = int(
@@ -948,7 +1108,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         arrivals_line = None
 
         if (
-            include_arrivals_line
+            include_arrivals_plot
             and not arrivals_ts.empty
         ):
 
@@ -985,16 +1145,46 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                 28
             )
 
-            arrivals_bar = target_ax.bar(
-                arrivals_ts["interval"],
-                arrivals_ts["arrivals"],
-                width=bar_width,
-                color=arrivals_color,
-                alpha=0.20,
-                edgecolor="none",
-                zorder=1,
-                label=f"Arrivals ({arrival_aggregation_period.title()})"
-            )     
+            arrivals_line = None
+            arrivals_bar = None
+
+            if arrival_plot_type == "line":
+
+                arrivals_line, = target_ax.plot(
+                    arrivals_ts["interval"],
+                    arrivals_ts["arrivals"],
+                    color=arrivals_color,
+                    linewidth=arrivals_linewidth,
+                    linestyle=arrivals_linestyle,
+                    alpha=0.8,
+                    zorder=4,
+                    label=f"Arrivals ({arrival_aggregation_period.title()})"
+                )
+
+            else:
+
+                bar_width_map = {
+                    "day": 0.95,
+                    "week": 6.5,
+                    "month": 28,
+                    "quarter": 85
+                }
+
+                bar_width = bar_width_map.get(
+                    arrival_aggregation_period,
+                    28
+                )
+
+                arrivals_bar = target_ax.bar(
+                    arrivals_ts["interval"],
+                    arrivals_ts["arrivals"],
+                    width=bar_width,
+                    color=arrivals_color,
+                    alpha=0.20,
+                    edgecolor="none",
+                    zorder=1,
+                    label=f"Arrivals ({arrival_aggregation_period.title()})"
+                )  
 
         # -----------------------------------------------------
         # ABOVE-THRESHOLD OVERLAY
@@ -1207,6 +1397,34 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                     "peak_anchor_date"
                 ]
 
+                ols_slope = forecast_results.get(
+                    "ols_slope",
+                    np.nan
+                )
+
+                ols_intercept = forecast_results.get(
+                    "ols_intercept",
+                    np.nan
+                )
+
+                if (
+                    forecast_method == "ols"
+                    and not np.isnan(ols_slope)
+                ):
+
+                    annual_trend = (
+                        ols_slope * 365.25
+                    )
+
+                    trend_display = (
+                        f"{annual_trend:+.1f} ADP Per Year"
+                    )
+
+                    logger.info(
+                        f"[{VISUAL_ID}] Annualized Census Trend: "
+                        f"{annual_trend:+.2f} census/year"
+                    )
+
             else:
                 logger.warning(
                     f"[{VISUAL_ID}] Insufficient data for "
@@ -1220,7 +1438,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             and peak_observed_census is not None
         ):
 
-            peak_marker = plt.scatter(
+            peak_marker = ax.scatter(
                 [peak_anchor_date],
                 [peak_observed_census],
                 s=90,
@@ -1238,6 +1456,51 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                 f"[{VISUAL_ID}] Peak census anchor: "
                 f"{peak_observed_census:.2f} "
                 f"on {peak_anchor_date:%Y-%m-%d}"
+            )
+
+        if not trend_df.empty:
+            trend_df.to_csv(
+                os.path.join(
+                    output_dir,
+                    generate_output_name(
+                        visual_id=f"{output_visual_id}_trend_df",
+                        start_date=start_date,
+                        end_date=end_date,
+                        cohort_id=params.get("cohort_id"),
+                        ext="csv"
+                    )
+                ),
+                index=False
+            )
+
+        if not projection_df.empty:
+            projection_df.to_csv(
+                os.path.join(
+                    output_dir,
+                    generate_output_name(
+                        visual_id=f"{output_visual_id}_projection_df",
+                        start_date=start_date,
+                        end_date=end_date,
+                        cohort_id=params.get("cohort_id"),
+                        ext="csv"
+                    )
+                ),
+                index=False
+            )
+
+        if not peak_projection_df.empty:
+            peak_projection_df.to_csv(
+                os.path.join(
+                    output_dir,
+                    generate_output_name(
+                        visual_id=f"{output_visual_id}_peak_projection_df",
+                        start_date=start_date,
+                        end_date=end_date,
+                        cohort_id=params.get("cohort_id"),
+                        ext="csv"
+                    )
+                ),
+                index=False
             )
 
         if (
@@ -1435,7 +1698,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
 
         # Save PNG
         png_filename = generate_output_name(
-            visual_id=output_visual_id,
+            visual_id=f"{output_visual_id}_image",
             start_date=start_date,
             end_date=end_date,
             cohort_id=params.get("cohort_id"),
@@ -1480,7 +1743,7 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
         if capacity_value is not None:
             title_features.append("Capacity Line")
 
-        if include_arrivals_line:
+        if include_arrivals_plot:
             title_features.append(
                 "Raw Arrivals"
                 if arrival_aggregation_period == "none"
@@ -1599,16 +1862,22 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
                 f"Observed Peak ({peak_observed_census:.1f})"
             )
 
-        if arrivals_bar is not None:
+        if arrivals_line is not None:
+
+            legend_handles.append(arrivals_line)
+            legend_labels.append(
+                arrivals_line.get_label()
+            )
+
+        elif arrivals_bar is not None:
 
             arrivals_patch = Patch(
                 facecolor=arrivals_color,
                 alpha=0.20,
-                label=f"Arrivals per {arrival_aggregation_period.title()}"
+                label=f"Arrivals ({arrival_aggregation_period.title()})"
             )
 
             legend_handles.append(arrivals_patch)
-
             legend_labels.append(
                 arrivals_patch.get_label()
             )
@@ -1652,6 +1921,87 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             title="Trend Projection",
             font_family=font_family
         )
+
+        if (
+            show_annualized_trend_table
+            and forecast_method == "ols"
+            and trend_display is not None
+        ):
+
+            trend_output_file = os.path.join(
+                output_dir,
+                generate_output_name(
+                    visual_id=f"{output_visual_id}_trend",
+                    start_date=start_date,
+                    end_date=end_date,
+                    cohort_id=params.get(
+                        "cohort_id"
+                    ),
+                    ext="png"
+                )
+            )
+
+            fig, ax = plt.subplots(
+                figsize=(
+                    trend_table_width,
+                    trend_table_height
+                )
+            )
+
+            ax.axis("off")
+
+            table = ax.table(
+                cellText=[[trend_display]],
+                colLabels=[
+                    "Annualized Census Trend"
+                ],
+                cellLoc="center",
+                colLoc="center",
+                loc="center"
+            )
+
+            table.auto_set_font_size(False)
+            table.set_fontsize(10)
+            table.scale(1.2, 2.0)
+
+            for (row, col), cell in table.get_celld().items():
+
+                cell.set_edgecolor("black")
+                cell.set_linewidth(1.5)
+
+                if row == 0:
+
+                    cell.set_facecolor("#d9d9d9")
+
+                    cell.set_text_props(
+                        weight="bold",
+                        color="black",
+                        fontfamily=font_family
+                    )
+
+                else:
+
+                    cell.set_facecolor("white")
+
+                    cell.set_text_props(
+                        color="black",
+                        fontfamily=font_family
+                    )
+
+            plt.tight_layout()
+
+            plt.savefig(
+                trend_output_file,
+                dpi=int(dpi),
+                bbox_inches="tight"
+            )
+
+            plt.close(fig)
+
+            logger.info(
+                f"[{VISUAL_ID}] trend table written: "
+                f"{trend_output_file}"
+            )
 
         if peak_observed_census is not None:
 
@@ -1760,143 +2110,225 @@ def run(df, params, start_date, end_date, output_dir, generate_output_name):
             logger.info(
                 f"[{VISUAL_ID}] Peak Projection Table:\n"
                 f"{peak_projection_table_df.to_string(index=False)}"
-            )
+            )       
 
-        write_rdb = int(params.get("write_rdb", 0))
+        # ==================================
+        # RDB OUTPUT
+        # ==================================
 
-        if write_rdb == 1:
+        write_projection_rdb = int(
+            params.get("write_projection_rdb", 0)
+        )
 
-            metric_prefix = forecast_method.lower()
+        rdb_rows = []
 
-            if not projection_table_df.empty:
+        if write_projection_rdb == 1:
 
-                #
-                # Standard Projection Table
-                #
-                for _, row in projection_table_df.iterrows():
+            # ----------------------------------
+            # Annualized Census Trend
+            # ----------------------------------
 
-                    rdb_rows.append({
+            if (
+                forecast_method == "ols"
+                and trend_display is not None
+                and not np.isnan(annual_trend)
+            ):
 
-                        "run_id":
-                            params.get("run_id"),
+                rdb_rows.append({
 
-                        "visual_id":
-                            output_visual_id,
+                    "run_id": params.get("run_id"),
+                    "visual_id": output_visual_id,
+                    "client_name": params.get("client_name"),
 
-                        "client_name":
-                            params.get("client_name"),
+                    "domain": params.get("domain"),
+                    "cohort_id": params.get("cohort_id"),
+                    "cohort_name": params.get("cohort_name"),
+                    "cohort_group": params.get("cohort_group"),
+                    "cohort_tier": params.get("cohort_tier"),
+                    "cohort_desc": params.get("cohort_desc"),
 
-                        "domain":
-                            params.get("domain"),
+                    "cohort_type_1": params.get("cohort_type_1"),
+                    "cohort_type_2": params.get("cohort_type_2"),
+                    "cohort_type_3": params.get("cohort_type_3"),
+                    "cohort_type_4": params.get("cohort_type_4"),
+                    "cohort_type_5": params.get("cohort_type_5"),
 
-                        "cohort_id":
-                            params.get("cohort_id"),
+                    "cohort_order_number":
+                        params.get("cohort_order_number"),
 
-                        "domain_cohort":
-                            f"{params.get('domain')}."
-                            f"{params.get('cohort_id')}",
+                    "domain_cohort":
+                        f"{params.get('domain')}."
+                        f"{params.get('cohort_id')}",
 
-                        "dimension":
-                            "projection_period",
+                    "dimension":
+                        "trend",
 
-                        "dimension_value":
-                            row["Period"],
+                    "dimension_value":
+                        "annualized",
 
-                        "dimension_value_label":
-                            row["Period"],
+                    "dimension_value_label":
+                        "Annualized Census Trend",
 
-                        "secondary_dimension":
-                            "projection_type",
+                    "secondary_dimension":
+                        "forecast_method",
 
-                        "secondary_dimension_value":
-                            metric_prefix,
+                    "secondary_dimension_value":
+                        forecast_method.upper(),
 
-                        "metric":
-                            "facility_adp_projection",
+                    "metric":
+                        "census_trend",
 
-                        "metric_type":
-                            "forecast",
+                    "metric_type":
+                        "annualized",
 
-                        "value":
-                            float(
-                                row["Projected Facility\nADP"]
-                            ),
+                    "value":
+                        float(annual_trend),
 
-                        "start_date":
-                            start_date,
+                    "start_date":
+                        start_date,
 
-                        "end_date":
-                            end_date,
+                    "end_date":
+                        end_date,
 
-                        "report_title":
-                            report_title
+                    "report_title":
+                        report_title
+                })
 
-                    })
+            # ----------------------------------
+            # Projection Table
+            # ----------------------------------
 
-            if not peak_projection_table_df.empty:
+            for _, row in projection_table_df.iterrows():
 
-                #
-                # Peak-Anchored Projection Table
-                #
-                for _, row in peak_projection_table_df.iterrows():
+                rdb_rows.append({
 
-                    rdb_rows.append({
+                    "run_id": params.get("run_id"),
+                    "visual_id": output_visual_id,
+                    "client_name": params.get("client_name"),
 
-                        "run_id":
-                            params.get("run_id"),
+                    "domain": params.get("domain"),
+                    "cohort_id": params.get("cohort_id"),
+                    "cohort_name": params.get("cohort_name"),
+                    "cohort_group": params.get("cohort_group"),
+                    "cohort_tier": params.get("cohort_tier"),
+                    "cohort_desc": params.get("cohort_desc"),
 
-                        "visual_id":
-                            output_visual_id,
+                    "cohort_type_1": params.get("cohort_type_1"),
+                    "cohort_type_2": params.get("cohort_type_2"),
+                    "cohort_type_3": params.get("cohort_type_3"),
+                    "cohort_type_4": params.get("cohort_type_4"),
+                    "cohort_type_5": params.get("cohort_type_5"),
 
-                        "client_name":
-                            params.get("client_name"),
+                    "cohort_order_number":
+                        params.get("cohort_order_number"),
 
-                        "domain":
-                            params.get("domain"),
+                    "domain_cohort":
+                        f"{params.get('domain')}."
+                        f"{params.get('cohort_id')}",
 
-                        "cohort_id":
-                            params.get("cohort_id"),
+                    "dimension":
+                        "projection_period",
 
-                        "domain_cohort":
-                            f"{params.get('domain')}."
-                            f"{params.get('cohort_id')}",
+                    "dimension_value":
+                        row["Period"],
 
-                        "dimension":
-                            "projection_period",
+                    "dimension_value_label":
+                        row["Period"],
 
-                        "dimension_value":
-                            row["Period"],
+                    "secondary_dimension":
+                        "projection_type",
 
-                        "dimension_value_label":
-                            row["Period"],
+                    "secondary_dimension_value":
+                        "standard",
 
-                        "secondary_dimension":
-                            "projection_type",
+                    "metric":
+                        "facility_adp_projection",
 
-                        "secondary_dimension_value":
-                            f"{metric_prefix}_peak",
+                    "metric_type":
+                        "projection",
 
-                        "metric":
-                            "facility_adp_projection",
+                    "value":
+                        float(
+                            row["Projected Facility\nADP"]
+                        ),
 
-                        "metric_type":
-                            "forecast_peak",
+                    "start_date":
+                        start_date,
 
-                        "value":
-                            float(
-                                row["Projected Facility\nADP"]
-                            ),
+                    "end_date":
+                        end_date,
 
-                        "start_date":
-                            start_date,
+                    "report_title":
+                        report_title
+                })
 
-                        "end_date":
-                            end_date,
+            # ----------------------------------
+            # Peak-Anchored Projection Table
+            # ----------------------------------
 
-                        "report_title":
-                            report_title
+            for _, row in peak_projection_table_df.iterrows():
 
-                    })           
+                rdb_rows.append({
+
+                    "run_id": params.get("run_id"),
+                    "visual_id": output_visual_id,
+                    "client_name": params.get("client_name"),
+
+                    "domain": params.get("domain"),
+                    "cohort_id": params.get("cohort_id"),
+                    "cohort_name": params.get("cohort_name"),
+                    "cohort_group": params.get("cohort_group"),
+                    "cohort_tier": params.get("cohort_tier"),
+                    "cohort_desc": params.get("cohort_desc"),
+
+                    "cohort_type_1": params.get("cohort_type_1"),
+                    "cohort_type_2": params.get("cohort_type_2"),
+                    "cohort_type_3": params.get("cohort_type_3"),
+                    "cohort_type_4": params.get("cohort_type_4"),
+                    "cohort_type_5": params.get("cohort_type_5"),
+
+                    "cohort_order_number":
+                        params.get("cohort_order_number"),
+
+                    "domain_cohort":
+                        f"{params.get('domain')}."
+                        f"{params.get('cohort_id')}",
+
+                    "dimension":
+                        "projection_period",
+
+                    "dimension_value":
+                        row["Period"],
+
+                    "dimension_value_label":
+                        row["Period"],
+
+                    "secondary_dimension":
+                        "projection_type",
+
+                    "secondary_dimension_value":
+                        "peak",
+
+                    "metric":
+                        "facility_adp_projection",
+
+                    "metric_type":
+                        "projection_peak",
+
+                    "value":
+                        float(
+                            row["Projected Facility\nADP"]
+                        ),
+
+                    "start_date":
+                        start_date,
+
+                    "end_date":
+                        end_date,
+
+                    "report_title":
+                        report_title
+                })
 
         logger.info(f"[{VISUAL_ID}] Outputs saved: CSV and PNG")
 
